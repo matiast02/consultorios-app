@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: consultorio-app-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - consultorio-app-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  consultorio-app-postgres-data:
+
+# --- stlabs-start: database service ---
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: a9de794721768a440ed318955848633a
+      POSTGRES_DB: consultorio_app
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:

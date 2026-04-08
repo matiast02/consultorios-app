@@ -1,0 +1,36 @@
+{
+  "name": "nextjs-prisma",
+  "prompts": [
+    {
+      "type": "input",
+      "name": "databaseUrl",
+      "message": "PostgreSQL Database URL (or leave empty to use Docker default):",
+      "default": "postgresql://postgres:postgres@localhost:5432/mydb"
+    },
+    {
+      "type": "input",
+      "name": "githubClientId",
+      "message": "GitHub OAuth Client ID (or leave empty to set later):",
+      "default": ""
+    },
+    {
+      "type": "password",
+      "name": "githubClientSecret",
+      "message": "GitHub OAuth Client Secret (or leave empty to set later):",
+      "default": ""
+    },
+    {
+      "type": "input",
+      "name": "googleClientId",
+      "message": "Google OAuth Client ID (or leave empty to set later):",
+      "default": ""
+    },
+    {
+      "type": "password",
+      "name": "googleClientSecret",
+      "message": "Google OAuth Client Secret (or leave empty to set later):",
+      "default": ""
+    }
+  ],
+  "generatedVars": {}
+}
