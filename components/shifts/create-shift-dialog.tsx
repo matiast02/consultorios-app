@@ -36,7 +36,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Patient, Medic, UserPreference, BlockDay, ConsultationType } from "@/types";
 import { DAY_NAMES } from "@/types";
@@ -307,6 +308,11 @@ export function CreateShiftDialog({
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
+  // Recurring shift state
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [frequencyWeeks, setFrequencyWeeks] = useState("2");
+  const [recurringCount, setRecurringCount] = useState("4");
+
   // Overbook conflict state
   const [conflictInfo, setConflictInfo] = useState<{
     message: string;
@@ -341,13 +347,51 @@ export function CreateShiftDialog({
 
   async function onSubmit(data: CreateShiftForm) {
     try {
-      const startDatetime = new Date(`${data.date}T${data.startTime}:00`);
-      const endDatetime = new Date(`${data.date}T${data.endTime}:00`);
-
-      if (endDatetime <= startDatetime) {
+      if (data.endTime <= data.startTime) {
         toast.error("La hora de fin debe ser posterior a la hora de inicio");
         return;
       }
+
+      // Recurring mode — use the recurring API
+      if (isRecurring) {
+        const recurBody: Record<string, unknown> = {
+          patientId: data.patientId,
+          userId: data.medicId || undefined,
+          startDate: data.date,
+          startTime: data.startTime,
+          endTime: data.endTime,
+          frequencyWeeks: parseInt(frequencyWeeks),
+          count: parseInt(recurringCount),
+        };
+        if (selectedTypeId) recurBody.consultationTypeId = selectedTypeId;
+
+        const res = await fetch("/api/shifts/recurring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(recurBody),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error ?? "Error al crear turnos recurrentes");
+        }
+
+        const json = await res.json();
+        const created = json.data?.created?.length ?? 0;
+        const skipped = json.data?.skipped?.length ?? 0;
+
+        if (skipped > 0) {
+          toast.success(`Se crearon ${created} turnos. ${skipped} omitido(s) por conflictos.`);
+        } else {
+          toast.success(`Se crearon ${created} turnos recurrentes`);
+        }
+        onCreated();
+        return;
+      }
+
+      // Single shift mode
+      const startDatetime = new Date(`${data.date}T${data.startTime}:00`);
+      const endDatetime = new Date(`${data.date}T${data.endTime}:00`);
 
       const body: Record<string, unknown> = {
         patientId: data.patientId,
@@ -355,12 +399,8 @@ export function CreateShiftDialog({
         end: endDatetime.toISOString(),
       };
 
-      if (data.medicId) {
-        body.userId = data.medicId;
-      }
-      if (selectedTypeId) {
-        body.consultationTypeId = selectedTypeId;
-      }
+      if (data.medicId) body.userId = data.medicId;
+      if (selectedTypeId) body.consultationTypeId = selectedTypeId;
 
       await createShift(body);
     } catch (error) {
@@ -541,6 +581,55 @@ export function CreateShiftDialog({
             </div>
           </div>
 
+          {/* Recurring toggle */}
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Repeat className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-sm font-medium cursor-pointer">
+                  Repetir turno
+                </Label>
+              </div>
+              <Switch
+                checked={isRecurring}
+                onCheckedChange={setIsRecurring}
+              />
+            </div>
+            {isRecurring && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Frecuencia</Label>
+                  <Select value={frequencyWeeks} onValueChange={setFrequencyWeeks}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Cada semana</SelectItem>
+                      <SelectItem value="2">Cada 2 semanas</SelectItem>
+                      <SelectItem value="3">Cada 3 semanas</SelectItem>
+                      <SelectItem value="4">Cada mes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Cantidad</Label>
+                  <Select value={recurringCount} onValueChange={setRecurringCount}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 11 }, (_, i) => (
+                        <SelectItem key={i + 2} value={String(i + 2)}>
+                          {i + 2} turnos
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Availability warnings */}
           {availabilityWarnings.length > 0 && (
             <div className="space-y-2">
@@ -638,7 +727,7 @@ export function CreateShiftDialog({
               {isSubmitting && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Crear Turno
+              {isRecurring ? `Crear ${recurringCount} Turnos` : "Crear Turno"}
             </Button>
           </DialogFooter>
         </form>

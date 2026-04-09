@@ -26,6 +26,9 @@ import {
   Stethoscope,
   CalendarPlus,
   CalendarClock,
+  Repeat,
+  Trash2,
+  Tag,
 } from "lucide-react";
 import type { Shift, ShiftStatus } from "@/types";
 import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS } from "@/types";
@@ -50,6 +53,7 @@ export function ShiftDetailDialog({
   const [observations, setObservations] = useState(shift.observations ?? "");
   const [saving, setSaving] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
+  const [cancellingSeries, setCancellingSeries] = useState(false);
   const [changingStatus, setChangingStatus] = useState<ShiftStatus | null>(
     null
   );
@@ -213,6 +217,27 @@ export function ShiftDetailDialog({
             </p>
           </div>
 
+          {/* Consultation type */}
+          {shift.consultationType && (
+            <div className="flex items-start gap-3">
+              <Tag className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div className="flex items-center gap-2">
+                {shift.consultationType.color && (
+                  <div
+                    className="h-2.5 w-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: shift.consultationType.color }}
+                  />
+                )}
+                <p className="text-sm">
+                  {shift.consultationType.name}{" "}
+                  <span className="text-muted-foreground">
+                    ({shift.consultationType.durationMinutes} min)
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Medic */}
           {shift.user && (
             <div className="flex items-start gap-3">
@@ -316,6 +341,51 @@ export function ShiftDetailDialog({
                 <p className="text-[11px] text-muted-foreground">
                   Cancela este turno y abre el formulario para agendar en otra
                   fecha.
+                </p>
+              </div>
+            )}
+
+          {/* Cancel recurring series */}
+          {shift.recurrenceGroupId &&
+            (shift.status === "PENDING" || shift.status === "CONFIRMED") && (
+              <div className="space-y-2">
+                <Separator />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-destructive/50 text-destructive hover:bg-destructive/10"
+                  disabled={saving || cancellingSeries}
+                  onClick={async () => {
+                    try {
+                      setCancellingSeries(true);
+                      const res = await fetch(
+                        `/api/shifts/recurring/${shift.recurrenceGroupId}`,
+                        { method: "DELETE" }
+                      );
+                      if (!res.ok) throw new Error("Error al cancelar serie");
+                      const json = await res.json();
+                      const count = json.data?.cancelled ?? 0;
+                      toast.success(
+                        `Serie cancelada: ${count} turno(s) pendientes cancelados`
+                      );
+                      onUpdated();
+                      onOpenChange(false);
+                    } catch {
+                      toast.error("Error al cancelar la serie");
+                    } finally {
+                      setCancellingSeries(false);
+                    }
+                  }}
+                >
+                  {cancellingSeries ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4" />
+                  )}
+                  Cancelar toda la serie recurrente
+                </Button>
+                <p className="text-[11px] text-muted-foreground">
+                  Cancela todos los turnos pendientes de esta serie.
                 </p>
               </div>
             )}

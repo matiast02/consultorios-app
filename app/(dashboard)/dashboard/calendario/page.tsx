@@ -609,6 +609,18 @@ export default function CalendarioPage() {
                                 : shift.user.name ?? "Medico"}
                             </p>
                           )}
+                          {/* Consultation type */}
+                          {shift.consultationType && (
+                            <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                              {shift.consultationType.color && (
+                                <span
+                                  className="inline-block h-2 w-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: shift.consultationType.color }}
+                                />
+                              )}
+                              {shift.consultationType.name}
+                            </p>
+                          )}
                           {shift.observations && (
                             <p className="mt-1 truncate text-xs text-muted-foreground">
                               {shift.observations}
