@@ -56,12 +56,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        // Fetch role from DB on sign-in
+        const userRoles = await prisma.userRole.findMany({
+          where: { userId: user.id as string },
+          include: { role: true },
+        });
+        token.role = userRoles[0]?.role?.name ?? null;
       }
       return token;
     },
     async session({ session, token }) {
-      if (token.id && session.user) {
+      if (session.user) {
         session.user.id = token.id as string;
+        (session.user as { role?: string | null }).role = token.role as string | null;
       }
       return session;
     },

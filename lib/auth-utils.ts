@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Get the current authenticated user from the session.
@@ -30,4 +31,23 @@ export async function requireAuth() {
 export async function getCurrentUserId(): Promise<string | null> {
   const user = await getCurrentUser();
   return user?.id ?? null;
+}
+
+/**
+ * Get the role name for a user from the database.
+ */
+export async function getUserRole(userId: string): Promise<string | null> {
+  const userRole = await prisma.userRole.findFirst({
+    where: { userId },
+    include: { role: true },
+  });
+  return userRole?.role?.name ?? null;
+}
+
+/**
+ * Check if a user has the "medic" role.
+ */
+export async function isMedic(userId: string): Promise<boolean> {
+  const role = await getUserRole(userId);
+  return role === "medic";
 }

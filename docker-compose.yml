@@ -1,33 +1,31 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: consultorio-app-postgres
+  mysql:
+    image: mysql:8.0
+    container_name: consultorio-app-mysql
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mydb
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: consultorio
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password_2024
     ports:
-      - "5432:5432"
+      - "3307:3306"
     volumes:
-      - consultorio-app-postgres-data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
 
-volumes:
-  consultorio-app-postgres-data:
-
-# --- stlabs-start: database service ---
-services:
-  db:
-    image: postgres:16-alpine
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: consultorio-app-phpmyadmin
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     environment:
-      POSTGRES_USER: app_user
-      POSTGRES_PASSWORD: a9de794721768a440ed318955848633a
-      POSTGRES_DB: consultorio_app
-    volumes:
-      - db_data:/var/lib/postgresql/data
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
 
 volumes:
-  db_data:
+  mysql_data:

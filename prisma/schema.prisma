@@ -1,12 +1,9 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -19,14 +16,25 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?   @db.Text
+  firstName        String?
+  lastName         String?
+  specializationId String?
 
-  accounts Account[]
-  sessions Session[]
+  specialization Specialization? @relation(fields: [specializationId], references: [id])
+  accounts       Account[]
+  sessions   Session[]
+  roles      UserRole[]
+  shifts     Shift[]
+  preferences UserPreference[]
+  blockDays  BlockDay[]
+  evolutions Evolution[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([email])
+  @@index([specializationId])
 }
 
 model Account {
@@ -72,4 +80,210 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ─── Specializations ─────────────────────────────────────────────────────────
+
+model Specialization {
+  id   String @id @default(cuid())
+  name String @unique
+
+  users User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Roles ────────────────────────────────────────────────────────────────────
+
+model Role {
+  id   String @id @default(cuid())
+  name String @unique // "medic", "secretary", "admin"
+
+  users UserRole[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  roleId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+// ─── Patients ─────────────────────────────────────────────────────────────────
+
+model Patient {
+  id        String  @id @default(cuid())
+  firstName String
+  lastName  String
+  birthDate DateTime?
+  dni       String?  @unique
+  email     String?
+  telephone String?
+  address   String?
+  country   String?
+  province  String?
+  osId      String?
+  osNumber  String?
+
+  os     HealthInsurance? @relation(fields: [osId], references: [id])
+  shifts Shift[]
+  clinicalRecord ClinicalRecord?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([dni])
+  @@index([osId])
+}
+
+// ─── Health Insurance (Obra Social) ───────────────────────────────────────────
+
+model HealthInsurance {
+  id   String  @id @default(cuid())
+  name String
+  code String?
+
+  patients Patient[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Shifts (Turnos) ─────────────────────────────────────────────────────────
+
+enum ShiftStatus {
+  PENDING
+  CONFIRMED
+  ABSENT
+  FINISHED
+  CANCELLED
+}
+
+model Shift {
+  id           String      @id @default(cuid())
+  userId       String
+  patientId    String
+  start        DateTime
+  end          DateTime
+  observations String?     @db.Text
+  status       ShiftStatus @default(PENDING)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  evolution Evolution?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([patientId])
+  @@index([start])
+}
+
+// ─── User Preferences ────────────────────────────────────────────────────────
+
+model UserPreference {
+  id        String @id @default(cuid())
+  userId    String
+  day       Int    // 0=Sunday, 1=Monday, ..., 6=Saturday
+  fromHourAM String?
+  toHourAM   String?
+  fromHourPM String?
+  toHourPM   String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, day])
+  @@index([userId])
+}
+
+// ─── Blocked Days ─────────────────────────────────────────────────────────────
+
+model BlockDay {
+  id     String   @id @default(cuid())
+  userId String
+  date   DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+// ─── Password Reset Tokens ───────────────────────────────────────────────────
+
+model ResetToken {
+  id         String   @id @default(cuid())
+  email      String
+  token      String   @unique
+  expires    DateTime
+  used       Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
+}
+
+// ─── Clinical History (Historia Clínica) ─────────────────────────────────────
+
+model ClinicalRecord {
+  id            String   @id @default(cuid())
+  patientId     String   @unique
+  bloodType     String?  // A+, A-, B+, B-, AB+, AB-, O+, O-
+  allergies     String?  @db.Text
+  personalHistory String? @db.Text  // antecedentes personales
+  familyHistory   String? @db.Text  // antecedentes familiares
+  currentMedication String? @db.Text // medicación habitual
+  notes         String?  @db.Text
+
+  patient    Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  evolutions Evolution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+}
+
+model Evolution {
+  id              String  @id @default(cuid())
+  clinicalRecordId String
+  shiftId         String? @unique
+  userId          String  // medic who wrote it
+
+  reason          String?  @db.Text  // motivo de consulta
+  physicalExam    String?  @db.Text  // examen físico
+  diagnosis       String?  @db.Text  // diagnóstico
+  diagnosisCode   String?            // CIE-10 code
+  treatment       String?  @db.Text  // plan/tratamiento
+  indications     String?  @db.Text  // indicaciones
+  notes           String?  @db.Text
+
+  clinicalRecord ClinicalRecord @relation(fields: [clinicalRecordId], references: [id], onDelete: Cascade)
+  shift          Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  user           User           @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clinicalRecordId])
+  @@index([userId])
+  @@index([shiftId])
 }

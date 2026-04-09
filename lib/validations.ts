@@ -1,0 +1,206 @@
+import { z } from "zod";
+
+// ─── Patients ─────────────────────────────────────────────────────────────────
+
+export const createPatientSchema = z.object({
+  firstName: z.string().min(1, "El nombre es obligatorio").max(100),
+  lastName: z.string().min(1, "El apellido es obligatorio").max(100),
+  birthDate: z.string().nullable().optional(),
+  dni: z.string().max(20).nullable().optional(),
+  email: z.string().email("Email inválido").nullable().optional(),
+  telephone: z.string().max(30).nullable().optional(),
+  address: z.string().max(200).nullable().optional(),
+  country: z.string().max(100).nullable().optional(),
+  province: z.string().max(100).nullable().optional(),
+  osId: z.string().nullable().optional(),
+  osNumber: z.string().max(50).nullable().optional(),
+});
+
+export const updatePatientSchema = createPatientSchema.partial();
+
+// ─── Shifts ───────────────────────────────────────────────────────────────────
+
+export const shiftStatusEnum = z.enum([
+  "PENDING",
+  "CONFIRMED",
+  "ABSENT",
+  "FINISHED",
+  "CANCELLED",
+]);
+
+export const createShiftSchema = z.object({
+  userId: z.string().min(1, "El médico es obligatorio"),
+  patientId: z.string().min(1, "El paciente es obligatorio"),
+  start: z.string().min(1, "La fecha de inicio es obligatoria"),
+  end: z.string().min(1, "La fecha de fin es obligatoria"),
+  observations: z.string().nullable().optional(),
+  status: shiftStatusEnum.optional().default("PENDING"),
+});
+
+export const updateShiftSchema = z.object({
+  status: shiftStatusEnum.optional(),
+  observations: z.string().nullable().optional(),
+  start: z.string().optional(),
+  end: z.string().optional(),
+  patientId: z.string().optional(),
+  userId: z.string().optional(),
+});
+
+// ─── Health Insurance ─────────────────────────────────────────────────────────
+
+export const createHealthInsuranceSchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio").max(150),
+  code: z.string().max(20).nullable().optional(),
+});
+
+// ─── Preferences ──────────────────────────────────────────────────────────────
+
+const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const timeString = z
+  .string()
+  .regex(timeRegex, "Formato de hora inválido (HH:mm)")
+  .nullable()
+  .optional();
+
+export const dayPreferenceSchema = z.object({
+  day: z.number().int().min(0).max(6),
+  fromHourAM: timeString,
+  toHourAM: timeString,
+  fromHourPM: timeString,
+  toHourPM: timeString,
+});
+
+export const upsertPreferencesSchema = z.object({
+  userId: z.string().min(1),
+  preferences: z.array(dayPreferenceSchema).min(1),
+});
+
+// ─── Block Days ───────────────────────────────────────────────────────────────
+
+export const addBlockDaysSchema = z.object({
+  userId: z.string().min(1),
+  dates: z
+    .array(z.string().min(1, "Fecha inválida"))
+    .min(1, "Debe incluir al menos una fecha"),
+});
+
+export const removeBlockDaySchema = z.object({
+  id: z.string().min(1),
+});
+
+// ─── Clinical Record ─────────────────────────────────────────────────────────
+
+const bloodTypeEnum = z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]);
+
+export const updateClinicalRecordSchema = z.object({
+  bloodType: bloodTypeEnum.nullable().optional(),
+  allergies: z.string().nullable().optional(),
+  personalHistory: z.string().nullable().optional(),
+  familyHistory: z.string().nullable().optional(),
+  currentMedication: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export const createEvolutionSchema = z.object({
+  shiftId: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  physicalExam: z.string().nullable().optional(),
+  diagnosis: z.string().nullable().optional(),
+  diagnosisCode: z.string().max(20).nullable().optional(),
+  treatment: z.string().nullable().optional(),
+  indications: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export const updateEvolutionSchema = createEvolutionSchema.partial();
+
+// ─── Query Params ─────────────────────────────────────────────────────────────
+
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const shiftsQuerySchema = z.object({
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  userId: z.string().min(1).optional(),
+  status: shiftStatusEnum.optional(),
+  patientId: z.string().min(1).optional(),
+});
+
+export const statsQuerySchema = z.object({
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  year: z.coerce.number().int().min(2000).max(2100).default(new Date().getFullYear()),
+  userId: z.string().min(1).optional(),
+});
+
+export const blockDaysQuerySchema = z.object({
+  userId: z.string().min(1).optional(),
+  from: z.string().min(1, "Parámetro 'from' requerido"),
+  to: z.string().min(1, "Parámetro 'to' requerido"),
+});
+
+export const availabilityQuerySchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+});
+
+// ─── Health Insurance (update) ───────────────────────────────────────────────
+
+export const updateHealthInsuranceSchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio").max(150),
+  code: z.string().max(20).nullable().optional(),
+});
+
+// ─── Users (admin) ───────────────────────────────────────────────────────────
+
+export const createUserSchema = z.object({
+  name: z.string().min(2, "El nombre es obligatorio").max(100),
+  email: z.string().email("Email inválido"),
+  password: z
+    .string()
+    .min(8, "La contraseña debe tener al menos 8 caracteres")
+    .regex(/[A-Z]/, "Debe contener al menos una mayúscula")
+    .regex(/[0-9]/, "Debe contener al menos un número"),
+  firstName: z.string().max(100).nullable().optional(),
+  lastName: z.string().max(100).nullable().optional(),
+  specializationId: z.string().nullable().optional(),
+  role: z.enum(["medic", "secretary", "admin"]).optional(),
+});
+
+export const updateUserSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  firstName: z.string().max(100).nullable().optional(),
+  lastName: z.string().max(100).nullable().optional(),
+  specializationId: z.string().nullable().optional(),
+  role: z.enum(["medic", "secretary", "admin"]).optional(),
+});
+
+// ─── Specializations ─────────────────────────────────────────────────────────
+
+export const createSpecializationSchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio").max(150),
+});
+
+export const updateSpecializationSchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio").max(150),
+});
+
+// ─── Type exports ─────────────────────────────────────────────────────────────
+
+export type CreatePatientInput = z.infer<typeof createPatientSchema>;
+export type UpdatePatientInput = z.infer<typeof updatePatientSchema>;
+export type CreateShiftInput = z.infer<typeof createShiftSchema>;
+export type UpdateShiftInput = z.infer<typeof updateShiftSchema>;
+export type CreateHealthInsuranceInput = z.infer<typeof createHealthInsuranceSchema>;
+export type UpsertPreferencesInput = z.infer<typeof upsertPreferencesSchema>;
+export type AddBlockDaysInput = z.infer<typeof addBlockDaysSchema>;
+export type UpdateClinicalRecordInput = z.infer<typeof updateClinicalRecordSchema>;
+export type CreateEvolutionInput = z.infer<typeof createEvolutionSchema>;
+export type UpdateEvolutionInput = z.infer<typeof updateEvolutionSchema>;
+export type UpdateHealthInsuranceInput = z.infer<typeof updateHealthInsuranceSchema>;
+export type CreateUserInput = z.infer<typeof createUserSchema>;
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type CreateSpecializationInput = z.infer<typeof createSpecializationSchema>;
+export type UpdateSpecializationInput = z.infer<typeof updateSpecializationSchema>;
