@@ -56,7 +56,7 @@ async function main() {
       evolutionLabel: "Nota de sesión",
       clinicalRecordLabel: "Ficha Psicológica",
       enabledModules: JSON.stringify(["study_orders"]),
-      clinicalFields: JSON.stringify(["personalHistory", "familyHistory", "consultReason", "previousTherapy", "psychodiagnosis"]),
+      clinicalFields: JSON.stringify(["personalHistory", "familyHistory", "consultReason", "previousTherapy", "psychodiagnosis", "genogram"]),
     },
   });
 

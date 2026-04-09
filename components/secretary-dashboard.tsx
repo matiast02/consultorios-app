@@ -25,8 +25,13 @@ import {
   Stethoscope,
   ChevronRight,
   Users,
+  Bell,
+  Send,
+  Mail,
+  Phone,
 } from "lucide-react";
 import type { Shift, Medic } from "@/types";
+import type { ShiftReminder } from "@/lib/reminders";
 import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS } from "@/types";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -57,6 +62,12 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const [rescheduledShifts, setRescheduledShifts] = useState<Shift[]>([]);
   const [dismissedRescheduled, setDismissedRescheduled] = useState(false);
 
+  // Reminders state
+  const [reminderCount, setReminderCount] = useState<number>(0);
+  const [reminders, setReminders] = useState<ShiftReminder[]>([]);
+  const [sendingReminders, setSendingReminders] = useState(false);
+  const [remindersGenerated, setRemindersGenerated] = useState(false);
+
   const today = new Date();
 
   // Fetch rescheduled shifts
@@ -74,6 +85,43 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     }
     loadRescheduled();
   }, []);
+
+  // Fetch reminder count (next 24h)
+  useEffect(() => {
+    async function loadReminderCount() {
+      try {
+        const res = await fetch("/api/shifts/reminders");
+        if (res.ok) {
+          const json = await res.json();
+          setReminderCount(json.count ?? 0);
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+    loadReminderCount();
+  }, []);
+
+  // Generate reminders (called by button)
+  async function handleSendReminders() {
+    setSendingReminders(true);
+    try {
+      const res = await fetch("/api/shifts/reminders", { method: "POST" });
+      if (res.ok) {
+        const json = await res.json();
+        const data: ShiftReminder[] = json.data ?? [];
+        setReminders(data);
+        setRemindersGenerated(true);
+        toast.success(`Se generaron ${data.length} recordatorios`);
+      } else {
+        toast.error("Error al generar recordatorios");
+      }
+    } catch {
+      toast.error("Error al generar recordatorios");
+    } finally {
+      setSendingReminders(false);
+    }
+  }
 
   const fetchData = useCallback(async () => {
     try {
@@ -363,6 +411,95 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
                       >
                         {SHIFT_STATUS_LABELS[shift.status]}
                       </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Reminders section */}
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-950/40">
+                    <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">Recordatorios</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      {reminderCount > 0
+                        ? `${reminderCount} turno${reminderCount !== 1 ? "s" : ""} en las proximas 24 horas`
+                        : "Sin turnos proximos en las proximas 24 horas"}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleSendReminders}
+                  disabled={sendingReminders || reminderCount === 0}
+                  size="sm"
+                  variant={remindersGenerated ? "outline" : "default"}
+                >
+                  {sendingReminders ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="mr-2 h-4 w-4" />
+                  )}
+                  {remindersGenerated ? "Regenerar" : "Enviar recordatorios"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!remindersGenerated ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  {reminderCount > 0
+                    ? "Presione \"Enviar recordatorios\" para generar la lista de pacientes a notificar."
+                    : "No hay turnos pendientes o confirmados en las proximas 24 horas."}
+                </p>
+              ) : reminders.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No se encontraron turnos para recordar.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {reminders.map((reminder) => (
+                    <div
+                      key={reminder.shiftId}
+                      className="flex items-center justify-between rounded-lg border px-4 py-3"
+                    >
+                      <div className="flex items-center gap-4">
+                        <span className="font-mono text-sm font-medium">
+                          {reminder.time}
+                        </span>
+                        <div>
+                          <p className="text-sm font-medium">
+                            {reminder.patientName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {reminder.professionalName} — {reminder.date}
+                          </p>
+                          <div className="mt-1 flex items-center gap-3">
+                            {reminder.patientEmail && (
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Mail className="h-3 w-3" />
+                                {reminder.patientEmail}
+                              </span>
+                            )}
+                            {reminder.patientPhone && (
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Phone className="h-3 w-3" />
+                                {reminder.patientPhone}
+                              </span>
+                            )}
+                            {!reminder.patientEmail && !reminder.patientPhone && (
+                              <span className="text-xs text-red-500">
+                                Sin datos de contacto
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

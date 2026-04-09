@@ -46,6 +46,7 @@ import {
   Pencil,
   Trash2,
   UtensilsCrossed,
+  Copy,
 } from "lucide-react";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
 import { CreatePrescriptionDialog } from "@/components/prescriptions/create-prescription-dialog";
@@ -61,6 +62,9 @@ import { createEmptyOdontogram } from "@/components/dental/odontogram-types";
 import { AnthropometricTracker } from "@/components/nutrition/anthropometric-tracker";
 import type { AnthropometricData } from "@/components/nutrition/anthropometric-types";
 import { createEmptyAnthropometricData } from "@/components/nutrition/anthropometric-types";
+import { GenogramEditor } from "@/components/psychology/genogram-editor";
+import type { GenogramData } from "@/components/psychology/genogram-types";
+import { createEmptyGenogramData } from "@/components/psychology/genogram-types";
 
 export default function HistoriaClinicaPage() {
   const params = useParams();
@@ -102,8 +106,10 @@ export default function HistoriaClinicaPage() {
   const [notes, setNotes] = useState("");
   const [odontogramData, setOdontogramData] = useState<OdontogramData>(createEmptyOdontogram());
   const [anthropometricData, setAnthropometricData] = useState<AnthropometricData>(createEmptyAnthropometricData());
+  const [genogramData, setGenogramData] = useState<GenogramData>(createEmptyGenogramData());
   const [hasDentalConfig, setHasDentalConfig] = useState(false);
   const [hasAnthropometricConfig, setHasAnthropometricConfig] = useState(false);
+  const [hasGenogramConfig, setHasGenogramConfig] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -130,12 +136,13 @@ export default function HistoriaClinicaPage() {
           setFamilyHistory(data.familyHistory ?? "");
           setCurrentMedication(data.currentMedication ?? "");
           setNotes(data.notes ?? "");
-          // Load custom fields (odontogram, anthropometric data)
+          // Load custom fields (odontogram, anthropometric data, genogram)
           if (data.customFields) {
             try {
               const custom = JSON.parse(data.customFields);
               if (custom.odontogram) setOdontogramData(custom.odontogram);
               if (custom.anthropometric) setAnthropometricData(custom.anthropometric);
+              if (custom.genogram) setGenogramData(custom.genogram);
             } catch { /* invalid JSON, ignore */ }
           }
         }
@@ -197,6 +204,7 @@ export default function HistoriaClinicaPage() {
             const fields = JSON.parse(config.clinicalFields);
             setHasDentalConfig(Array.isArray(fields) && fields.includes("odontogram"));
             setHasAnthropometricConfig(Array.isArray(fields) && fields.includes("anthropometricTracker"));
+            setHasGenogramConfig(Array.isArray(fields) && fields.includes("genogram"));
           }
         }
       } catch { /* non-critical */ }
@@ -215,7 +223,7 @@ export default function HistoriaClinicaPage() {
       if (currentMedication) body.currentMedication = currentMedication;
       if (notes) body.notes = notes;
       // Save profession-specific data in customFields
-      if (hasDentalConfig || hasAnthropometricConfig) {
+      if (hasDentalConfig || hasAnthropometricConfig || hasGenogramConfig) {
         const existing = record?.customFields ? JSON.parse(record.customFields) : {};
         const custom = { ...existing };
         if (hasDentalConfig) {
@@ -223,6 +231,9 @@ export default function HistoriaClinicaPage() {
         }
         if (hasAnthropometricConfig) {
           custom.anthropometric = { ...anthropometricData, lastUpdated: new Date().toISOString() };
+        }
+        if (hasGenogramConfig) {
+          custom.genogram = { ...genogramData, lastUpdated: new Date().toISOString() };
         }
         body.customFields = JSON.stringify(custom);
       }
@@ -528,6 +539,20 @@ export default function HistoriaClinicaPage() {
                     <AnthropometricTracker
                       value={anthropometricData}
                       onChange={setAnthropometricData}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Genogram — psychologists */}
+              {hasGenogramConfig && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label className="text-base font-semibold">Genograma Familiar</Label>
+                    <GenogramEditor
+                      value={genogramData}
+                      onChange={setGenogramData}
                     />
                   </div>
                 </>
@@ -843,6 +868,42 @@ export default function HistoriaClinicaPage() {
                                   }}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  title="Duplicar"
+                                  onClick={async () => {
+                                    try {
+                                      const meals = typeof mp.meals === "string" ? JSON.parse(mp.meals) : mp.meals;
+                                      const res = await fetch("/api/meal-plans", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          userId: mp.userId,
+                                          patientId: mp.patientId,
+                                          title: "Copia de " + mp.title,
+                                          targetCalories: mp.targetCalories ?? undefined,
+                                          proteinPct: mp.proteinPct ?? undefined,
+                                          carbsPct: mp.carbsPct ?? undefined,
+                                          fatPct: mp.fatPct ?? undefined,
+                                          hydration: mp.hydration ?? undefined,
+                                          meals,
+                                          avoidFoods: mp.avoidFoods ?? undefined,
+                                          supplements: mp.supplements ?? undefined,
+                                          notes: mp.notes ?? undefined,
+                                          shiftId: mp.shiftId ?? undefined,
+                                        }),
+                                      });
+                                      if (!res.ok) throw new Error();
+                                      toast.success("Plan duplicado exitosamente");
+                                      fetchData();
+                                    } catch {
+                                      toast.error("Error al duplicar el plan");
+                                    }
+                                  }}
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
                                 </Button>
                                 <Button
                                   variant="outline"

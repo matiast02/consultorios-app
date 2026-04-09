@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   Printer,
+  Download,
   UtensilsCrossed,
   Droplets,
   Flame,
@@ -13,6 +14,7 @@ import {
   Pill,
   FileText,
 } from "lucide-react";
+import { generateMealPlanPDF } from "@/lib/pdf-generator";
 import type { MealPlan, MealSection } from "@/types";
 
 // ─── Meal-time icons ────────────────────────────────────────────────────────
@@ -80,6 +82,11 @@ export function MealPlanView({
     window.print();
   }
 
+  function handleDownloadPDF() {
+    const doc = generateMealPlanPDF(plan, patientName ?? "—", docName);
+    doc.save(`plan-alimentario-${patientName?.replace(/\s+/g, "-") ?? "paciente"}.pdf`);
+  }
+
   // Build macro summary items for the patient info block
   const macroItems: string[] = [];
   if (plan.targetCalories) macroItems.push(`${plan.targetCalories} kcal`);
@@ -91,7 +98,11 @@ export function MealPlanView({
   return (
     <div className="space-y-4">
       {/* Print button — hidden on print */}
-      <div className="flex justify-end print:hidden">
+      <div className="flex justify-end gap-2 print:hidden">
+        <Button onClick={handleDownloadPDF} variant="outline" size="sm">
+          <Download className="mr-2 h-4 w-4" />
+          Descargar PDF
+        </Button>
         <Button onClick={handlePrint} variant="outline" size="sm">
           <Printer className="mr-2 h-4 w-4" />
           Imprimir

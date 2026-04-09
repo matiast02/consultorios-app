@@ -30,6 +30,8 @@ export const prismaMock = {
   consultationType: createModelMock(),
   userRole: createModelMock(),
   role: createModelMock(),
+  mealPlan: createModelMock(),
+  professionConfig: createModelMock(),
   $queryRawUnsafe: vi.fn().mockResolvedValue([]),
   $transaction: vi.fn().mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {

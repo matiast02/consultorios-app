@@ -93,3 +93,23 @@
 - Sugerencias de diagnóstico basadas en síntomas ingresados
 - Alertas de interacciones medicamentosas en recetas
 - Detección de pacientes con turnos frecuentes (posible emergencia)
+
+## Mejoras Técnicas (para producción)
+
+### CI/CD Pipeline
+- GitHub Actions para correr tests en cada PR
+- Build check automático antes de merge
+- Deploy automático a staging/production (Vercel, AWS, etc.)
+
+### Error Boundaries y manejo global de errores
+- React Error Boundaries en layout principal
+- Página de error personalizada (500, 404)
+- Logging de errores a servicio externo (Sentry)
+- Retry automático en fetches fallidos
+
+### Rate Limiting y Caching
+- React Query o SWR para cachear fetches del cliente
+- Rate limiting en APIs sensibles (login, register)
+- Cache de profession configs (no cambian frecuentemente)
+- Redis o in-memory cache para sesiones
+- CDN para assets estáticos
