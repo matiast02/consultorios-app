@@ -140,6 +140,11 @@ export function ShiftDetailDialog({
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Estado</span>
             <div className="flex items-center gap-2">
+              {shift.recurrenceGroupId && (
+                <Badge variant="outline" className="border-blue-500 text-blue-600 text-[10px]">
+                  Recurrente
+                </Badge>
+              )}
               {shift.isOverbook && (
                 <Badge variant="outline" className="border-amber-500 text-amber-600 text-[10px]">
                   Sobreturno

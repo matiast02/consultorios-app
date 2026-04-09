@@ -23,6 +23,7 @@ import {
   Heart,
   UserCog,
   GraduationCap,
+  Clock,
   Shield,
   Puzzle,
 } from "lucide-react";
@@ -66,6 +67,11 @@ const adminItems = [
     label: "Especialidades",
     href: "/dashboard/administracion/especialidades",
     icon: GraduationCap,
+  },
+  {
+    label: "Tipos de Consulta",
+    href: "/dashboard/administracion/tipos-consulta",
+    icon: Clock,
   },
   {
     label: "Usuarios",

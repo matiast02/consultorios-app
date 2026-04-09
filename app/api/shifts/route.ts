@@ -69,6 +69,9 @@ export async function GET(req: NextRequest) {
         user: {
           select: { id: true, name: true, firstName: true, lastName: true },
         },
+        consultationType: {
+          select: { id: true, name: true, durationMinutes: true, color: true },
+        },
       },
       orderBy: { start: "asc" },
     });
@@ -232,6 +235,7 @@ export async function POST(req: NextRequest) {
         observations: data.observations ?? null,
         status: data.status,
         isOverbook: data.isOverbook ?? false,
+        consultationTypeId: data.consultationTypeId ?? null,
       },
       include: {
         patient: {
@@ -245,6 +249,9 @@ export async function POST(req: NextRequest) {
         },
         user: {
           select: { id: true, name: true, firstName: true, lastName: true },
+        },
+        consultationType: {
+          select: { id: true, name: true, durationMinutes: true, color: true },
         },
       },
     });

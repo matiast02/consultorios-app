@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/command";
 import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Patient, Medic, UserPreference, BlockDay } from "@/types";
+import type { Patient, Medic, UserPreference, BlockDay, ConsultationType } from "@/types";
 import { DAY_NAMES } from "@/types";
 
 const createShiftSchema = z.object({
@@ -121,7 +121,7 @@ export function CreateShiftDialog({
     async function loadPatients() {
       setLoadingPatients(true);
       try {
-        const res = await fetch("/api/patients?limit=500");
+        const res = await fetch("/api/patients?limit=100");
         if (res.ok) {
           const json = await res.json();
           const list = json.data ?? [];
@@ -153,6 +153,46 @@ export function CreateShiftDialog({
     }
     loadMedics();
   }, [open]);
+
+  // ─── Consultation types ────────────────────────────────────────────────────
+  const [consultationTypes, setConsultationTypes] = useState<ConsultationType[]>([]);
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("");
+
+  useEffect(() => {
+    if (!open) return;
+    async function loadTypes() {
+      try {
+        const res = await fetch("/api/consultation-types");
+        if (res.ok) {
+          const json = await res.json();
+          const list: ConsultationType[] = json.data ?? [];
+          setConsultationTypes(list);
+          // Auto-select default type
+          const def = list.find((t) => t.isDefault);
+          if (def) setSelectedTypeId(def.id);
+        }
+      } catch { /* non-critical */ }
+    }
+    loadTypes();
+  }, [open]);
+
+  // Auto-calculate endTime when consultation type or startTime changes
+  useEffect(() => {
+    if (!selectedTypeId) return;
+    const ct = consultationTypes.find((t) => t.id === selectedTypeId);
+    const currentStart = watch("startTime");
+    if (ct && currentStart) {
+      const [h, m] = currentStart.split(":").map(Number);
+      if (!isNaN(h) && !isNaN(m)) {
+        const totalMin = h * 60 + m + ct.durationMinutes;
+        const endH = Math.floor(totalMin / 60);
+        const endM = totalMin % 60;
+        if (endH < 24) {
+          setValue("endTime", `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`);
+        }
+      }
+    }
+  }, [selectedTypeId, watch("startTime")]);
 
   // ─── Availability validation ──────────────────────────────────────────────
   const [medicPreferences, setMedicPreferences] = useState<UserPreference[]>([]);
@@ -318,6 +358,9 @@ export function CreateShiftDialog({
       if (data.medicId) {
         body.userId = data.medicId;
       }
+      if (selectedTypeId) {
+        body.consultationTypeId = selectedTypeId;
+      }
 
       await createShift(body);
     } catch (error) {
@@ -439,6 +482,38 @@ export function CreateShiftDialog({
               <p className="text-sm text-destructive">{errors.date.message}</p>
             )}
           </div>
+
+          {/* Consultation Type */}
+          {consultationTypes.length > 0 && (
+            <div className="space-y-2">
+              <Label>Tipo de consulta</Label>
+              <Select
+                value={selectedTypeId || "__none__"}
+                onValueChange={(v) => setSelectedTypeId(v === "__none__" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar tipo..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin tipo</SelectItem>
+                  {consultationTypes.map((ct) => (
+                    <SelectItem key={ct.id} value={ct.id}>
+                      <div className="flex items-center gap-2">
+                        {ct.color && (
+                          <div
+                            className="h-2.5 w-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: ct.color }}
+                          />
+                        )}
+                        {ct.name}
+                        <span className="text-muted-foreground">({ct.durationMinutes} min)</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Time */}
           <div className="grid grid-cols-2 gap-4">

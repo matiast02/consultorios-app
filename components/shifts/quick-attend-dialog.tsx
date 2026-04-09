@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle, CalendarPlus, Pill } from "lucide-react";
+import { Loader2, CheckCircle, CalendarPlus, Pill, Repeat } from "lucide-react";
 import type { Shift, ModuleConfig } from "@/types";
 
 interface QuickAttendDialogProps {
@@ -22,6 +22,7 @@ interface QuickAttendDialogProps {
   shift: Shift;
   onSaved: () => void;
   onScheduleNext?: (patientId: string, medicId: string) => void;
+  onScheduleRecurring?: (patientId: string, medicId: string) => void;
   onCreatePrescription?: (patientId: string, shiftId: string) => void;
 }
 
@@ -31,6 +32,7 @@ export function QuickAttendDialog({
   shift,
   onSaved,
   onScheduleNext,
+  onScheduleRecurring,
   onCreatePrescription,
 }: QuickAttendDialogProps) {
   const [observations, setObservations] = useState(shift.observations ?? "");
@@ -199,7 +201,20 @@ export function QuickAttendDialog({
               {onScheduleNext && (
                 <Button onClick={handleScheduleNext} className="flex-1">
                   <CalendarPlus className="mr-2 h-4 w-4" />
-                  Agendar proximo turno
+                  Proximo turno
+                </Button>
+              )}
+              {onScheduleRecurring && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onScheduleRecurring(shift.patientId, shift.userId);
+                    onOpenChange(false);
+                  }}
+                  className="flex-1"
+                >
+                  <Repeat className="mr-2 h-4 w-4" />
+                  Turno recurrente
                 </Button>
               )}
             </DialogFooter>

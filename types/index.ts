@@ -70,6 +70,9 @@ export interface Shift {
   observations?: string | null;
   status: ShiftStatus;
   isOverbook?: boolean;
+  consultationTypeId?: string | null;
+  consultationType?: ConsultationType | null;
+  recurrenceGroupId?: string | null;
   patient?: Patient;
   user?: {
     id: string;
@@ -81,6 +84,16 @@ export interface Shift {
   rescheduledAt?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Consultation Type ──────────────────────────────────────────────────────
+
+export interface ConsultationType {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  color?: string | null;
+  isDefault: boolean;
 }
 
 // ─── Stats ───────────────────────────────────────────────────────────────────

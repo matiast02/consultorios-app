@@ -772,6 +772,9 @@ function MonthView({
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${SHIFT_STATUS_DOT_COLORS[s.status]}`}
                     />
                     <span className="truncate text-[10px] text-muted-foreground">
+                      {s.recurrenceGroupId && (
+                        <span className="mr-0.5 text-blue-400">↻</span>
+                      )}
                       {s.isOverbook && (
                         <span className="mr-0.5 font-bold text-amber-500">ST</span>
                       )}

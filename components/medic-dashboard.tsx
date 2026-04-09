@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { QuickAttendDialog } from "@/components/shifts/quick-attend-dialog";
+import { RecurringShiftDialog } from "@/components/shifts/recurring-shift-dialog";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import {
   Stethoscope,
@@ -205,6 +206,11 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
   const [attendShift, setAttendShift] = useState<Shift | null>(null);
   const [scheduleNext, setScheduleNext] = useState<{
     patientId: string;
+    medicId: string;
+  } | null>(null);
+  const [scheduleRecurring, setScheduleRecurring] = useState<{
+    patientId: string;
+    patientName: string;
     medicId: string;
   } | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -891,6 +897,14 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
             setAttendShift(null);
             setScheduleNext({ patientId, medicId });
           }}
+          onScheduleRecurring={(patientId, medicId) => {
+            const shift = attendShift;
+            setAttendShift(null);
+            const pName = shift?.patient
+              ? `${shift.patient.lastName}, ${shift.patient.firstName}`
+              : "Paciente";
+            setScheduleRecurring({ patientId, medicId, patientName: pName });
+          }}
         />
       )}
 
@@ -904,6 +918,23 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           defaultMedicId={scheduleNext.medicId}
           onCreated={() => {
             setScheduleNext(null);
+            fetchShifts();
+          }}
+        />
+      )}
+
+      {scheduleRecurring && (
+        <RecurringShiftDialog
+          open={!!scheduleRecurring}
+          onOpenChange={(open) => {
+            if (!open) setScheduleRecurring(null);
+          }}
+          patientId={scheduleRecurring.patientId}
+          patientName={scheduleRecurring.patientName}
+          medicId={scheduleRecurring.medicId}
+          medicName={userName}
+          onCreated={() => {
+            setScheduleRecurring(null);
             fetchShifts();
           }}
         />

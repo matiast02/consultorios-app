@@ -36,6 +36,7 @@ export const createShiftSchema = z.object({
   observations: z.string().nullable().optional(),
   status: shiftStatusEnum.optional().default("PENDING"),
   isOverbook: z.boolean().optional().default(false),
+  consultationTypeId: z.string().nullable().optional(),
 });
 
 export const updateShiftSchema = z.object({
@@ -178,6 +179,17 @@ export const updateUserSchema = z.object({
   role: z.enum(["medic", "secretary", "admin"]).optional(),
 });
 
+// ─── Consultation Types ─────────────────────────────────────────────────────
+
+export const createConsultationTypeSchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio"),
+  durationMinutes: z.number().int().min(5).max(120),
+  color: z.string().nullable().optional(),
+  isDefault: z.boolean().optional().default(false),
+});
+
+export const updateConsultationTypeSchema = createConsultationTypeSchema.partial();
+
 // ─── Specializations ─────────────────────────────────────────────────────────
 
 export const createSpecializationSchema = z.object({
@@ -247,6 +259,19 @@ export const createMedicationSchema = z.object({
   category: z.string().max(100).optional(),
 });
 
+// ─── Recurring Shifts ────────────────────────────────────────────────────────
+
+export const createRecurringShiftsSchema = z.object({
+  userId: z.string().min(1, "El médico es obligatorio"),
+  patientId: z.string().min(1, "El paciente es obligatorio"),
+  startDate: z.string().min(1, "La fecha de inicio es obligatoria"), // YYYY-MM-DD
+  startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Formato de hora inválido (HH:mm)"),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Formato de hora inválido (HH:mm)"),
+  frequencyWeeks: z.number().int().min(1).max(4),
+  count: z.number().int().min(2).max(12),
+  consultationTypeId: z.string().nullable().optional(),
+});
+
 // ─── Type exports ─────────────────────────────────────────────────────────────
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;
@@ -270,3 +295,6 @@ export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type PrescriptionItemInput = z.infer<typeof prescriptionItemSchema>;
 export type CreatePrescriptionInput = z.infer<typeof createPrescriptionSchema>;
 export type CreateMedicationInput = z.infer<typeof createMedicationSchema>;
+export type CreateRecurringShiftsInput = z.infer<typeof createRecurringShiftsSchema>;
+export type CreateConsultationTypeInput = z.infer<typeof createConsultationTypeSchema>;
+export type UpdateConsultationTypeInput = z.infer<typeof updateConsultationTypeSchema>;

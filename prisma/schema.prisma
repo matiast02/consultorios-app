@@ -97,6 +97,21 @@ model Specialization {
   updatedAt DateTime @updatedAt
 }
 
+// ─── Consultation Types ─────────────────────────────────────────────────────
+
+model ConsultationType {
+  id              String  @id @default(cuid())
+  name            String  @unique // "Primera vez", "Control", "Urgencia"
+  durationMinutes Int              // 40, 20, 15
+  color           String?          // Color hex opcional
+  isDefault       Boolean @default(false)
+
+  shifts Shift[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ─── Roles ────────────────────────────────────────────────────────────────────
 
 model Role {
@@ -182,11 +197,14 @@ model Shift {
   end             DateTime
   observations    String?     @db.Text
   status          ShiftStatus @default(PENDING)
-  isOverbook      Boolean     @default(false) // Sobreturno
-  rescheduledFrom DateTime?   // Original date before auto-reschedule
-  rescheduledAt   DateTime?   // When the auto-reschedule happened
+  isOverbook         Boolean     @default(false) // Sobreturno
+  consultationTypeId String?
+  recurrenceGroupId  String?     // Shared ID for recurring shift series
+  rescheduledFrom    DateTime?   // Original date before auto-reschedule
+  rescheduledAt      DateTime?   // When the auto-reschedule happened
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consultationType ConsultationType? @relation(fields: [consultationTypeId], references: [id], onDelete: SetNull)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   evolution     Evolution?
   prescriptions Prescription[]

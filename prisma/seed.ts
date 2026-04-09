@@ -607,6 +607,23 @@ async function main() {
   }
   console.log(`✅ ${medications.length} medications created`);
 
+  // ─── Consultation Types ────────────────────────────────────────────────────
+  const consultationTypesData = [
+    { name: "Primera vez", durationMinutes: 40, color: "#8B5CF6", isDefault: true },
+    { name: "Control", durationMinutes: 20, color: "#06B6D4", isDefault: false },
+    { name: "Urgencia", durationMinutes: 15, color: "#EF4444", isDefault: false },
+    { name: "Seguimiento", durationMinutes: 30, color: "#F59E0B", isDefault: false },
+  ];
+
+  for (const ct of consultationTypesData) {
+    await prisma.consultationType.upsert({
+      where: { name: ct.name },
+      update: {},
+      create: ct,
+    });
+  }
+  console.log("✅ Consultation types created");
+
   console.log("\n🎉 Seed completed successfully!");
   console.log("\n📋 Test credentials:");
   console.log("  Dr. Gervilla:  dr.gervilla@consultorio.com / password123");
