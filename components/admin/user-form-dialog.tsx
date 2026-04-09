@@ -51,6 +51,7 @@ const formSchema = z.object({
   password: z.string().optional(),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  licenseNumber: z.string().optional(),
   specializationId: z.string().optional(),
   role: z.string().min(1, "El rol es obligatorio"),
 });
@@ -105,6 +106,7 @@ export function UserFormDialog({
       password: "",
       firstName: "",
       lastName: "",
+      licenseNumber: "",
       specializationId: "",
       role: "medic",
     },
@@ -140,6 +142,7 @@ export function UserFormDialog({
           password: "",
           firstName: user.firstName ?? "",
           lastName: user.lastName ?? "",
+          licenseNumber: (user as Record<string, unknown>).licenseNumber as string ?? "",
           specializationId: user.specialization?.id ?? "",
           role: primaryRole,
         });
@@ -173,6 +176,7 @@ export function UserFormDialog({
             name: data.name,
             firstName: data.firstName || null,
             lastName: data.lastName || null,
+            licenseNumber: data.licenseNumber || null,
             specializationId,
             role: data.role,
           }),
@@ -351,6 +355,16 @@ export function UserFormDialog({
               <Label htmlFor="user-lastName">Apellido</Label>
               <Input id="user-lastName" {...register("lastName")} />
             </div>
+          </div>
+
+          {/* License number */}
+          <div className="space-y-2">
+            <Label htmlFor="user-licenseNumber">Matricula profesional</Label>
+            <Input
+              id="user-licenseNumber"
+              placeholder="Ej: MN 12345"
+              {...register("licenseNumber")}
+            />
           </div>
 
           {/* Email + Password (create only) */}

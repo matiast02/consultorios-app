@@ -18,6 +18,7 @@ model User {
   password      String?   @db.Text
   firstName        String?
   lastName         String?
+  licenseNumber    String?          // Matricula profesional
   specializationId String?
 
   specialization Specialization? @relation(fields: [specializationId], references: [id])

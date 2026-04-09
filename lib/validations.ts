@@ -177,6 +177,7 @@ export const updateUserSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   firstName: z.string().max(100).nullable().optional(),
   lastName: z.string().max(100).nullable().optional(),
+  licenseNumber: z.string().max(50).nullable().optional(),
   specializationId: z.string().nullable().optional(),
   role: z.enum(["medic", "secretary", "admin"]).optional(),
 });
