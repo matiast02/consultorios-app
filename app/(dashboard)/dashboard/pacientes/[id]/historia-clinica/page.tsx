@@ -53,6 +53,9 @@ import { useProfessionLabels } from "@/hooks/use-profession-labels";
 import { OdontogramEditor } from "@/components/dental/odontogram-editor";
 import type { OdontogramData } from "@/components/dental/odontogram-types";
 import { createEmptyOdontogram } from "@/components/dental/odontogram-types";
+import { AnthropometricTracker } from "@/components/nutrition/anthropometric-tracker";
+import type { AnthropometricData } from "@/components/nutrition/anthropometric-types";
+import { createEmptyAnthropometricData } from "@/components/nutrition/anthropometric-types";
 
 export default function HistoriaClinicaPage() {
   const params = useParams();
@@ -87,7 +90,9 @@ export default function HistoriaClinicaPage() {
   const [currentMedication, setCurrentMedication] = useState("");
   const [notes, setNotes] = useState("");
   const [odontogramData, setOdontogramData] = useState<OdontogramData>(createEmptyOdontogram());
+  const [anthropometricData, setAnthropometricData] = useState<AnthropometricData>(createEmptyAnthropometricData());
   const [hasDentalConfig, setHasDentalConfig] = useState(false);
+  const [hasAnthropometricConfig, setHasAnthropometricConfig] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -114,13 +119,12 @@ export default function HistoriaClinicaPage() {
           setFamilyHistory(data.familyHistory ?? "");
           setCurrentMedication(data.currentMedication ?? "");
           setNotes(data.notes ?? "");
-          // Load odontogram from customFields
+          // Load custom fields (odontogram, anthropometric data)
           if (data.customFields) {
             try {
               const custom = JSON.parse(data.customFields);
-              if (custom.odontogram) {
-                setOdontogramData(custom.odontogram);
-              }
+              if (custom.odontogram) setOdontogramData(custom.odontogram);
+              if (custom.anthropometric) setAnthropometricData(custom.anthropometric);
             } catch { /* invalid JSON, ignore */ }
           }
         }
@@ -175,6 +179,7 @@ export default function HistoriaClinicaPage() {
           if (config?.clinicalFields) {
             const fields = JSON.parse(config.clinicalFields);
             setHasDentalConfig(Array.isArray(fields) && fields.includes("odontogram"));
+            setHasAnthropometricConfig(Array.isArray(fields) && fields.includes("anthropometricTracker"));
           }
         }
       } catch { /* non-critical */ }
@@ -192,13 +197,17 @@ export default function HistoriaClinicaPage() {
       if (familyHistory) body.familyHistory = familyHistory;
       if (currentMedication) body.currentMedication = currentMedication;
       if (notes) body.notes = notes;
-      // Save odontogram in customFields
-      if (hasDentalConfig) {
+      // Save profession-specific data in customFields
+      if (hasDentalConfig || hasAnthropometricConfig) {
         const existing = record?.customFields ? JSON.parse(record.customFields) : {};
-        body.customFields = JSON.stringify({
-          ...existing,
-          odontogram: { ...odontogramData, lastUpdated: new Date().toISOString() },
-        });
+        const custom = { ...existing };
+        if (hasDentalConfig) {
+          custom.odontogram = { ...odontogramData, lastUpdated: new Date().toISOString() };
+        }
+        if (hasAnthropometricConfig) {
+          custom.anthropometric = { ...anthropometricData, lastUpdated: new Date().toISOString() };
+        }
+        body.customFields = JSON.stringify(custom);
       }
 
       const res = await fetch(`/api/patients/${patientId}/clinical-record`, {
@@ -416,6 +425,7 @@ export default function HistoriaClinicaPage() {
               </div>
 
               {/* Odontogram — only for dental professionals */}
+              {/* Odontogram — dental professionals */}
               {hasDentalConfig && (
                 <>
                   <Separator />
@@ -424,6 +434,20 @@ export default function HistoriaClinicaPage() {
                     <OdontogramEditor
                       value={odontogramData}
                       onChange={setOdontogramData}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Anthropometric tracker — nutritionists */}
+              {hasAnthropometricConfig && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label className="text-base font-semibold">Seguimiento Antropometrico</Label>
+                    <AnthropometricTracker
+                      value={anthropometricData}
+                      onChange={setAnthropometricData}
                     />
                   </div>
                 </>

@@ -46,4 +46,5 @@ export const ALL_CLINICAL_FIELDS: Record<string, ClinicalFieldDef> = {
   bodyComposition: { key: "bodyComposition", label: "Composición corporal", type: "textarea" },
   nutritionalGoals: { key: "nutritionalGoals", label: "Objetivos nutricionales", type: "textarea" },
   foodIntolerances: { key: "foodIntolerances", label: "Intolerancias alimentarias", type: "textarea" },
+  anthropometricTracker: { key: "anthropometricTracker", label: "Seguimiento antropométrico", type: "textarea" }, // Visual component
 };
