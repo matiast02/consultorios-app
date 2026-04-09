@@ -268,6 +268,7 @@ export interface ClinicalRecord {
   familyHistory?: string | null;
   currentMedication?: string | null;
   notes?: string | null;
+  customFields?: string | null; // JSON: profession-specific fields
   evolutions?: Evolution[];
   createdAt: string;
   updatedAt: string;

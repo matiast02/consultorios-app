@@ -50,6 +50,9 @@ import { PrescriptionView } from "@/components/prescriptions/prescription-view";
 import type { Patient, ClinicalRecord, Evolution, Prescription, PrescriptionItem, ModuleConfig } from "@/types";
 import { BLOOD_TYPES } from "@/types";
 import { useProfessionLabels } from "@/hooks/use-profession-labels";
+import { OdontogramEditor } from "@/components/dental/odontogram-editor";
+import type { OdontogramData } from "@/components/dental/odontogram-types";
+import { createEmptyOdontogram } from "@/components/dental/odontogram-types";
 
 export default function HistoriaClinicaPage() {
   const params = useParams();
@@ -83,6 +86,8 @@ export default function HistoriaClinicaPage() {
   const [familyHistory, setFamilyHistory] = useState("");
   const [currentMedication, setCurrentMedication] = useState("");
   const [notes, setNotes] = useState("");
+  const [odontogramData, setOdontogramData] = useState<OdontogramData>(createEmptyOdontogram());
+  const [hasDentalConfig, setHasDentalConfig] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -109,8 +114,19 @@ export default function HistoriaClinicaPage() {
           setFamilyHistory(data.familyHistory ?? "");
           setCurrentMedication(data.currentMedication ?? "");
           setNotes(data.notes ?? "");
+          // Load odontogram from customFields
+          if (data.customFields) {
+            try {
+              const custom = JSON.parse(data.customFields);
+              if (custom.odontogram) {
+                setOdontogramData(custom.odontogram);
+              }
+            } catch { /* invalid JSON, ignore */ }
+          }
         }
       }
+
+      // Odontogram data loaded above from customFields
 
       if (evolutionsRes.ok) {
         const evolutionsJson = await evolutionsRes.json();
@@ -147,6 +163,25 @@ export default function HistoriaClinicaPage() {
     fetchData();
   }, [fetchData]);
 
+  // Check dental config (separate effect, depends on session)
+  useEffect(() => {
+    if (!sessionUserId) return;
+    async function checkDentalConfig() {
+      try {
+        const res = await fetch(`/api/users/${sessionUserId}/profession-config`);
+        if (res.ok) {
+          const json = await res.json();
+          const config = json.data;
+          if (config?.clinicalFields) {
+            const fields = JSON.parse(config.clinicalFields);
+            setHasDentalConfig(Array.isArray(fields) && fields.includes("odontogram"));
+          }
+        }
+      } catch { /* non-critical */ }
+    }
+    checkDentalConfig();
+  }, [sessionUserId]);
+
   async function handleSaveRecord() {
     try {
       setSaving(true);
@@ -157,6 +192,14 @@ export default function HistoriaClinicaPage() {
       if (familyHistory) body.familyHistory = familyHistory;
       if (currentMedication) body.currentMedication = currentMedication;
       if (notes) body.notes = notes;
+      // Save odontogram in customFields
+      if (hasDentalConfig) {
+        const existing = record?.customFields ? JSON.parse(record.customFields) : {};
+        body.customFields = JSON.stringify({
+          ...existing,
+          odontogram: { ...odontogramData, lastUpdated: new Date().toISOString() },
+        });
+      }
 
       const res = await fetch(`/api/patients/${patientId}/clinical-record`, {
         method: "PUT",
@@ -371,6 +414,20 @@ export default function HistoriaClinicaPage() {
                   rows={3}
                 />
               </div>
+
+              {/* Odontogram — only for dental professionals */}
+              {hasDentalConfig && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label className="text-base font-semibold">Odontograma</Label>
+                    <OdontogramEditor
+                      value={odontogramData}
+                      onChange={setOdontogramData}
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="flex justify-end">
                 <Button onClick={handleSaveRecord} disabled={saving}>
