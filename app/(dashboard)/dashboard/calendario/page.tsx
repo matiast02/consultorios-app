@@ -512,16 +512,18 @@ export default function CalendarioPage() {
                   </div>
                 )}
 
-                {/* Work schedule */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    Horario de atencion
+                {/* Work schedule — only show when a specific medic is selected */}
+                {availabilityUserId && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      Horario de atencion
+                    </div>
+                    <p className="text-sm text-muted-foreground pl-6">
+                      {getWorkScheduleText(selectedDate.getDay())}
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground pl-6">
-                    {getWorkScheduleText(selectedDate.getDay())}
-                  </p>
-                </div>
+                )}
 
                 <Separator />
 
