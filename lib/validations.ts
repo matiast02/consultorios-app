@@ -221,6 +221,31 @@ export const changePasswordSchema = z.object({
     .regex(/[0-9]/, "Debe contener al menos un numero"),
 });
 
+// ─── Prescriptions ───────────────────────────────────────────────────────────
+
+export const prescriptionItemSchema = z.object({
+  medication: z.string().min(1, "Medicamento requerido"),
+  dose: z.string().min(1, "Dosis requerida"),
+  frequency: z.string().min(1, "Frecuencia requerida"),
+  duration: z.string().min(1, "Duracion requerida"),
+  notes: z.string().optional(),
+});
+
+export const createPrescriptionSchema = z.object({
+  patientId: z.string().min(1),
+  shiftId: z.string().optional(),
+  items: z.array(prescriptionItemSchema).min(1, "Agregar al menos un medicamento"),
+  diagnosis: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const createMedicationSchema = z.object({
+  name: z.string().min(1, "Nombre requerido").max(200),
+  genericName: z.string().max(200).optional(),
+  presentation: z.string().max(100).optional(),
+  category: z.string().max(100).optional(),
+});
+
 // ─── Type exports ─────────────────────────────────────────────────────────────
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;
@@ -241,3 +266,6 @@ export type UpdateSpecializationInput = z.infer<typeof updateSpecializationSchem
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type PrescriptionItemInput = z.infer<typeof prescriptionItemSchema>;
+export type CreatePrescriptionInput = z.infer<typeof createPrescriptionSchema>;
+export type CreateMedicationInput = z.infer<typeof createMedicationSchema>;

@@ -24,6 +24,7 @@ import {
   UserCog,
   GraduationCap,
   Shield,
+  Puzzle,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -75,6 +76,11 @@ const adminItems = [
     label: "Auditoria",
     href: "/dashboard/administracion/auditoria",
     icon: Shield,
+  },
+  {
+    label: "Modulos",
+    href: "/dashboard/administracion/modulos",
+    icon: Puzzle,
   },
 ];
 

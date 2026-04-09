@@ -546,6 +546,67 @@ async function main() {
   }
   console.log("✅ Block days created");
 
+  // ─── Module Config ────────────────────────────────────────────────────────
+  await prisma.moduleConfig.upsert({
+    where: { module: "prescriptions" },
+    update: {},
+    create: { module: "prescriptions", name: "Recetas Medicas", enabled: true },
+  });
+  console.log("✅ Module config created");
+
+  // ─── Medications (Vademécum) ──────────────────────────────────────────────
+  const medications = [
+    { name: "Ibuprofeno 400mg", genericName: "Ibuprofeno", presentation: "Comprimidos", category: "Analgésico/Antiinflamatorio" },
+    { name: "Ibuprofeno 600mg", genericName: "Ibuprofeno", presentation: "Comprimidos", category: "Analgésico/Antiinflamatorio" },
+    { name: "Paracetamol 500mg", genericName: "Paracetamol", presentation: "Comprimidos", category: "Analgésico/Antipirético" },
+    { name: "Paracetamol 1g", genericName: "Paracetamol", presentation: "Comprimidos", category: "Analgésico/Antipirético" },
+    { name: "Amoxicilina 500mg", genericName: "Amoxicilina", presentation: "Cápsulas", category: "Antibiótico" },
+    { name: "Amoxicilina 875mg + Ác. Clavulánico", genericName: "Amoxicilina/Clavulánico", presentation: "Comprimidos", category: "Antibiótico" },
+    { name: "Azitromicina 500mg", genericName: "Azitromicina", presentation: "Comprimidos", category: "Antibiótico" },
+    { name: "Cefalexina 500mg", genericName: "Cefalexina", presentation: "Cápsulas", category: "Antibiótico" },
+    { name: "Ciprofloxacina 500mg", genericName: "Ciprofloxacina", presentation: "Comprimidos", category: "Antibiótico" },
+    { name: "Omeprazol 20mg", genericName: "Omeprazol", presentation: "Cápsulas", category: "Protector gástrico" },
+    { name: "Pantoprazol 40mg", genericName: "Pantoprazol", presentation: "Comprimidos", category: "Protector gástrico" },
+    { name: "Ranitidina 150mg", genericName: "Ranitidina", presentation: "Comprimidos", category: "Protector gástrico" },
+    { name: "Loratadina 10mg", genericName: "Loratadina", presentation: "Comprimidos", category: "Antihistamínico" },
+    { name: "Cetirizina 10mg", genericName: "Cetirizina", presentation: "Comprimidos", category: "Antihistamínico" },
+    { name: "Diclofenac 75mg", genericName: "Diclofenac", presentation: "Comprimidos", category: "Antiinflamatorio" },
+    { name: "Dexametasona 4mg", genericName: "Dexametasona", presentation: "Comprimidos", category: "Corticoide" },
+    { name: "Prednisona 20mg", genericName: "Prednisona", presentation: "Comprimidos", category: "Corticoide" },
+    { name: "Metformina 850mg", genericName: "Metformina", presentation: "Comprimidos", category: "Antidiabético" },
+    { name: "Enalapril 10mg", genericName: "Enalapril", presentation: "Comprimidos", category: "Antihipertensivo" },
+    { name: "Losartán 50mg", genericName: "Losartán", presentation: "Comprimidos", category: "Antihipertensivo" },
+    { name: "Atenolol 50mg", genericName: "Atenolol", presentation: "Comprimidos", category: "Betabloqueante" },
+    { name: "Amlodipina 5mg", genericName: "Amlodipina", presentation: "Comprimidos", category: "Antihipertensivo" },
+    { name: "Atorvastatina 20mg", genericName: "Atorvastatina", presentation: "Comprimidos", category: "Hipolipemiante" },
+    { name: "Aspirina 100mg", genericName: "Ácido acetilsalicílico", presentation: "Comprimidos", category: "Antiagregante" },
+    { name: "Clonazepam 0.5mg", genericName: "Clonazepam", presentation: "Comprimidos", category: "Ansiolítico" },
+    { name: "Alprazolam 0.5mg", genericName: "Alprazolam", presentation: "Comprimidos", category: "Ansiolítico" },
+    { name: "Levotiroxina 50mcg", genericName: "Levotiroxina", presentation: "Comprimidos", category: "Hormona tiroidea" },
+    { name: "Metoclopramida 10mg", genericName: "Metoclopramida", presentation: "Comprimidos", category: "Antiemético" },
+    { name: "Buscapina 10mg", genericName: "Hioscina", presentation: "Comprimidos", category: "Antiespasmódico" },
+    { name: "Salbutamol 100mcg", genericName: "Salbutamol", presentation: "Aerosol", category: "Broncodilatador" },
+    { name: "Fluticasona 250mcg", genericName: "Fluticasona", presentation: "Aerosol", category: "Corticoide inhalado" },
+    { name: "Hierro polimaltosato", genericName: "Hierro", presentation: "Comprimidos masticables", category: "Suplemento" },
+    { name: "Ácido fólico 5mg", genericName: "Ácido fólico", presentation: "Comprimidos", category: "Vitamina" },
+    { name: "Complejo vitamínico B", genericName: "Vitaminas B1, B6, B12", presentation: "Comprimidos", category: "Vitamina" },
+    { name: "Vitamina D3 1000 UI", genericName: "Colecalciferol", presentation: "Gotas", category: "Vitamina" },
+    { name: "Clotrimazol crema 1%", genericName: "Clotrimazol", presentation: "Crema", category: "Antimicótico tópico" },
+    { name: "Mupirocina crema 2%", genericName: "Mupirocina", presentation: "Crema", category: "Antibiótico tópico" },
+    { name: "Betametasona crema 0.05%", genericName: "Betametasona", presentation: "Crema", category: "Corticoide tópico" },
+    { name: "Tramadol 50mg", genericName: "Tramadol", presentation: "Cápsulas", category: "Analgésico opioide" },
+    { name: "Gabapentina 300mg", genericName: "Gabapentina", presentation: "Cápsulas", category: "Anticonvulsivante/Neuropático" },
+  ];
+
+  for (const med of medications) {
+    await prisma.medication.upsert({
+      where: { name: med.name },
+      update: {},
+      create: med,
+    });
+  }
+  console.log(`✅ ${medications.length} medications created`);
+
   console.log("\n🎉 Seed completed successfully!");
   console.log("\n📋 Test credentials:");
   console.log("  Dr. Gervilla:  dr.gervilla@consultorio.com / password123");

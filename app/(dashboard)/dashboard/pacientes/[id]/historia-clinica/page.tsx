@@ -24,6 +24,12 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ArrowLeft,
   Loader2,
   Save,
@@ -34,9 +40,13 @@ import {
   Clock,
   Stethoscope,
   Calendar,
+  Pill,
+  Eye,
 } from "lucide-react";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
-import type { Patient, ClinicalRecord, Evolution } from "@/types";
+import { CreatePrescriptionDialog } from "@/components/prescriptions/create-prescription-dialog";
+import { PrescriptionView } from "@/components/prescriptions/prescription-view";
+import type { Patient, ClinicalRecord, Evolution, Prescription, PrescriptionItem, ModuleConfig } from "@/types";
 import { BLOOD_TYPES } from "@/types";
 
 export default function HistoriaClinicaPage() {
@@ -55,6 +65,12 @@ export default function HistoriaClinicaPage() {
     new Set()
   );
 
+  // Prescriptions state
+  const [prescriptionsEnabled, setPrescriptionsEnabled] = useState(false);
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [prescriptionDialogOpen, setPrescriptionDialogOpen] = useState(false);
+  const [viewingPrescription, setViewingPrescription] = useState<Prescription | null>(null);
+
   // Form state for clinical record
   const [bloodType, setBloodType] = useState("");
   const [allergies, setAllergies] = useState("");
@@ -66,10 +82,11 @@ export default function HistoriaClinicaPage() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [patientRes, recordRes, evolutionsRes] = await Promise.all([
+      const [patientRes, recordRes, evolutionsRes, modulesRes] = await Promise.all([
         fetch(`/api/patients/${patientId}`),
         fetch(`/api/patients/${patientId}/clinical-record`),
         fetch(`/api/patients/${patientId}/evolutions`),
+        fetch("/api/modules"),
       ]);
 
       if (!patientRes.ok) throw new Error("Paciente no encontrado");
@@ -94,6 +111,24 @@ export default function HistoriaClinicaPage() {
         const evolutionsJson = await evolutionsRes.json();
         const list = evolutionsJson.data ?? [];
         setEvolutions(Array.isArray(list) ? list : []);
+      }
+
+      // Check if prescriptions module is enabled
+      if (modulesRes.ok) {
+        const modulesJson = await modulesRes.json();
+        const modules: ModuleConfig[] = modulesJson.data ?? [];
+        const prescMod = modules.find((m) => m.module === "prescriptions");
+        if (prescMod?.enabled) {
+          setPrescriptionsEnabled(true);
+          // Fetch prescriptions
+          const prescRes = await fetch(`/api/prescriptions?patientId=${patientId}`);
+          if (prescRes.ok) {
+            const prescJson = await prescRes.json();
+            setPrescriptions(prescJson.data ?? []);
+          }
+        } else {
+          setPrescriptionsEnabled(false);
+        }
       }
     } catch {
       toast.error("Error al cargar la historia clinica");
@@ -160,6 +195,25 @@ export default function HistoriaClinicaPage() {
     return evo.user.name ?? "Profesional";
   }
 
+  function getPrescDocName(p: Prescription): string {
+    if (!p.user) return "Profesional";
+    const parts = [p.user.firstName, p.user.lastName].filter(Boolean);
+    if (parts.length > 0) return parts.join(" ");
+    return p.user.name ?? "Profesional";
+  }
+
+  function parsePrescItems(items: string): PrescriptionItem[] {
+    try {
+      return JSON.parse(items);
+    } catch {
+      return [];
+    }
+  }
+
+  const sortedPrescriptions = [...prescriptions].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
   const filteredEvolutions = evolutions
     .filter((evo) => {
       if (!searchQuery) return true;
@@ -218,6 +272,9 @@ export default function HistoriaClinicaPage() {
         <TabsList>
           <TabsTrigger value="ficha">Ficha Clinica</TabsTrigger>
           <TabsTrigger value="evoluciones">Evoluciones</TabsTrigger>
+          {prescriptionsEnabled && (
+            <TabsTrigger value="recetas">Recetas</TabsTrigger>
+          )}
         </TabsList>
 
         {/* Tab: Ficha Clinica */}
@@ -515,7 +572,147 @@ export default function HistoriaClinicaPage() {
             )}
           </div>
         </TabsContent>
+        {/* Tab: Recetas */}
+        {prescriptionsEnabled && (
+          <TabsContent value="recetas">
+            <div className="space-y-4">
+              {/* Header */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  {sortedPrescriptions.length}{" "}
+                  {sortedPrescriptions.length === 1 ? "receta" : "recetas"}
+                </p>
+                <Button onClick={() => setPrescriptionDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nueva Receta
+                </Button>
+              </div>
+
+              {/* List */}
+              {sortedPrescriptions.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12">
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                        <Pill className="h-8 w-8 text-muted-foreground/50" />
+                      </div>
+                      <p className="mt-4 font-medium text-foreground">
+                        No hay recetas registradas
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Crea la primera receta para este paciente.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {sortedPrescriptions.map((presc) => {
+                    const date = new Date(presc.createdAt);
+                    const items = parsePrescItems(presc.items);
+                    const docName = getPrescDocName(presc);
+
+                    return (
+                      <Card key={presc.id} className="transition-colors hover:bg-accent/50">
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 space-y-2">
+                              {/* Date + Doctor */}
+                              <div className="flex flex-wrap items-center gap-2 text-sm">
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                  <Calendar className="h-3.5 w-3.5" />
+                                  <span>
+                                    {date.toLocaleDateString("es-AR", {
+                                      day: "2-digit",
+                                      month: "2-digit",
+                                      year: "numeric",
+                                    })}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                  <Stethoscope className="h-3.5 w-3.5" />
+                                  <span>{docName}</span>
+                                </div>
+                              </div>
+
+                              {/* Diagnosis */}
+                              {presc.diagnosis && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {presc.diagnosis}
+                                </Badge>
+                              )}
+
+                              {/* Items summary */}
+                              <div className="flex flex-wrap gap-1.5">
+                                {items.map((item, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs"
+                                  >
+                                    <Pill className="h-3 w-3" />
+                                    {item.medication} - {item.dose}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* View/Print button */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setViewingPrescription(presc)}
+                            >
+                              <Eye className="mr-1.5 h-3.5 w-3.5" />
+                              Ver / Imprimir
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
+
+      {/* Prescription Dialogs */}
+      {prescriptionsEnabled && (
+        <>
+          <CreatePrescriptionDialog
+            open={prescriptionDialogOpen}
+            onOpenChange={setPrescriptionDialogOpen}
+            patientId={patientId}
+            patientName={patient ? `${patient.lastName}, ${patient.firstName}` : "Paciente"}
+            onCreated={() => {
+              setPrescriptionDialogOpen(false);
+              fetchData();
+            }}
+          />
+
+          <Dialog
+            open={!!viewingPrescription}
+            onOpenChange={(val) => { if (!val) setViewingPrescription(null); }}
+          >
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[800px]">
+              <DialogHeader>
+                <DialogTitle>Receta Medica</DialogTitle>
+              </DialogHeader>
+              {viewingPrescription && (
+                <PrescriptionView
+                  prescription={viewingPrescription}
+                  patientName={
+                    patient ? `${patient.lastName}, ${patient.firstName}` : "Paciente"
+                  }
+                  patientDni={patient?.dni}
+                  medicName={getPrescDocName(viewingPrescription)}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
 
       {/* Evolution Dialog */}
       <EvolutionFormDialog

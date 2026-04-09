@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -13,8 +13,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle, CalendarPlus } from "lucide-react";
-import type { Shift } from "@/types";
+import { Loader2, CheckCircle, CalendarPlus, Pill } from "lucide-react";
+import type { Shift, ModuleConfig } from "@/types";
 
 interface QuickAttendDialogProps {
   open: boolean;
@@ -22,6 +22,7 @@ interface QuickAttendDialogProps {
   shift: Shift;
   onSaved: () => void;
   onScheduleNext?: (patientId: string, medicId: string) => void;
+  onCreatePrescription?: (patientId: string, shiftId: string) => void;
 }
 
 export function QuickAttendDialog({
@@ -30,10 +31,32 @@ export function QuickAttendDialog({
   shift,
   onSaved,
   onScheduleNext,
+  onCreatePrescription,
 }: QuickAttendDialogProps) {
   const [observations, setObservations] = useState(shift.observations ?? "");
   const [saving, setSaving] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [prescriptionsEnabled, setPrescriptionsEnabled] = useState(false);
+
+  const checkModules = useCallback(async () => {
+    try {
+      const res = await fetch("/api/modules");
+      if (res.ok) {
+        const json = await res.json();
+        const modules: ModuleConfig[] = json.data ?? [];
+        const prescMod = modules.find((m) => m.module === "prescriptions");
+        setPrescriptionsEnabled(prescMod?.enabled ?? false);
+      }
+    } catch {
+      // Silently fail
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      checkModules();
+    }
+  }, [open, checkModules]);
 
   async function handleFinish() {
     try {
@@ -70,6 +93,13 @@ export function QuickAttendDialog({
   function handleScheduleNext() {
     if (onScheduleNext && shift.patient) {
       onScheduleNext(shift.patientId, shift.userId);
+    }
+    handleClose();
+  }
+
+  function handleCreatePrescription() {
+    if (onCreatePrescription) {
+      onCreatePrescription(shift.patientId, shift.id);
     }
     handleClose();
   }
@@ -160,6 +190,12 @@ export function QuickAttendDialog({
               <Button variant="outline" onClick={handleClose} className="flex-1">
                 No, cerrar
               </Button>
+              {prescriptionsEnabled && onCreatePrescription && (
+                <Button variant="outline" onClick={handleCreatePrescription} className="flex-1">
+                  <Pill className="mr-2 h-4 w-4" />
+                  Crear Receta
+                </Button>
+              )}
               {onScheduleNext && (
                 <Button onClick={handleScheduleNext} className="flex-1">
                   <CalendarPlus className="mr-2 h-4 w-4" />

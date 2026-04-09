@@ -27,8 +27,10 @@ model User {
   shifts     Shift[]
   preferences UserPreference[]
   blockDays  BlockDay[]
-  evolutions Evolution[]
-  auditLogs  AuditLog[]
+  evolutions      Evolution[]
+  auditLogs       AuditLog[]
+  prescriptions   Prescription[]
+  moduleAccess    UserModuleAccess[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -136,9 +138,10 @@ model Patient {
   osId      String?
   osNumber  String?
 
-  os     HealthInsurance? @relation(fields: [osId], references: [id])
-  shifts Shift[]
+  os             HealthInsurance? @relation(fields: [osId], references: [id])
+  shifts         Shift[]
   clinicalRecord ClinicalRecord?
+  prescriptions  Prescription[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -182,7 +185,8 @@ model Shift {
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  evolution Evolution?
+  evolution     Evolution?
+  prescriptions Prescription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -309,4 +313,63 @@ model AuditLog {
   @@index([resource, resourceId])
   @@index([createdAt])
   @@index([action])
+}
+
+// ─── Module System ───────────────────────────────────────────────────────────
+
+model ModuleConfig {
+  id      String  @id @default(cuid())
+  module  String  @unique // "prescriptions", "lab_orders", etc.
+  name    String  // Display name
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserModuleAccess {
+  id      String  @id @default(cuid())
+  userId  String
+  module  String
+  enabled Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module])
+  @@index([userId])
+}
+
+// ─── Prescriptions (Recetas) ─────────────────────────────────────────────────
+
+model Prescription {
+  id          String  @id @default(cuid())
+  patientId   String
+  userId      String  // médico que receta
+  shiftId     String? // turno asociado
+  items       String  @db.Text // JSON array of PrescriptionItem
+  diagnosis   String?
+  notes       String? @db.Text
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+  shift   Shift?  @relation(fields: [shiftId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([userId])
+  @@index([shiftId])
+}
+
+// ─── Medications (Vademécum) ─────────────────────────────────────────────────
+
+model Medication {
+  id           String  @id @default(cuid())
+  name         String  @unique
+  genericName  String?
+  presentation String? // ej: "Comprimidos 500mg"
+  category     String? // ej: "Analgésico", "Antibiótico"
+
+  createdAt DateTime @default(now())
 }

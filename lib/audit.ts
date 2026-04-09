@@ -12,7 +12,9 @@ export type AuditResource =
   | "specialization"
   | "user"
   | "user_preference"
-  | "block_day";
+  | "block_day"
+  | "prescription"
+  | "medication";
 
 interface LogAuditParams {
   userId: string;

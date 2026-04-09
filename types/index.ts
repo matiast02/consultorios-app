@@ -197,3 +197,43 @@ export interface Evolution {
 }
 
 export const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] as const;
+
+// ─── Prescriptions ──────────────────────────────────────────────────────────
+
+export interface Prescription {
+  id: string;
+  patientId: string;
+  userId: string;
+  shiftId?: string | null;
+  items: string; // JSON string of PrescriptionItem[]
+  diagnosis?: string | null;
+  notes?: string | null;
+  user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
+  patient?: Patient;
+  createdAt: string;
+}
+
+export interface PrescriptionItem {
+  medication: string;
+  dose: string;
+  frequency: string;
+  duration: string;
+  notes?: string;
+}
+
+export interface MedicationOption {
+  id: string;
+  name: string;
+  genericName?: string | null;
+  presentation?: string | null;
+  category?: string | null;
+}
+
+// ─── Modules ────────────────────────────────────────────────────────────────
+
+export interface ModuleConfig {
+  id: string;
+  module: string;
+  name: string;
+  enabled: boolean;
+}
