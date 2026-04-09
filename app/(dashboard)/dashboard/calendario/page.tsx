@@ -600,6 +600,15 @@ export default function CalendarioPage() {
                             {formatTime(new Date(shift.start))} -{" "}
                             {formatTime(new Date(shift.end))}
                           </p>
+                          {/* Show medic name when viewing all medics */}
+                          {isStaff && !selectedMedicId && shift.user && (
+                            <p className="mt-1 text-xs text-primary/80">
+                              <Stethoscope className="mr-1 inline h-3 w-3" />
+                              {shift.user.lastName
+                                ? `Dr/a. ${shift.user.lastName}`
+                                : shift.user.name ?? "Medico"}
+                            </p>
+                          )}
                           {shift.observations && (
                             <p className="mt-1 truncate text-xs text-muted-foreground">
                               {shift.observations}
