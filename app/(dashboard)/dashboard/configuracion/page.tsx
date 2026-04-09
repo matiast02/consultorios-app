@@ -9,13 +9,82 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { UserAvatar } from "@/components/user-avatar";
-import { Loader2, Plus, X, Calendar } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  X,
+  CalendarIcon,
+  CalendarRange,
+  AlertCircle,
+} from "lucide-react";
+import { format, eachDayOfInterval, isAfter, isBefore, startOfDay } from "date-fns";
+import { es } from "date-fns/locale";
 import type { UserPreference, BlockDay } from "@/types";
 import { DAY_NAMES } from "@/types";
+import type { DateRange } from "react-day-picker";
+
+// ─── Time Select Component ──────────────────────────────────────────────────
+
+const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 07 to 21
+const MINUTES = ["00", "15", "30", "45"];
+
+function TimeSelect({
+  value,
+  onChange,
+  disabled,
+  placeholder = "Hora",
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const options: string[] = [];
+  for (const h of HOURS) {
+    for (const m of MINUTES) {
+      options.push(`${String(h).padStart(2, "0")}:${m}`);
+    }
+  }
+
+  return (
+    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className="h-8 w-[100px] text-xs">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent className="max-h-60">
+        {options.map((opt) => (
+          <SelectItem key={opt} value={opt} className="text-xs">
+            {opt}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 // ─── Profile Section ─────────────────────────────────────────────────────────
 
@@ -66,9 +135,7 @@ function ProfileSection() {
     <Card>
       <CardHeader>
         <CardTitle>Perfil</CardTitle>
-        <CardDescription>
-          Actualiza tu información personal.
-        </CardDescription>
+        <CardDescription>Actualiza tu informacion personal.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex items-center gap-4">
@@ -94,7 +161,9 @@ function ProfileSection() {
               {...register("name")}
             />
             {errors.name && (
-              <p className="text-sm text-destructive">{errors.name.message}</p>
+              <p className="text-sm text-destructive">
+                {errors.name.message}
+              </p>
             )}
           </div>
 
@@ -108,7 +177,7 @@ function ProfileSection() {
               className="bg-muted"
             />
             <p className="text-xs text-muted-foreground">
-              El email no se puede cambiar desde aquí.
+              El email no se puede cambiar desde aqui.
             </p>
           </div>
 
@@ -121,10 +190,155 @@ function ProfileSection() {
   );
 }
 
+// ─── Change Password Section ────────────────────────────────────────────────
+
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "La contrasena actual es requerida"),
+    newPassword: z
+      .string()
+      .min(8, "La contrasena debe tener al menos 8 caracteres")
+      .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
+      .regex(/[0-9]/, "Debe contener al menos un numero"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Las contrasenas no coinciden",
+    path: ["confirmPassword"],
+  });
+
+type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>;
+
+function ChangePasswordSection() {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<ChangePasswordFormValues>({
+    resolver: zodResolver(changePasswordSchema),
+  });
+
+  async function onSubmit(values: ChangePasswordFormValues) {
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: values.currentPassword,
+          newPassword: values.newPassword,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error ?? "Error al cambiar la contrasena");
+      }
+
+      toast.success("Contrasena actualizada correctamente");
+      reset();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Error al cambiar la contrasena"
+      );
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cambiar Contrasena</CardTitle>
+        <CardDescription>
+          Actualiza tu contrasena de acceso.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit(onSubmit)} className="max-w-lg space-y-4" noValidate>
+          <div className="space-y-1.5">
+            <Label htmlFor="currentPassword">Contrasena actual</Label>
+            <Input
+              id="currentPassword"
+              type="password"
+              placeholder="••••••••"
+              autoComplete="current-password"
+              className={
+                errors.currentPassword
+                  ? "border-destructive focus-visible:ring-destructive"
+                  : ""
+              }
+              {...register("currentPassword")}
+            />
+            {errors.currentPassword && (
+              <p className="flex items-center gap-1.5 text-sm text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {errors.currentPassword.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="newPassword">Nueva contrasena</Label>
+            <Input
+              id="newPassword"
+              type="password"
+              placeholder="••••••••"
+              autoComplete="new-password"
+              className={
+                errors.newPassword
+                  ? "border-destructive focus-visible:ring-destructive"
+                  : ""
+              }
+              {...register("newPassword")}
+            />
+            {errors.newPassword && (
+              <p className="flex items-center gap-1.5 text-sm text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {errors.newPassword.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="confirmPassword">Confirmar nueva contrasena</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              placeholder="••••••••"
+              autoComplete="new-password"
+              className={
+                errors.confirmPassword
+                  ? "border-destructive focus-visible:ring-destructive"
+                  : ""
+              }
+              {...register("confirmPassword")}
+            />
+            {errors.confirmPassword && (
+              <p className="flex items-center gap-1.5 text-sm text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {errors.confirmPassword.message}
+              </p>
+            )}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Minimo 8 caracteres, una mayuscula y un numero
+          </p>
+
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isSubmitting ? "Cambiando..." : "Cambiar Contrasena"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Work Hours Section ──────────────────────────────────────────────────────
 
 interface DayPreference {
   day: number;
+  enabled: boolean;
   fromHourAM: string;
   toHourAM: string;
   fromHourPM: string;
@@ -143,13 +357,19 @@ function WorkHoursSection() {
         const res = await fetch("/api/preferences");
         if (res.ok) {
           const json = await res.json();
-          const data: UserPreference[] = json.data?.preferences ?? json.data ?? [];
-          // Map existing preferences, fill missing days
+          const data: UserPreference[] =
+            json.data?.preferences ?? json.data ?? [];
           const mapped: DayPreference[] = [];
           for (let d = 0; d < 7; d++) {
             const existing = data.find((p) => p.day === d);
+            const hasAnyHour =
+              !!existing?.fromHourAM ||
+              !!existing?.toHourAM ||
+              !!existing?.fromHourPM ||
+              !!existing?.toHourPM;
             mapped.push({
               day: d,
+              enabled: hasAnyHour,
               fromHourAM: existing?.fromHourAM ?? "",
               toHourAM: existing?.toHourAM ?? "",
               fromHourPM: existing?.fromHourPM ?? "",
@@ -158,10 +378,10 @@ function WorkHoursSection() {
           }
           setPreferences(mapped);
         } else {
-          // Default empty
           setPreferences(
             Array.from({ length: 7 }, (_, d) => ({
               day: d,
+              enabled: d >= 1 && d <= 5, // Mon-Fri enabled by default
               fromHourAM: "",
               toHourAM: "",
               fromHourPM: "",
@@ -177,6 +397,28 @@ function WorkHoursSection() {
     }
     load();
   }, []);
+
+  function toggleDay(day: number) {
+    setPreferences((prev) =>
+      prev.map((p) =>
+        p.day === day
+          ? {
+              ...p,
+              enabled: !p.enabled,
+              // Clear times when disabling
+              ...(!p.enabled
+                ? {}
+                : {
+                    fromHourAM: "",
+                    toHourAM: "",
+                    fromHourPM: "",
+                    toHourPM: "",
+                  }),
+            }
+          : p
+      )
+    );
+  }
 
   function updatePref(
     day: number,
@@ -195,39 +437,29 @@ function WorkHoursSection() {
       return;
     }
 
-    // Validate time format before sending
-    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    // Validate from < to
     for (const pref of preferences) {
-      const fields = [
-        { val: pref.fromHourAM, label: "Desde AM" },
-        { val: pref.toHourAM, label: "Hasta AM" },
-        { val: pref.fromHourPM, label: "Desde PM" },
-        { val: pref.toHourPM, label: "Hasta PM" },
-      ];
-      for (const f of fields) {
-        if (f.val && !timeRegex.test(f.val)) {
-          toast.error(`Formato de hora inválido en ${DAY_NAMES[pref.day]} - ${f.label}`);
-          return;
-        }
-      }
-      // Validate from < to for AM and PM
+      if (!pref.enabled) continue;
       if (pref.fromHourAM && pref.toHourAM && pref.fromHourAM >= pref.toHourAM) {
-        toast.error(`${DAY_NAMES[pref.day]}: hora inicio AM debe ser menor que fin AM`);
+        toast.error(
+          `${DAY_NAMES[pref.day]}: hora inicio manana debe ser menor que fin`
+        );
         return;
       }
       if (pref.fromHourPM && pref.toHourPM && pref.fromHourPM >= pref.toHourPM) {
-        toast.error(`${DAY_NAMES[pref.day]}: hora inicio PM debe ser menor que fin PM`);
+        toast.error(
+          `${DAY_NAMES[pref.day]}: hora inicio tarde debe ser menor que fin`
+        );
         return;
       }
     }
 
-    // Convert empty strings to null for API
     const cleanPrefs = preferences.map((p) => ({
       day: p.day,
-      fromHourAM: p.fromHourAM || null,
-      toHourAM: p.toHourAM || null,
-      fromHourPM: p.fromHourPM || null,
-      toHourPM: p.toHourPM || null,
+      fromHourAM: p.enabled && p.fromHourAM ? p.fromHourAM : null,
+      toHourAM: p.enabled && p.toHourAM ? p.toHourAM : null,
+      fromHourPM: p.enabled && p.fromHourPM ? p.fromHourPM : null,
+      toHourPM: p.enabled && p.toHourPM ? p.toHourPM : null,
     }));
 
     try {
@@ -244,7 +476,9 @@ function WorkHoursSection() {
       toast.success("Horarios guardados correctamente");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Error al guardar los horarios"
+        error instanceof Error
+          ? error.message
+          : "Error al guardar los horarios"
       );
     } finally {
       setSaving(false);
@@ -264,82 +498,98 @@ function WorkHoursSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Horarios de Atención</CardTitle>
+        <CardTitle>Horarios de Atencion</CardTitle>
         <CardDescription>
-          Configura tus horarios de trabajo por día de la semana.
+          Activa los dias que trabajas y configura los horarios de manana y
+          tarde.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="py-2 pr-4 text-left font-medium">Día</th>
-                <th className="px-2 py-2 text-center font-medium" colSpan={2}>
-                  Mañana
-                </th>
-                <th className="px-2 py-2 text-center font-medium" colSpan={2}>
-                  Tarde
-                </th>
-              </tr>
-              <tr className="border-b text-xs text-muted-foreground">
-                <th />
-                <th className="px-2 py-1">Desde</th>
-                <th className="px-2 py-1">Hasta</th>
-                <th className="px-2 py-1">Desde</th>
-                <th className="px-2 py-1">Hasta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preferences.map((pref) => (
-                <tr key={pref.day} className="border-b">
-                  <td className="py-2 pr-4 font-medium">
+        <div className="space-y-3">
+          {preferences.map((pref) => (
+            <div
+              key={pref.day}
+              className={`rounded-lg border p-3 transition-colors ${
+                pref.enabled
+                  ? "border-border bg-card"
+                  : "border-dashed border-muted bg-muted/30"
+              }`}
+            >
+              {/* Day toggle row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={pref.enabled}
+                    onCheckedChange={() => toggleDay(pref.day)}
+                  />
+                  <span
+                    className={`text-sm font-medium ${
+                      pref.enabled ? "" : "text-muted-foreground"
+                    }`}
+                  >
                     {DAY_NAMES[pref.day]}
-                  </td>
-                  <td className="px-1 py-2">
-                    <Input
-                      type="time"
-                      className="h-8 text-xs"
-                      value={pref.fromHourAM}
-                      onChange={(e) =>
-                        updatePref(pref.day, "fromHourAM", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td className="px-1 py-2">
-                    <Input
-                      type="time"
-                      className="h-8 text-xs"
-                      value={pref.toHourAM}
-                      onChange={(e) =>
-                        updatePref(pref.day, "toHourAM", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td className="px-1 py-2">
-                    <Input
-                      type="time"
-                      className="h-8 text-xs"
-                      value={pref.fromHourPM}
-                      onChange={(e) =>
-                        updatePref(pref.day, "fromHourPM", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td className="px-1 py-2">
-                    <Input
-                      type="time"
-                      className="h-8 text-xs"
-                      value={pref.toHourPM}
-                      onChange={(e) =>
-                        updatePref(pref.day, "toHourPM", e.target.value)
-                      }
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                </div>
+                {!pref.enabled && (
+                  <span className="text-xs text-muted-foreground">
+                    No atiende
+                  </span>
+                )}
+              </div>
+
+              {/* Time selectors — only when enabled */}
+              {pref.enabled && (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* AM */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Manana
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <TimeSelect
+                        value={pref.fromHourAM}
+                        onChange={(v) =>
+                          updatePref(pref.day, "fromHourAM", v)
+                        }
+                        placeholder="Desde"
+                      />
+                      <span className="text-xs text-muted-foreground">a</span>
+                      <TimeSelect
+                        value={pref.toHourAM}
+                        onChange={(v) =>
+                          updatePref(pref.day, "toHourAM", v)
+                        }
+                        placeholder="Hasta"
+                      />
+                    </div>
+                  </div>
+                  {/* PM */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Tarde
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <TimeSelect
+                        value={pref.fromHourPM}
+                        onChange={(v) =>
+                          updatePref(pref.day, "fromHourPM", v)
+                        }
+                        placeholder="Desde"
+                      />
+                      <span className="text-xs text-muted-foreground">a</span>
+                      <TimeSelect
+                        value={pref.toHourPM}
+                        onChange={(v) =>
+                          updatePref(pref.day, "toHourPM", v)
+                        }
+                        placeholder="Hasta"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
         <Button onClick={savePreferences} disabled={saving}>
@@ -357,8 +607,9 @@ function BlockDaysSection() {
   const { data: session } = useSession();
   const [blockDays, setBlockDays] = useState<BlockDay[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newDate, setNewDate] = useState("");
   const [adding, setAdding] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   useEffect(() => {
     fetchBlockDays();
@@ -374,46 +625,55 @@ function BlockDaysSection() {
         setBlockDays(Array.isArray(days) ? days : []);
       }
     } catch {
-      toast.error("Error al cargar días bloqueados");
+      toast.error("Error al cargar dias bloqueados");
     } finally {
       setLoading(false);
     }
   }
 
-  async function addBlockDay() {
-    if (!newDate) {
-      toast.error("Selecciona una fecha");
+  async function addBlockDays() {
+    if (!dateRange?.from) {
+      toast.error("Selecciona al menos una fecha");
       return;
     }
-    // Validate date format
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(newDate)) {
-      toast.error("Formato de fecha inválido");
+
+    const userId = (session?.user as { id?: string } | undefined)?.id;
+    if (!userId) {
+      toast.error("No se pudo obtener el usuario");
       return;
     }
-    const parsed = new Date(newDate);
-    if (isNaN(parsed.getTime())) {
-      toast.error("Fecha inválida");
+
+    // Build array of dates (single date or range)
+    const from = startOfDay(dateRange.from);
+    const to = dateRange.to ? startOfDay(dateRange.to) : from;
+
+    if (isBefore(to, from)) {
+      toast.error("La fecha de fin debe ser posterior a la de inicio");
       return;
     }
+
+    const dates = eachDayOfInterval({ start: from, end: to }).map((d) =>
+      format(d, "yyyy-MM-dd")
+    );
+
     try {
       setAdding(true);
-      const userId = (session?.user as { id?: string } | undefined)?.id;
-      if (!userId) {
-        toast.error("No se pudo obtener el usuario");
-        return;
-      }
       const res = await fetch("/api/preferences/block-days", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, dates: [newDate] }),
+        body: JSON.stringify({ userId, dates }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? "Error al agregar día bloqueado");
+        throw new Error(err.error ?? "Error al agregar dias bloqueados");
       }
-      toast.success("Día bloqueado agregado");
-      setNewDate("");
+      toast.success(
+        dates.length === 1
+          ? "Dia bloqueado agregado"
+          : `${dates.length} dias bloqueados agregados`
+      );
+      setDateRange(undefined);
+      setCalendarOpen(false);
       fetchBlockDays();
     } catch (error) {
       toast.error(
@@ -433,39 +693,76 @@ function BlockDaysSection() {
         body: JSON.stringify({ id }),
       });
       if (!res.ok) throw new Error("Error al eliminar");
-      toast.success("Día bloqueado eliminado");
+      toast.success("Dia bloqueado eliminado");
       setBlockDays((prev) => prev.filter((b) => b.id !== id));
     } catch {
-      toast.error("Error al eliminar el día bloqueado");
+      toast.error("Error al eliminar el dia bloqueado");
     }
   }
+
+  // Dates already blocked (to gray them out in calendar)
+  const blockedDates = blockDays.map((b) => new Date(b.date));
+
+  const rangeLabel = dateRange?.from
+    ? dateRange.to && !isSameDay(dateRange.from, dateRange.to)
+      ? `${format(dateRange.from, "dd/MM/yyyy", { locale: es })} - ${format(dateRange.to, "dd/MM/yyyy", { locale: es })}`
+      : format(dateRange.from, "dd/MM/yyyy", { locale: es })
+    : "Seleccionar fecha o rango";
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Días Bloqueados</CardTitle>
+        <CardTitle>Dias Bloqueados</CardTitle>
         <CardDescription>
-          Agrega fechas en las que no atenderás pacientes.
+          Bloquea fechas puntuales o rangos (vacaciones, feriados, congresos).
+          Podes seleccionar un dia o un rango de fechas.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Add new block day */}
-        <div className="flex max-w-md gap-2">
-          <div className="relative flex-1">
-            <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="date"
-              className="pl-10"
-              value={newDate}
-              onChange={(e) => setNewDate(e.target.value)}
-            />
+        {/* Date range picker */}
+        <div className="flex max-w-lg flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-1.5">
+            <Label className="text-xs">Fecha o rango</Label>
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`w-full justify-start text-left font-normal ${
+                    !dateRange?.from ? "text-muted-foreground" : ""
+                  }`}
+                >
+                  <CalendarRange className="mr-2 h-4 w-4" />
+                  {rangeLabel}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarComponent
+                  mode="range"
+                  selected={dateRange}
+                  onSelect={setDateRange}
+                  numberOfMonths={2}
+                  locale={es}
+                  disabled={(date) =>
+                    isBefore(date, startOfDay(new Date())) ||
+                    blockedDates.some((bd) => isSameDay(bd, date))
+                  }
+                  defaultMonth={new Date()}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
-          <Button onClick={addBlockDay} disabled={adding} size="sm">
+          <Button
+            onClick={addBlockDays}
+            disabled={adding || !dateRange?.from}
+            size="default"
+          >
             {adding ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Plus className="h-4 w-4" />
+              <Plus className="mr-2 h-4 w-4" />
             )}
+            Bloquear
           </Button>
         </div>
 
@@ -476,10 +773,14 @@ function BlockDaysSection() {
           </div>
         ) : blockDays.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            No hay días bloqueados.
+            No hay dias bloqueados.
           </p>
         ) : (
           <div className="max-w-lg space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              {blockDays.length}{" "}
+              {blockDays.length === 1 ? "dia bloqueado" : "dias bloqueados"}
+            </p>
             {blockDays
               .sort(
                 (a, b) =>
@@ -490,14 +791,14 @@ function BlockDaysSection() {
                   key={bd.id}
                   className="flex items-center justify-between rounded-lg border px-3 py-2"
                 >
-                  <span className="text-sm">
-                    {new Date(bd.date).toLocaleDateString("es-AR", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm">
+                      {format(new Date(bd.date), "EEEE, d 'de' MMMM yyyy", {
+                        locale: es,
+                      })}
+                    </span>
+                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -515,15 +816,23 @@ function BlockDaysSection() {
   );
 }
 
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ConfiguracionPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Configuracion</h1>
         <p className="text-muted-foreground">
-          Gestiona tu perfil y preferencias de atención
+          Gestiona tu perfil y preferencias de atencion
         </p>
       </div>
 
@@ -531,11 +840,12 @@ export default function ConfiguracionPage() {
         <TabsList>
           <TabsTrigger value="perfil">Perfil</TabsTrigger>
           <TabsTrigger value="horarios">Horarios</TabsTrigger>
-          <TabsTrigger value="bloqueos">Días Bloqueados</TabsTrigger>
+          <TabsTrigger value="bloqueos">Dias Bloqueados</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="perfil" className="mt-6">
+        <TabsContent value="perfil" className="mt-6 space-y-6">
           <ProfileSection />
+          <ChangePasswordSection />
         </TabsContent>
 
         <TabsContent value="horarios" className="mt-6">

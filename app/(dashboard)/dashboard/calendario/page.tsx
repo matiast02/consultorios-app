@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +11,13 @@ import { Separator } from "@/components/ui/separator";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { ShiftDetailDialog } from "@/components/shifts/shift-detail-dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -17,8 +25,9 @@ import {
   Calendar as CalendarIcon,
   Clock,
   AlertTriangle,
+  Stethoscope,
 } from "lucide-react";
-import type { Shift, ShiftStatus, UserPreference, BlockDay } from "@/types";
+import type { Shift, ShiftStatus, UserPreference, BlockDay, Medic } from "@/types";
 import {
   SHIFT_STATUS_DOT_COLORS,
   SHIFT_STATUS_LABELS,
@@ -72,6 +81,7 @@ function getMonday(date: Date): Date {
 
 export default function CalendarioPage() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [preferences, setPreferences] = useState<UserPreference[]>([]);
@@ -86,10 +96,41 @@ export default function CalendarioPage() {
     start: string;
     end: string;
   } | null>(null);
+  const [scheduleNextPatient, setScheduleNextPatient] = useState<{
+    patientId: string;
+    medicId: string;
+  } | null>(null);
+
+  // Medic filter (for secretary/admin)
+  const [medics, setMedics] = useState<Medic[]>([]);
+  const [selectedMedicId, setSelectedMedicId] = useState<string | null>(null);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userRole = (session?.user as { role?: string } | undefined)?.role;
+  const isStaff = userRole === "secretary" || userRole === "admin";
+
+  // Init medic filter from URL param
+  useEffect(() => {
+    const medicoParam = searchParams.get("medico");
+    if (medicoParam) setSelectedMedicId(medicoParam);
+  }, [searchParams]);
+
+  // Fetch medics list for staff
+  useEffect(() => {
+    if (!isStaff) return;
+    async function loadMedics() {
+      try {
+        const res = await fetch("/api/users/medics");
+        if (res.ok) {
+          const json = await res.json();
+          setMedics(json.data ?? []);
+        }
+      } catch { /* non-critical */ }
+    }
+    loadMedics();
+  }, [isStaff]);
 
   const fetchShifts = useCallback(async () => {
     try {
@@ -98,6 +139,10 @@ export default function CalendarioPage() {
         month: String(month + 1),
         year: String(year),
       });
+      // Staff filtering by selected medic
+      if (isStaff && selectedMedicId) {
+        params.set("userId", selectedMedicId);
+      }
       const res = await fetch(`/api/shifts?${params}`);
       if (!res.ok) throw new Error("Error al cargar turnos");
       const json = await res.json();
@@ -108,16 +153,23 @@ export default function CalendarioPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, isStaff, selectedMedicId]);
+
+  // Load availability for the relevant user (selected medic or self)
+  const availabilityUserId = isStaff ? selectedMedicId : userId;
 
   const fetchAvailability = useCallback(async () => {
-    if (!userId) return;
+    if (!availabilityUserId) {
+      setPreferences([]);
+      setBlockDays([]);
+      return;
+    }
     try {
       const params = new URLSearchParams({
         month: String(month + 1),
         year: String(year),
       });
-      const res = await fetch(`/api/users/${userId}/availability?${params}`);
+      const res = await fetch(`/api/users/${availabilityUserId}/availability?${params}`);
       if (res.ok) {
         const json = await res.json();
         setPreferences(json.data?.preferences ?? []);
@@ -126,7 +178,7 @@ export default function CalendarioPage() {
     } catch {
       // Non-critical
     }
-  }, [userId, year, month]);
+  }, [availabilityUserId, year, month]);
 
   useEffect(() => {
     fetchShifts();
@@ -306,11 +358,38 @@ export default function CalendarioPage() {
     <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Calendario</h1>
-          <p className="text-muted-foreground">
-            Gestiona tus turnos y citas
-          </p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Calendario</h1>
+            <p className="text-muted-foreground">
+              Gestiona tus turnos y citas
+            </p>
+          </div>
+          {/* Medic filter for staff */}
+          {isStaff && medics.length > 0 && (
+            <Select
+              value={selectedMedicId ?? "__all__"}
+              onValueChange={(val) =>
+                setSelectedMedicId(val === "__all__" ? null : val)
+              }
+            >
+              <SelectTrigger className="w-[220px]">
+                <div className="flex items-center gap-2">
+                  <Stethoscope className="h-3.5 w-3.5 text-primary" />
+                  <SelectValue placeholder="Todos los medicos" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos los medicos</SelectItem>
+                {medics.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.lastName ? `Dr. ${m.lastName}` : m.name ?? "Medico"}
+                    {m.specialization?.name ? ` — ${m.specialization.name}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* View mode toggle */}
@@ -372,6 +451,7 @@ export default function CalendarioPage() {
                 onSelectDay={(day) =>
                   setSelectedDate(new Date(year, month, day))
                 }
+                showMedicInitials={!selectedMedicId}
               />
             ) : viewMode === "week" ? (
               <WeekView
@@ -574,6 +654,33 @@ export default function CalendarioPage() {
             setDetailOpen(false);
             setSelectedShift(null);
           }}
+          onScheduleNext={(patientId, medicId) => {
+            setDetailOpen(false);
+            setSelectedShift(null);
+            setScheduleNextPatient({ patientId, medicId });
+          }}
+          onReschedule={(patientId, medicId) => {
+            setDetailOpen(false);
+            setSelectedShift(null);
+            fetchShifts();
+            setScheduleNextPatient({ patientId, medicId });
+          }}
+        />
+      )}
+
+      {/* Create shift dialog for scheduling next appointment */}
+      {scheduleNextPatient && !createOpen && (
+        <CreateShiftDialog
+          open={!!scheduleNextPatient}
+          onOpenChange={(open) => {
+            if (!open) setScheduleNextPatient(null);
+          }}
+          defaultPatientId={scheduleNextPatient.patientId}
+          defaultMedicId={scheduleNextPatient.medicId}
+          onCreated={() => {
+            setScheduleNextPatient(null);
+            fetchShifts();
+          }}
         />
       )}
     </div>
@@ -593,6 +700,7 @@ function MonthView({
   isToday,
   isSelected,
   onSelectDay,
+  showMedicInitials,
 }: {
   calendarDays: (number | null)[];
   year: number;
@@ -602,6 +710,7 @@ function MonthView({
   isToday: (day: number) => boolean;
   isSelected: (day: number) => boolean;
   onSelectDay: (day: number) => void;
+  showMedicInitials?: boolean;
 }) {
   return (
     <>
@@ -656,9 +765,12 @@ function MonthView({
                 {dayShifts.slice(0, 3).map((s) => (
                   <div key={s.id} className="flex items-center gap-1">
                     <div
-                      className={`h-1.5 w-1.5 rounded-full ${SHIFT_STATUS_DOT_COLORS[s.status]}`}
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${SHIFT_STATUS_DOT_COLORS[s.status]}`}
                     />
                     <span className="truncate text-[10px] text-muted-foreground">
+                      {showMedicInitials && s.user?.lastName
+                        ? `${s.user.lastName.substring(0, 3)}. `
+                        : ""}
                       {formatTime(new Date(s.start))}
                     </span>
                   </div>

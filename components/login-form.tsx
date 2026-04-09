@@ -192,6 +192,14 @@ export function LoginForm() {
                 {errors.password.message}
               </p>
             )}
+            <div className="flex justify-end">
+              <Link
+                href="/forgot-password"
+                className="text-xs text-muted-foreground transition-colors hover:text-primary"
+              >
+                ¿Olvidaste tu contrasena?
+              </Link>
+            </div>
           </div>
 
           <Button

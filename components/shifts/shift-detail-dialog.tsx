@@ -24,6 +24,8 @@ import {
   Clock,
   Calendar,
   Stethoscope,
+  CalendarPlus,
+  CalendarClock,
 } from "lucide-react";
 import type { Shift, ShiftStatus } from "@/types";
 import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS } from "@/types";
@@ -33,6 +35,8 @@ interface ShiftDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   shift: Shift;
   onUpdated: () => void;
+  onScheduleNext?: (patientId: string, medicId: string) => void;
+  onReschedule?: (patientId: string, medicId: string) => void;
 }
 
 export function ShiftDetailDialog({
@@ -40,9 +44,12 @@ export function ShiftDetailDialog({
   onOpenChange,
   shift,
   onUpdated,
+  onScheduleNext,
+  onReschedule,
 }: ShiftDetailDialogProps) {
   const [observations, setObservations] = useState(shift.observations ?? "");
   const [saving, setSaving] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
   const [changingStatus, setChangingStatus] = useState<ShiftStatus | null>(
     null
   );
@@ -242,7 +249,7 @@ export function ShiftDetailDialog({
                   key={action.status}
                   variant={action.variant}
                   size="sm"
-                  disabled={saving}
+                  disabled={saving || rescheduling}
                   onClick={() => updateShift({ status: action.status })}
                 >
                   {changingStatus === action.status ? (
@@ -255,12 +262,68 @@ export function ShiftDetailDialog({
               ))}
             </div>
           </div>
+
+          {/* Reschedule — only for PENDING/CONFIRMED */}
+          {(shift.status === "PENDING" || shift.status === "CONFIRMED") &&
+            onReschedule &&
+            shift.patient && (
+              <div className="space-y-2">
+                <Separator />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={saving || rescheduling}
+                  onClick={async () => {
+                    try {
+                      setRescheduling(true);
+                      // Cancel the current shift
+                      const res = await fetch(`/api/shifts/${shift.id}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "CANCELLED" }),
+                      });
+                      if (!res.ok) throw new Error("Error al cancelar turno");
+                      toast.success("Turno cancelado. Selecciona nueva fecha.");
+                      onReschedule(shift.patientId, shift.userId);
+                      onOpenChange(false);
+                    } catch {
+                      toast.error("Error al reprogramar");
+                    } finally {
+                      setRescheduling(false);
+                    }
+                  }}
+                >
+                  {rescheduling ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CalendarClock className="mr-2 h-4 w-4" />
+                  )}
+                  Reprogramar turno
+                </Button>
+                <p className="text-[11px] text-muted-foreground">
+                  Cancela este turno y abre el formulario para agendar en otra
+                  fecha.
+                </p>
+              </div>
+            )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cerrar
           </Button>
+          {shift.status === "FINISHED" && onScheduleNext && shift.patient && (
+            <Button
+              onClick={() => {
+                onScheduleNext(shift.patientId, shift.userId);
+                onOpenChange(false);
+              }}
+            >
+              <CalendarPlus className="mr-2 h-4 w-4" />
+              Nuevo turno para este paciente
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createEvolutionSchema } from "@/lib/validations";
 import { isMedic } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -191,6 +192,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
           select: { id: true, start: true, end: true, status: true },
         },
       },
+    });
+
+    logAudit({
+      userId: session.user.id,
+      action: "CREATE",
+      resource: "evolution",
+      resourceId: evolution.id,
+      details: { patientId, diagnosis: parsed.data.diagnosis ?? null },
+      req,
     });
 
     return NextResponse.json({ success: true, data: evolution }, { status: 201 });

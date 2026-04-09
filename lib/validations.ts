@@ -187,6 +187,40 @@ export const updateSpecializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
 });
 
+// ─── Audit Logs ──────────────────────────────────────────────────────────────
+
+export const auditLogsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  userId: z.string().min(1).optional(),
+  resource: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+});
+
+// ─── Password / Auth ─────────────────────────────────────────────────────────
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Email invalido"),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Token requerido"),
+  password: z.string()
+    .min(8, "Minimo 8 caracteres")
+    .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
+    .regex(/[0-9]/, "Debe contener al menos un numero"),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Contrasena actual requerida"),
+  newPassword: z.string()
+    .min(8, "Minimo 8 caracteres")
+    .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
+    .regex(/[0-9]/, "Debe contener al menos un numero"),
+});
+
 // ─── Type exports ─────────────────────────────────────────────────────────────
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;
@@ -204,3 +238,6 @@ export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type CreateSpecializationInput = z.infer<typeof createSpecializationSchema>;
 export type UpdateSpecializationInput = z.infer<typeof updateSpecializationSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

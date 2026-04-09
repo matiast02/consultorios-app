@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createPatientSchema, paginationSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
 
 // GET /api/patients — List patients with optional search
 export async function GET(req: NextRequest) {
@@ -109,6 +110,15 @@ export async function POST(req: NextRequest) {
         birthDate: data.birthDate ? new Date(data.birthDate) : null,
       },
       include: { os: true },
+    });
+
+    logAudit({
+      userId: session.user.id!,
+      action: "CREATE",
+      resource: "patient",
+      resourceId: patient.id,
+      details: { name: `${data.firstName} ${data.lastName}` },
+      req,
     });
 
     return NextResponse.json({ success: true, data: patient }, { status: 201 });

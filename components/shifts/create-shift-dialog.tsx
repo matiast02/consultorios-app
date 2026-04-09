@@ -56,6 +56,8 @@ interface CreateShiftDialogProps {
   defaultDate?: Date;
   defaultStartTime?: string;
   defaultEndTime?: string;
+  defaultPatientId?: string;
+  defaultMedicId?: string;
   onCreated: () => void;
 }
 
@@ -65,6 +67,8 @@ export function CreateShiftDialog({
   defaultDate,
   defaultStartTime,
   defaultEndTime,
+  defaultPatientId,
+  defaultMedicId,
   onCreated,
 }: CreateShiftDialogProps) {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -83,13 +87,13 @@ export function CreateShiftDialog({
   } = useForm<CreateShiftForm>({
     resolver: zodResolver(createShiftSchema),
     defaultValues: {
-      patientId: "",
+      patientId: defaultPatientId ?? "",
       date: defaultDate
         ? defaultDate.toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
       startTime: defaultStartTime ?? "09:00",
       endTime: defaultEndTime ?? "09:30",
-      medicId: "",
+      medicId: defaultMedicId ?? "",
     },
   });
 
@@ -99,16 +103,16 @@ export function CreateShiftDialog({
   useEffect(() => {
     if (open) {
       reset({
-        patientId: "",
+        patientId: defaultPatientId ?? "",
         date: defaultDate
           ? defaultDate.toISOString().split("T")[0]
           : new Date().toISOString().split("T")[0],
         startTime: defaultStartTime ?? "09:00",
         endTime: defaultEndTime ?? "09:30",
-        medicId: "",
+        medicId: defaultMedicId ?? "",
       });
     }
-  }, [open, defaultDate, defaultStartTime, defaultEndTime, reset]);
+  }, [open, defaultDate, defaultStartTime, defaultEndTime, defaultPatientId, defaultMedicId, reset]);
 
   // Fetch patients
   useEffect(() => {

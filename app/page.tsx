@@ -194,6 +194,18 @@ export default async function Home() {
         </div>
       </section>
 
+      {/* Compliance banner */}
+      <div className="border-t bg-muted/40">
+        <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-3">
+          <Shield className="h-4 w-4 shrink-0 text-primary/60" />
+          <p className="text-xs text-muted-foreground">
+            Este sistema cumple con la Ley 25.326 de Proteccion de Datos
+            Personales de la Republica Argentina. Todos los accesos a informacion
+            medica sensible son registrados y auditables.
+          </p>
+        </div>
+      </div>
+
       {/* Footer */}
       <footer className="border-t py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-2 px-4 text-center sm:flex-row sm:justify-between">

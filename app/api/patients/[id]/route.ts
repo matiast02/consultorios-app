@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updatePatientSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -102,6 +103,15 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       include: { os: true },
     });
 
+    logAudit({
+      userId: session.user.id!,
+      action: "UPDATE",
+      resource: "patient",
+      resourceId: id,
+      details: { fields: Object.keys(parsed.data) },
+      req,
+    });
+
     return NextResponse.json({ success: true, data: patient });
   } catch (error) {
     console.error("PUT /api/patients/[id] error:", error);
@@ -113,7 +123,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/patients/[id] — Soft delete patient
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
     if (!session?.user) {
@@ -139,6 +149,14 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     await prisma.patient.update({
       where: { id },
       data: { deletedAt: new Date() },
+    });
+
+    logAudit({
+      userId: session.user.id!,
+      action: "DELETE",
+      resource: "patient",
+      resourceId: id,
+      req,
     });
 
     return NextResponse.json({ success: true, data: { id } });

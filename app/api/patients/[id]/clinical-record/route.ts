@@ -3,11 +3,12 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateClinicalRecordSchema } from "@/lib/validations";
 import { isMedic } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/patients/[id]/clinical-record — Get or create clinical record
-export async function GET(_req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
     if (!session?.user) {
@@ -78,6 +79,26 @@ export async function GET(_req: NextRequest, context: RouteContext) {
           },
         });
       }
+    }
+
+    // Log VIEW_SENSITIVE if record has meaningful data
+    const hasData =
+      clinicalRecord.evolutions.length > 0 ||
+      clinicalRecord.bloodType ||
+      clinicalRecord.allergies ||
+      clinicalRecord.personalHistory ||
+      clinicalRecord.familyHistory ||
+      clinicalRecord.currentMedication ||
+      clinicalRecord.notes;
+
+    if (hasData) {
+      logAudit({
+        userId: session.user.id!,
+        action: "VIEW_SENSITIVE",
+        resource: "clinical_record",
+        resourceId: clinicalRecord.id,
+        req,
+      });
     }
 
     return NextResponse.json({ success: true, data: clinicalRecord });
@@ -151,6 +172,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         patientId: id,
         ...parsed.data,
       },
+    });
+
+    logAudit({
+      userId: session.user.id!,
+      action: "UPDATE",
+      resource: "clinical_record",
+      resourceId: clinicalRecord.id,
+      req,
     });
 
     return NextResponse.json({ success: true, data: clinicalRecord });

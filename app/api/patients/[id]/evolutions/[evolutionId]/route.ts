@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateEvolutionSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ id: string; evolutionId: string }> };
 
@@ -147,6 +148,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       },
     });
 
+    logAudit({
+      userId: session.user.id,
+      action: "UPDATE",
+      resource: "evolution",
+      resourceId: evolutionId,
+      req,
+    });
+
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
     console.error("PUT /api/patients/[id]/evolutions/[evolutionId] error:", error);
@@ -158,7 +167,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/patients/[id]/evolutions/[evolutionId] — Delete evolution (only by creator)
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -193,6 +202,14 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     }
 
     await prisma.evolution.delete({ where: { id: evolutionId } });
+
+    logAudit({
+      userId: session.user.id,
+      action: "DELETE",
+      resource: "evolution",
+      resourceId: evolutionId,
+      req,
+    });
 
     return NextResponse.json({ success: true, data: { id: evolutionId } });
   } catch (error) {

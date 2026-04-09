@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateUserSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
+import { getUserRole } from "@/lib/auth-utils";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -152,6 +154,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       ? { ...updated, roles: updated.roles.map((ur) => ur.role) }
       : user;
 
+    logAudit({
+      userId: session.user.id!,
+      action: "UPDATE",
+      resource: "user",
+      resourceId: id,
+      req,
+    });
+
     return NextResponse.json({ success: true, data });
   } catch (error) {
     console.error("PUT /api/users/[id] error:", error);
@@ -163,7 +173,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/users/[id] — Soft-delete user
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
     if (!session?.user) {
@@ -175,6 +185,15 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
 
     const { id } = await context.params;
 
+    // Only admin role can delete users
+    const requesterRole = await getUserRole(session.user.id!);
+    if (requesterRole !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "No autorizado" },
+        { status: 403 }
+      );
+    }
+
     const existing = await prisma.user.findUnique({
       where: { id, deletedAt: null },
     });
@@ -182,6 +201,15 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: "Usuario no encontrado" },
         { status: 404 }
+      );
+    }
+
+    // Prevent deleting admin users
+    const targetRole = await getUserRole(id);
+    if (targetRole === "admin") {
+      return NextResponse.json(
+        { success: false, error: "No se puede eliminar un usuario administrador" },
+        { status: 403 }
       );
     }
 
@@ -196,6 +224,14 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     await prisma.user.update({
       where: { id },
       data: { deletedAt: new Date() },
+    });
+
+    logAudit({
+      userId: session.user.id!,
+      action: "DELETE",
+      resource: "user",
+      resourceId: id,
+      req,
     });
 
     return NextResponse.json({ success: true, data: { id } });

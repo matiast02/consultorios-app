@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateShiftSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -94,6 +95,17 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       },
     });
 
+    logAudit({
+      userId: session.user.id!,
+      action: "UPDATE",
+      resource: "shift",
+      resourceId: id,
+      details: data.status && data.status !== existing.status
+        ? { status: data.status }
+        : undefined,
+      req,
+    });
+
     return NextResponse.json({ success: true, data: shift });
   } catch (error) {
     console.error("PUT /api/shifts/[id] error:", error);
@@ -105,7 +117,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/shifts/[id] — Delete shift
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
     if (!session?.user) {
@@ -127,6 +139,14 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     }
 
     await prisma.shift.delete({ where: { id } });
+
+    logAudit({
+      userId: session.user.id!,
+      action: "DELETE",
+      resource: "shift",
+      resourceId: id,
+      req,
+    });
 
     return NextResponse.json({ success: true, data: { id } });
   } catch (error) {

@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { logAudit } from "@/lib/audit";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -13,7 +14,7 @@ const registerSchema = z.object({
     .regex(/[0-9]/, "Password must contain at least one number"),
 });
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const parsed = registerSchema.safeParse(body);
@@ -54,6 +55,15 @@ export async function POST(request: Request) {
         email: true,
         createdAt: true,
       },
+    });
+
+    logAudit({
+      userId: user.id,
+      action: "CREATE",
+      resource: "user",
+      resourceId: user.id,
+      details: { name, email },
+      req: request,
     });
 
     return NextResponse.json(
