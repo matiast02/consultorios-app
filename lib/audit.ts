@@ -1,7 +1,16 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export type AuditAction = "CREATE" | "UPDATE" | "DELETE" | "VIEW_SENSITIVE";
+export type AuditAction =
+  | "CREATE"
+  | "UPDATE"
+  | "DELETE"
+  | "VIEW_SENSITIVE"
+  | "LOGIN_SUCCESS"
+  | "LOGIN_FAILED"
+  | "LOGIN_BLOCKED"
+  | "LOGOUT"
+  | "PASSWORD_CHANGED";
 
 export type AuditResource =
   | "patient"
@@ -14,7 +23,8 @@ export type AuditResource =
   | "user_preference"
   | "block_day"
   | "prescription"
-  | "medication";
+  | "medication"
+  | "auth";
 
 interface LogAuditParams {
   userId: string;

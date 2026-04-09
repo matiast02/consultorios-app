@@ -13,6 +13,7 @@ import {
   recordSuccessfulLogin,
   applyDelay,
 } from "@/lib/login-protection";
+import { logAudit } from "@/lib/audit";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -42,7 +43,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Brute-force protection: check if login is allowed
         const loginCheck = checkLoginAllowed(email);
         if (!loginCheck.allowed) {
-          // Throw CredentialsSignin with message for locked accounts
+          logAudit({
+            userId: "unknown",
+            action: "LOGIN_BLOCKED",
+            resource: "auth",
+            resourceId: email,
+            details: { reason: "brute_force_lockout", remainingAttempts: 0 },
+          });
           throw new Error(loginCheck.message ?? "Cuenta bloqueada temporalmente");
         }
 
@@ -55,17 +62,37 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!user || !user.password) {
           recordFailedLogin(email);
+          logAudit({
+            userId: "unknown",
+            action: "LOGIN_FAILED",
+            resource: "auth",
+            resourceId: email,
+            details: { reason: "user_not_found" },
+          });
           return null;
         }
 
         const passwordsMatch = await bcrypt.compare(password, user.password);
         if (!passwordsMatch) {
           recordFailedLogin(email);
+          logAudit({
+            userId: user.id,
+            action: "LOGIN_FAILED",
+            resource: "auth",
+            resourceId: email,
+            details: { reason: "wrong_password", remainingAttempts: loginCheck.remainingAttempts - 1 },
+          });
           return null;
         }
 
-        // Success: reset failed attempts counter
+        // Success: reset failed attempts counter and log
         recordSuccessfulLogin(email);
+        logAudit({
+          userId: user.id,
+          action: "LOGIN_SUCCESS",
+          resource: "auth",
+          resourceId: email,
+        });
 
         return {
           id: user.id,

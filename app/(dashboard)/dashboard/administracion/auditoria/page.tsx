@@ -78,6 +78,8 @@ const RESOURCE_LABELS: Record<string, string> = {
   user: "Usuario",
   user_preference: "Preferencia",
   block_day: "Dia Bloqueado",
+  prescription: "Receta",
+  auth: "Autenticacion",
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -85,6 +87,11 @@ const ACTION_LABELS: Record<string, string> = {
   UPDATE: "Modificar",
   DELETE: "Eliminar",
   VIEW_SENSITIVE: "Ver datos sensibles",
+  LOGIN_SUCCESS: "Login exitoso",
+  LOGIN_FAILED: "Login fallido",
+  LOGIN_BLOCKED: "Login bloqueado",
+  LOGOUT: "Cerrar sesion",
+  PASSWORD_CHANGED: "Cambio de contrasena",
 };
 
 const ACTION_BADGE_CLASSES: Record<string, string> = {
@@ -96,9 +103,20 @@ const ACTION_BADGE_CLASSES: Record<string, string> = {
     "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800",
   VIEW_SENSITIVE:
     "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800",
+  LOGIN_SUCCESS:
+    "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800",
+  LOGIN_FAILED:
+    "bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800",
+  LOGIN_BLOCKED:
+    "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800",
+  LOGOUT:
+    "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-950/40 dark:text-slate-300 dark:border-slate-800",
+  PASSWORD_CHANGED:
+    "bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800",
 };
 
 const RESOURCE_OPTIONS = [
+  "auth",
   "patient",
   "shift",
   "evolution",
@@ -108,7 +126,7 @@ const RESOURCE_OPTIONS = [
   "user",
 ];
 
-const ACTION_OPTIONS = ["CREATE", "UPDATE", "DELETE", "VIEW_SENSITIVE"];
+const ACTION_OPTIONS = ["CREATE", "UPDATE", "DELETE", "VIEW_SENSITIVE", "LOGIN_SUCCESS", "LOGIN_FAILED", "LOGIN_BLOCKED"];
 
 const PAGE_LIMIT = 20;
 
