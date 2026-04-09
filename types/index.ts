@@ -46,6 +46,7 @@ export interface Patient {
   firstName: string;
   lastName: string;
   birthDate?: string | null;
+  sex?: string | null;
   dni?: string | null;
   email?: string | null;
   telephone?: string | null;

@@ -37,7 +37,8 @@ import type { Patient, HealthInsurance } from "@/types";
 const patientSchema = z.object({
   firstName: z.string().min(1, "El nombre es obligatorio"),
   lastName: z.string().min(1, "El apellido es obligatorio"),
-  birthDate: z.string().optional(),
+  birthDate: z.string().min(1, "La fecha de nacimiento es obligatoria"),
+  sex: z.enum(["M", "F", "X"], { required_error: "El sexo es obligatorio" }),
   dni: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   telephone: z.string().optional(),
@@ -81,6 +82,7 @@ export function PatientFormDialog({
       firstName: "",
       lastName: "",
       birthDate: "",
+      sex: undefined,
       dni: "",
       email: "",
       telephone: "",
@@ -93,6 +95,7 @@ export function PatientFormDialog({
   });
 
   const selectedOsId = watch("osId");
+  const selectedSex = watch("sex");
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -104,6 +107,7 @@ export function PatientFormDialog({
           birthDate: patient.birthDate
             ? new Date(patient.birthDate).toISOString().split("T")[0]
             : "",
+          sex: (patient.sex as "M" | "F" | "X") ?? undefined,
           dni: patient.dni ?? "",
           email: patient.email ?? "",
           telephone: patient.telephone ?? "",
@@ -118,6 +122,7 @@ export function PatientFormDialog({
           firstName: "",
           lastName: "",
           birthDate: "",
+          sex: undefined,
           dni: "",
           email: "",
           telephone: "",
@@ -221,14 +226,36 @@ export function PatientFormDialog({
             </div>
           </div>
 
-          {/* DNI & Birth date */}
+          {/* Sex & DNI */}
           <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Sexo *</Label>
+              <Select
+                value={selectedSex ?? ""}
+                onValueChange={(v) => setValue("sex", v as "M" | "F" | "X")}
+              >
+                <SelectTrigger className={!selectedSex ? "text-muted-foreground" : ""}>
+                  <SelectValue placeholder="Seleccionar..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="M">Masculino</SelectItem>
+                  <SelectItem value="F">Femenino</SelectItem>
+                  <SelectItem value="X">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+              {errors.sex && (
+                <p className="text-sm text-destructive">{errors.sex.message}</p>
+              )}
+            </div>
             <div className="space-y-2">
               <Label htmlFor="dni">DNI</Label>
               <Input id="dni" {...register("dni")} />
             </div>
-            <div className="space-y-2">
-              <Label>Fecha de nacimiento</Label>
+          </div>
+
+          {/* Birth date */}
+          <div className="space-y-2">
+              <Label>Fecha de nacimiento *</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -275,7 +302,9 @@ export function PatientFormDialog({
                   />
                 </PopoverContent>
               </Popover>
-            </div>
+              {errors.birthDate && (
+                <p className="text-sm text-destructive">{errors.birthDate.message}</p>
+              )}
           </div>
 
           {/* Contact */}

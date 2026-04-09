@@ -26,7 +26,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import type { AnthropometricData, AnthropometricEntry } from "./anthropometric-types";
 import {
@@ -182,10 +182,15 @@ export function AnthropometricTracker({
                   border: "1px solid hsl(var(--border))",
                   borderRadius: 8,
                   fontSize: 12,
+                  color: "hsl(var(--foreground))",
                 }}
+                labelStyle={{ color: "hsl(var(--foreground))" }}
+                itemStyle={{ color: "hsl(var(--muted-foreground))" }}
                 labelFormatter={(_, payload) => payload?.[0]?.payload?.fullDate ?? ""}
               />
-              <Legend fontSize={11} />
+              <Legend
+                wrapperStyle={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }}
+              />
               <Line
                 yAxisId="peso"
                 type="monotone"
@@ -370,7 +375,10 @@ export function AnthropometricTracker({
                     return (
                       <TableRow key={entry.date + idx}>
                         <TableCell className="text-xs">
-                          {format(new Date(entry.date), "dd/MM/yy", { locale: es })}
+                          <div>{format(new Date(entry.date), "dd/MM/yy", { locale: es })}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {formatDistanceToNow(new Date(entry.date), { addSuffix: true, locale: es })}
+                          </div>
                         </TableCell>
                         <TableCell className="text-xs text-right font-medium">
                           {entry.weight} kg

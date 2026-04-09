@@ -5,7 +5,8 @@ import { z } from "zod";
 export const createPatientSchema = z.object({
   firstName: z.string().min(1, "El nombre es obligatorio").max(100),
   lastName: z.string().min(1, "El apellido es obligatorio").max(100),
-  birthDate: z.string().nullable().optional(),
+  birthDate: z.string().min(1, "La fecha de nacimiento es obligatoria"),
+  sex: z.enum(["M", "F", "X"], { required_error: "El sexo es obligatorio" }),
   dni: z.string().max(20).nullable().optional(),
   email: z.string().email("Email inválido").nullable().optional(),
   telephone: z.string().max(30).nullable().optional(),

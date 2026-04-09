@@ -170,6 +170,7 @@ model Patient {
   firstName String
   lastName  String
   birthDate DateTime?
+  sex       String?           // "M", "F", "X"
   dni       String?  @unique
   email     String?
   telephone String?
