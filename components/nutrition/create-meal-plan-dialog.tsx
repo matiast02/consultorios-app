@@ -18,8 +18,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Plus, X, UtensilsCrossed } from "lucide-react";
+import { Loader2, Plus, X, UtensilsCrossed, AlertTriangle } from "lucide-react";
+import type { MealPlan, MealSection } from "@/types";
 import { MEAL_PLAN_TYPES, DEFAULT_MEAL_SECTIONS } from "@/types";
+
+// ─── Meal-time icons ────────────────────────────────────────────────────────
+
+const MEAL_ICONS: Record<string, string> = {
+  "Desayuno": "☀️",
+  "Media mañana": "🫖",
+  "Almuerzo": "🍽️",
+  "Merienda": "🌅",
+  "Media tarde": "🌆",
+  "Cena": "🌙",
+};
+
+function getMealIcon(name: string): string {
+  return MEAL_ICONS[name] ?? "🍴";
+}
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
@@ -53,6 +69,7 @@ interface CreateMealPlanDialogProps {
   patientId: string;
   patientName: string;
   userId?: string | null;
+  editPlan?: MealPlan | null;
   onCreated: () => void;
 }
 
@@ -64,8 +81,10 @@ export function CreateMealPlanDialog({
   patientId,
   patientName,
   userId,
+  editPlan,
   onCreated,
 }: CreateMealPlanDialogProps) {
+  const isEdit = !!editPlan;
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const {
@@ -103,6 +122,23 @@ export function CreateMealPlanDialog({
   });
 
   const titleValue = watch("title");
+  const proteinPct = watch("proteinPct");
+  const carbsPct = watch("carbsPct");
+  const fatPct = watch("fatPct");
+
+  // Macro % validation warning
+  const macroSum =
+    (Number(proteinPct) || 0) + (Number(carbsPct) || 0) + (Number(fatPct) || 0);
+  const hasMacroInput =
+    (Number(proteinPct) || 0) > 0 ||
+    (Number(carbsPct) || 0) > 0 ||
+    (Number(fatPct) || 0) > 0;
+  const macroSumInvalid = hasMacroInput && macroSum !== 100;
+
+  // Filtered suggestions based on current input
+  const filteredSuggestions = MEAL_PLAN_TYPES.filter(
+    (t) => !titleValue || t.toLowerCase().includes(titleValue.toLowerCase())
+  );
 
   async function onSubmit(data: MealPlanFormData) {
     try {
@@ -125,18 +161,21 @@ export function CreateMealPlanDialog({
         notes: data.notes || null,
       };
 
-      const res = await fetch("/api/meal-plans", {
-        method: "POST",
+      const url = isEdit ? `/api/meal-plans/${editPlan!.id}` : "/api/meal-plans";
+      const method = isEdit ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? "Error al crear el plan alimentario");
+        throw new Error(err.error ?? `Error al ${isEdit ? "actualizar" : "crear"} el plan alimentario`);
       }
 
-      toast.success("Plan alimentario creado exitosamente");
+      toast.success(`Plan alimentario ${isEdit ? "actualizado" : "creado"} exitosamente`);
       reset();
       onCreated();
     } catch (error) {
@@ -151,11 +190,40 @@ export function CreateMealPlanDialog({
     setShowSuggestions(false);
   }
 
+  // Populate form when editing
+  const populatedRef = { current: false };
+  if (open && editPlan && !populatedRef.current) {
+    try {
+      const meals: MealSection[] = JSON.parse(editPlan.meals);
+      reset({
+        title: editPlan.title,
+        targetCalories: editPlan.targetCalories ?? undefined,
+        proteinPct: editPlan.proteinPct ?? undefined,
+        carbsPct: editPlan.carbsPct ?? undefined,
+        fatPct: editPlan.fatPct ?? undefined,
+        hydration: editPlan.hydration ?? "",
+        meals: meals.map((m) => ({
+          name: m.name,
+          time: m.time ?? "",
+          options: m.options,
+          isDefault: DEFAULT_MEAL_SECTIONS.some((d) => d.name === m.name),
+        })),
+        avoidFoods: editPlan.avoidFoods ?? "",
+        supplements: editPlan.supplements ?? "",
+        notes: editPlan.notes ?? "",
+      });
+      populatedRef.current = true;
+    } catch { /* invalid JSON */ }
+  }
+
   return (
     <Dialog
       open={open}
       onOpenChange={(val) => {
-        if (!val) reset();
+        if (!val) {
+          reset();
+          populatedRef.current = false;
+        }
         onOpenChange(val);
       }}
     >
@@ -163,7 +231,7 @@ export function CreateMealPlanDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UtensilsCrossed className="h-5 w-5 text-primary" />
-            Nuevo Plan Alimentario
+            {isEdit ? "Editar Plan Alimentario" : "Nuevo Plan Alimentario"}
           </DialogTitle>
           <DialogDescription>
             Crear plan alimentario para {patientName}
@@ -171,30 +239,30 @@ export function CreateMealPlanDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* Title with suggestions */}
+          {/* Title with autocomplete suggestions */}
           <div className="space-y-2">
             <Label htmlFor="meal-plan-title">Titulo del plan</Label>
             <div className="relative">
               <Input
                 id="meal-plan-title"
-                placeholder="Ej: Plan hipocalorico..."
+                placeholder="Ej: Plan hipocalórico..."
+                autoComplete="off"
                 {...register("title")}
                 onFocus={() => setShowSuggestions(true)}
                 onBlur={() => {
-                  // Small delay to allow click on suggestion
-                  setTimeout(() => setShowSuggestions(false), 200);
+                  // Small delay to allow mousedown on suggestion to fire first
+                  setTimeout(() => setShowSuggestions(false), 150);
                 }}
               />
-              {showSuggestions && (
+              {showSuggestions && filteredSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-md border bg-popover shadow-md">
-                  {MEAL_PLAN_TYPES.filter((t) =>
-                    !titleValue || t.toLowerCase().includes(titleValue.toLowerCase())
-                  ).map((type) => (
+                  {filteredSuggestions.map((type) => (
                     <button
                       key={type}
                       type="button"
-                      className="flex w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors"
+                      className="flex w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors first:rounded-t-md last:rounded-b-md"
                       onMouseDown={(e) => {
+                        // Prevent blur from firing before click
                         e.preventDefault();
                         handleSelectSuggestion(type);
                       }}
@@ -210,7 +278,7 @@ export function CreateMealPlanDialog({
             )}
           </div>
 
-          {/* Macros row */}
+          {/* Macros row — always visible */}
           <div className="space-y-2">
             <Label>Macronutrientes</Label>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -218,6 +286,8 @@ export function CreateMealPlanDialog({
                 <Label className="text-xs text-muted-foreground">Calorias (kcal)</Label>
                 <Input
                   type="number"
+                  min={0}
+                  max={10000}
                   placeholder="2000"
                   {...register("targetCalories", { valueAsNumber: true })}
                 />
@@ -226,6 +296,8 @@ export function CreateMealPlanDialog({
                 <Label className="text-xs text-muted-foreground">Proteinas %</Label>
                 <Input
                   type="number"
+                  min={0}
+                  max={100}
                   placeholder="30"
                   {...register("proteinPct", { valueAsNumber: true })}
                 />
@@ -234,6 +306,8 @@ export function CreateMealPlanDialog({
                 <Label className="text-xs text-muted-foreground">Carbohidratos %</Label>
                 <Input
                   type="number"
+                  min={0}
+                  max={100}
                   placeholder="40"
                   {...register("carbsPct", { valueAsNumber: true })}
                 />
@@ -242,11 +316,29 @@ export function CreateMealPlanDialog({
                 <Label className="text-xs text-muted-foreground">Grasas %</Label>
                 <Input
                   type="number"
+                  min={0}
+                  max={100}
                   placeholder="30"
                   {...register("fatPct", { valueAsNumber: true })}
                 />
               </div>
             </div>
+            {/* Macro % sum warning */}
+            {macroSumInvalid && (
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Los porcentajes de macros suman{" "}
+                  <span className="font-semibold">{macroSum}%</span> — deben
+                  sumar 100% (faltan {macroSum < 100 ? 100 - macroSum : macroSum - 100}%).
+                </p>
+              </div>
+            )}
+            {hasMacroInput && macroSum === 100 && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                Macros: {macroSum}% — correcto.
+              </p>
+            )}
           </div>
 
           {/* Hydration */}
@@ -272,11 +364,12 @@ export function CreateMealPlanDialog({
 
             {fields.map((field, index) => {
               const isDefault = field.isDefault === true;
+              const mealIcon = getMealIcon(field.name);
 
               return (
                 <div
                   key={field.id}
-                  className="relative rounded-lg border bg-muted/30 p-4 space-y-3"
+                  className="relative rounded-lg border border-border bg-card p-4 space-y-3 shadow-sm"
                 >
                   {/* Remove button — only for custom (non-default) sections */}
                   {!isDefault && (
@@ -294,10 +387,13 @@ export function CreateMealPlanDialog({
                   {/* Name + Time row */}
                   <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                     <div className="space-y-1">
-                      <Label className="text-xs">Comida</Label>
+                      <Label className="text-xs text-muted-foreground">Comida</Label>
                       {isDefault ? (
-                        <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm font-medium">
-                          {field.name}
+                        <div className="flex items-center gap-2">
+                          <span className="text-base leading-none" aria-hidden="true">
+                            {mealIcon}
+                          </span>
+                          <span className="text-sm font-semibold">{field.name}</span>
                         </div>
                       ) : (
                         <Input
@@ -307,7 +403,7 @@ export function CreateMealPlanDialog({
                       )}
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Horario</Label>
+                      <Label className="text-xs text-muted-foreground">Horario</Label>
                       <Input
                         placeholder="07:30 - 08:30"
                         className="w-full sm:w-[150px]"
@@ -318,7 +414,7 @@ export function CreateMealPlanDialog({
 
                   {/* Options textarea */}
                   <div className="space-y-1">
-                    <Label className="text-xs">Opciones y porciones</Label>
+                    <Label className="text-xs text-muted-foreground">Opciones y porciones</Label>
                     <Textarea
                       placeholder="Opciones de alimentos, porciones, alternativas..."
                       rows={3}
@@ -396,7 +492,7 @@ export function CreateMealPlanDialog({
             </Button>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Crear Plan
+              {isEdit ? "Guardar cambios" : "Crear Plan"}
             </Button>
           </DialogFooter>
         </form>

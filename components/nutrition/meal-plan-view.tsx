@@ -2,8 +2,6 @@
 
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Printer,
@@ -14,14 +12,34 @@ import {
   AlertTriangle,
   Pill,
   FileText,
-  Stethoscope,
 } from "lucide-react";
 import type { MealPlan, MealSection } from "@/types";
+
+// ─── Meal-time icons ────────────────────────────────────────────────────────
+
+const MEAL_ICONS: Record<string, string> = {
+  "Desayuno": "☀️",
+  "Media mañana": "🫖",
+  "Almuerzo": "🍽️",
+  "Merienda": "🌅",
+  "Media tarde": "🌆",
+  "Cena": "🌙",
+};
+
+function getMealIcon(name: string): string {
+  return MEAL_ICONS[name] ?? "🍴";
+}
+
+// ─── Props ───────────────────────────────────────────────────────────────────
 
 interface MealPlanViewProps {
   plan: MealPlan;
   prescriptionLabel?: string;
+  patientName?: string;
+  patientAge?: number | null;
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function parseMeals(meals: string): MealSection[] {
   try {
@@ -46,9 +64,13 @@ function getDocName(plan: MealPlan): string {
   return plan.user.name ?? "Profesional";
 }
 
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export function MealPlanView({
   plan,
   prescriptionLabel = "Plan Alimentario",
+  patientName,
+  patientAge,
 }: MealPlanViewProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const meals = parseMeals(plan.meals);
@@ -58,8 +80,13 @@ export function MealPlanView({
     window.print();
   }
 
-  const hasMacros =
-    plan.targetCalories || plan.proteinPct || plan.carbsPct || plan.fatPct || plan.hydration;
+  // Build macro summary items for the patient info block
+  const macroItems: string[] = [];
+  if (plan.targetCalories) macroItems.push(`${plan.targetCalories} kcal`);
+  if (plan.proteinPct != null && plan.proteinPct > 0) macroItems.push(`Prot. ${plan.proteinPct}%`);
+  if (plan.carbsPct != null && plan.carbsPct > 0) macroItems.push(`HC ${plan.carbsPct}%`);
+  if (plan.fatPct != null && plan.fatPct > 0) macroItems.push(`Grasas ${plan.fatPct}%`);
+  if (plan.hydration) macroItems.push(`Hidrat. ${plan.hydration}`);
 
   return (
     <div className="space-y-4">
@@ -94,56 +121,79 @@ export function MealPlanView({
           </div>
         </div>
 
-        {/* Title */}
-        <div className="mt-4">
-          <h3 className="text-lg font-bold">{plan.title}</h3>
-        </div>
+        {/* Patient + plan info block */}
+        <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 px-4 py-3">
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            {/* Left column: patient */}
+            <div className="space-y-0.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Paciente
+              </p>
+              <p className="text-base font-bold text-gray-900">
+                {patientName ?? "—"}
+                {patientAge != null && (
+                  <span className="ml-2 text-sm font-normal text-gray-500">
+                    {patientAge} años
+                  </span>
+                )}
+              </p>
+            </div>
+            {/* Right column: professional */}
+            <div className="space-y-0.5 sm:text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Profesional
+              </p>
+              <p className="text-base font-bold text-gray-900">{docName}</p>
+            </div>
+          </div>
 
-        {/* Macros summary bar */}
-        {hasMacros && (
-          <div className="mt-4 flex flex-wrap gap-3">
-            {plan.targetCalories && (
-              <Badge variant="secondary" className="flex items-center gap-1 text-sm px-3 py-1">
-                <Flame className="h-3.5 w-3.5" />
-                {plan.targetCalories} kcal
-              </Badge>
-            )}
-            {plan.proteinPct != null && plan.proteinPct > 0 && (
-              <Badge variant="secondary" className="text-sm px-3 py-1">
-                Proteinas {plan.proteinPct}%
-              </Badge>
-            )}
-            {plan.carbsPct != null && plan.carbsPct > 0 && (
-              <Badge variant="secondary" className="text-sm px-3 py-1">
-                Carbohidratos {plan.carbsPct}%
-              </Badge>
-            )}
-            {plan.fatPct != null && plan.fatPct > 0 && (
-              <Badge variant="secondary" className="text-sm px-3 py-1">
-                Grasas {plan.fatPct}%
-              </Badge>
-            )}
-            {plan.hydration && (
-              <Badge variant="secondary" className="flex items-center gap-1 text-sm px-3 py-1">
-                <Droplets className="h-3.5 w-3.5" />
-                {plan.hydration}
-              </Badge>
+          {/* Plan title + macros summary */}
+          <Separator className="my-2 bg-gray-200" />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-gray-800">{plan.title}</p>
+            {macroItems.length > 0 && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {plan.targetCalories != null && plan.targetCalories > 0 && (
+                  <span className="flex items-center gap-1 text-xs text-gray-600">
+                    <Flame className="h-3 w-3 text-orange-500" />
+                    {plan.targetCalories} kcal
+                  </span>
+                )}
+                {plan.proteinPct != null && plan.proteinPct > 0 && (
+                  <span className="text-xs text-gray-600">Proteinas {plan.proteinPct}%</span>
+                )}
+                {plan.carbsPct != null && plan.carbsPct > 0 && (
+                  <span className="text-xs text-gray-600">Carbohidratos {plan.carbsPct}%</span>
+                )}
+                {plan.fatPct != null && plan.fatPct > 0 && (
+                  <span className="text-xs text-gray-600">Grasas {plan.fatPct}%</span>
+                )}
+                {plan.hydration && (
+                  <span className="flex items-center gap-1 text-xs text-gray-600">
+                    <Droplets className="h-3 w-3 text-blue-500" />
+                    {plan.hydration}
+                  </span>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
 
         <Separator className="my-4 bg-gray-300" />
 
         {/* Meal sections */}
         {meals.length > 0 && (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {meals.map((meal, idx) => (
               <div
                 key={idx}
                 className="rounded-md border border-gray-200 p-3"
               >
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold">{meal.name}</h4>
+                  <h4 className="flex items-center gap-1.5 text-sm font-bold">
+                    <span aria-hidden="true">{getMealIcon(meal.name)}</span>
+                    {meal.name}
+                  </h4>
                   {meal.time && (
                     <span className="flex items-center gap-1 text-xs text-gray-500">
                       <Clock className="h-3 w-3" />

@@ -43,6 +43,8 @@ import {
   Calendar,
   Pill,
   Eye,
+  Pencil,
+  Trash2,
   UtensilsCrossed,
 } from "lucide-react";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
@@ -88,6 +90,7 @@ export default function HistoriaClinicaPage() {
   // Meal plans state
   const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
   const [mealPlanDialogOpen, setMealPlanDialogOpen] = useState(false);
+  const [editingMealPlan, setEditingMealPlan] = useState<MealPlan | null>(null);
   const [viewingMealPlan, setViewingMealPlan] = useState<MealPlan | null>(null);
 
   // Form state for clinical record
@@ -281,6 +284,46 @@ export default function HistoriaClinicaPage() {
     }
   }
 
+  /**
+   * Pluralizes a Spanish label correctly.
+   * Handles: "Plan alimentario" → "Planes alimentarios",
+   *          "Evolución" → "Evoluciones", "Receta" → "Recetas",
+   *          "Registro nutricional" → "Registros nutricionales",
+   *          "Nota de sesión" → "Notas de sesiones", etc.
+   * Prepositions and articles (de, del, la, el, las, los) are left unchanged.
+   */
+  function pluralizeLabel(label: string): string {
+    // Words that should not be pluralized (prepositions, articles, conjunctions)
+    const STOPWORDS = new Set(["de", "del", "la", "el", "las", "los", "y", "e", "o", "u"]);
+
+    const words = label.trim().split(/\s+/);
+
+    const pluralizeWord = (word: string): string => {
+      const lower = word.toLowerCase();
+      if (STOPWORDS.has(lower)) return word;
+      if (word.endsWith("ón") || word.endsWith("ión")) {
+        return word.slice(0, -2) + "ones";
+      }
+      if (/[aeiouáéíóú]$/i.test(word)) {
+        return word + "s";
+      }
+      return word + "es";
+    };
+
+    return words.map(pluralizeWord).join(" ");
+  }
+
+  /** Returns the patient's age in years, or null if birthDate is not available. */
+  function calcPatientAge(): number | null {
+    if (!patient?.birthDate) return null;
+    const birth = new Date(patient.birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
+  }
+
   // Determine if the current profession uses meal plans instead of prescriptions
   const isMealPlanMode = labels.prescriptionLabel.toLowerCase().includes("plan alimentario") ||
     labels.prescriptionLabel.toLowerCase().includes("plan nutricional");
@@ -365,9 +408,9 @@ export default function HistoriaClinicaPage() {
       <Tabs defaultValue="ficha" className="space-y-4">
         <TabsList>
           <TabsTrigger value="ficha">{labels.clinicalRecordLabel}</TabsTrigger>
-          <TabsTrigger value="evoluciones">{labels.evolutionLabel}s</TabsTrigger>
+          <TabsTrigger value="evoluciones">{pluralizeLabel(labels.evolutionLabel)}</TabsTrigger>
           {prescriptionsEnabled && (
-            <TabsTrigger value="recetas">{labels.prescriptionLabel}s</TabsTrigger>
+            <TabsTrigger value="recetas">{pluralizeLabel(labels.prescriptionLabel)}</TabsTrigger>
           )}
         </TabsList>
 
@@ -781,15 +824,45 @@ export default function HistoriaClinicaPage() {
                                 </div>
                               </div>
 
-                              {/* View/Print button */}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setViewingMealPlan(mp)}
-                              >
-                                <Eye className="mr-1.5 h-3.5 w-3.5" />
-                                Ver / Imprimir
-                              </Button>
+                              {/* Actions */}
+                              <div className="flex gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setViewingMealPlan(mp)}
+                                >
+                                  <Eye className="mr-1.5 h-3.5 w-3.5" />
+                                  Ver
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingMealPlan(mp);
+                                    setMealPlanDialogOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-destructive hover:bg-destructive/10"
+                                  onClick={async () => {
+                                    if (!confirm("Eliminar este plan alimentario?")) return;
+                                    try {
+                                      const res = await fetch(`/api/meal-plans/${mp.id}`, { method: "DELETE" });
+                                      if (!res.ok) throw new Error();
+                                      toast.success("Plan eliminado");
+                                      fetchData();
+                                    } catch {
+                                      toast.error("Error al eliminar");
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
@@ -949,12 +1022,17 @@ export default function HistoriaClinicaPage() {
         <>
           <CreateMealPlanDialog
             open={mealPlanDialogOpen}
-            onOpenChange={setMealPlanDialogOpen}
+            onOpenChange={(v) => {
+              setMealPlanDialogOpen(v);
+              if (!v) setEditingMealPlan(null);
+            }}
             patientId={patientId}
             patientName={patient ? `${patient.lastName}, ${patient.firstName}` : "Paciente"}
             userId={sessionUserId}
+            editPlan={editingMealPlan}
             onCreated={() => {
               setMealPlanDialogOpen(false);
+              setEditingMealPlan(null);
               fetchData();
             }}
           />
@@ -971,6 +1049,10 @@ export default function HistoriaClinicaPage() {
                 <MealPlanView
                   plan={viewingMealPlan}
                   prescriptionLabel={labels.prescriptionLabel}
+                  patientName={
+                    patient ? `${patient.lastName}, ${patient.firstName}` : undefined
+                  }
+                  patientAge={calcPatientAge()}
                 />
               )}
             </DialogContent>
