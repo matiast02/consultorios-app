@@ -32,6 +32,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { UserAvatar } from "@/components/user-avatar";
 import {
   Loader2,
@@ -40,6 +48,8 @@ import {
   CalendarIcon,
   CalendarRange,
   AlertCircle,
+  ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import { format, eachDayOfInterval, isAfter, isBefore, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
@@ -603,6 +613,14 @@ function WorkHoursSection() {
 
 // ─── Block Days Section ──────────────────────────────────────────────────────
 
+interface RescheduledShift {
+  shiftId: string;
+  patient: string;
+  originalDate: string;
+  newDate: string;
+  originalTime: string;
+}
+
 function BlockDaysSection() {
   const { data: session } = useSession();
   const [blockDays, setBlockDays] = useState<BlockDay[]>([]);
@@ -610,6 +628,8 @@ function BlockDaysSection() {
   const [adding, setAdding] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [rescheduledShifts, setRescheduledShifts] = useState<RescheduledShift[]>([]);
+  const [showRescheduledDialog, setShowRescheduledDialog] = useState(false);
 
   useEffect(() => {
     fetchBlockDays();
@@ -667,11 +687,22 @@ function BlockDaysSection() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? "Error al agregar dias bloqueados");
       }
-      toast.success(
-        dates.length === 1
-          ? "Dia bloqueado agregado"
-          : `${dates.length} dias bloqueados agregados`
-      );
+      const resJson = await res.json();
+      const rescheduled: RescheduledShift[] = resJson.data?.rescheduledShifts ?? [];
+
+      if (rescheduled.length > 0) {
+        setRescheduledShifts(rescheduled);
+        setShowRescheduledDialog(true);
+        toast.success(
+          `Dias bloqueados. ${rescheduled.length} turno(s) reprogramado(s) automaticamente.`
+        );
+      } else {
+        toast.success(
+          dates.length === 1
+            ? "Dia bloqueado agregado"
+            : `${dates.length} dias bloqueados agregados`
+        );
+      }
       setDateRange(undefined);
       setCalendarOpen(false);
       fetchBlockDays();
@@ -698,6 +729,11 @@ function BlockDaysSection() {
     } catch {
       toast.error("Error al eliminar el dia bloqueado");
     }
+  }
+
+  function formatDateTime(isoStr: string): string {
+    const d = new Date(isoStr);
+    return format(d, "EEEE d/MM/yyyy", { locale: es });
   }
 
   // Dates already blocked (to gray them out in calendar)
@@ -812,6 +848,44 @@ function BlockDaysSection() {
           </div>
         )}
       </CardContent>
+
+      {/* Rescheduled shifts dialog */}
+      <Dialog open={showRescheduledDialog} onOpenChange={setShowRescheduledDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-amber-600" />
+              Turnos reprogramados
+            </DialogTitle>
+            <DialogDescription>
+              Se reprogramaron {rescheduledShifts.length} turno(s) automaticamente
+              para evitar conflictos con los dias bloqueados.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-64 space-y-2 overflow-y-auto">
+            {rescheduledShifts.map((rs) => (
+              <div
+                key={rs.shiftId}
+                className="rounded-lg border p-3 space-y-1"
+              >
+                <p className="text-sm font-medium">{rs.patient}</p>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{formatDateTime(rs.originalDate)} {rs.originalTime}</span>
+                  <ArrowRight className="h-3 w-3" />
+                  <span className="font-medium text-primary">
+                    {formatDateTime(rs.newDate)} {rs.originalTime}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowRescheduledDialog(false)}>
+              Entendido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

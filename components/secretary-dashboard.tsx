@@ -23,6 +23,8 @@ import {
   Stethoscope,
   ChevronRight,
   Users,
+  RefreshCw,
+  ArrowRight,
 } from "lucide-react";
 import type { Shift, Medic } from "@/types";
 import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS } from "@/types";
@@ -52,8 +54,26 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [medics, setMedics] = useState<Medic[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rescheduledShifts, setRescheduledShifts] = useState<Shift[]>([]);
+  const [dismissedRescheduled, setDismissedRescheduled] = useState(false);
 
   const today = new Date();
+
+  // Fetch rescheduled shifts
+  useEffect(() => {
+    async function loadRescheduled() {
+      try {
+        const res = await fetch("/api/shifts/rescheduled");
+        if (res.ok) {
+          const json = await res.json();
+          setRescheduledShifts(json.data ?? []);
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+    loadRescheduled();
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -176,6 +196,58 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
         </div>
       ) : (
         <>
+          {/* Rescheduled shifts notification */}
+          {rescheduledShifts.length > 0 && !dismissedRescheduled && (
+            <Card className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="mt-0.5 h-5 w-5 text-amber-600 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                        {rescheduledShifts.length} turno(s) reprogramado(s) automaticamente
+                      </p>
+                      <div className="space-y-1">
+                        {rescheduledShifts.slice(0, 5).map((s) => (
+                          <div key={s.id} className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+                            <span className="font-medium">
+                              {s.patient ? `${s.patient.lastName}, ${s.patient.firstName}` : "Paciente"}
+                            </span>
+                            {s.user && (
+                              <span className="text-amber-600">
+                                (Dr. {s.user.lastName ?? s.user.name})
+                              </span>
+                            )}
+                            <span>
+                              {s.rescheduledFrom && format(new Date(s.rescheduledFrom), "dd/MM", { locale: es })}
+                            </span>
+                            <ArrowRight className="h-3 w-3" />
+                            <span className="font-medium">
+                              {format(new Date(s.start), "dd/MM HH:mm", { locale: es })}
+                            </span>
+                          </div>
+                        ))}
+                        {rescheduledShifts.length > 5 && (
+                          <p className="text-xs text-amber-600">
+                            y {rescheduledShifts.length - 5} mas...
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-amber-700 hover:text-amber-900 shrink-0"
+                    onClick={() => setDismissedRescheduled(true)}
+                  >
+                    Entendido
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Global stats */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[

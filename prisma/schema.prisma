@@ -175,13 +175,15 @@ enum ShiftStatus {
 }
 
 model Shift {
-  id           String      @id @default(cuid())
-  userId       String
-  patientId    String
-  start        DateTime
-  end          DateTime
-  observations String?     @db.Text
-  status       ShiftStatus @default(PENDING)
+  id              String      @id @default(cuid())
+  userId          String
+  patientId       String
+  start           DateTime
+  end             DateTime
+  observations    String?     @db.Text
+  status          ShiftStatus @default(PENDING)
+  rescheduledFrom DateTime?   // Original date before auto-reschedule
+  rescheduledAt   DateTime?   // When the auto-reschedule happened
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)

@@ -23,7 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Loader2, CalendarDays } from "lucide-react";
+import { ScheduleSetupWizard } from "@/components/schedule-setup-wizard";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,10 @@ export function UserFormDialog({
   const isEdit = !!user;
   const [specializations, setSpecializations] = useState<SpecializationOption[]>([]);
   const [loadingSpecs, setLoadingSpecs] = useState(false);
+  const [showSchedulePrompt, setShowSchedulePrompt] = useState(false);
+  const [createdMedicId, setCreatedMedicId] = useState<string | null>(null);
+  const [createdMedicName, setCreatedMedicName] = useState<string | null>(null);
+  const [showScheduleWizard, setShowScheduleWizard] = useState(false);
 
   const {
     register,
@@ -233,6 +238,14 @@ export function UserFormDialog({
         }
 
         toast.success("Usuario creado exitosamente");
+
+        // If we created a medic, offer to configure their schedule
+        if (data.role === "medic" && userId) {
+          setCreatedMedicId(userId);
+          setCreatedMedicName(data.name);
+          setShowSchedulePrompt(true);
+          return; // Don't close yet
+        }
       }
 
       onSaved();
@@ -243,8 +256,67 @@ export function UserFormDialog({
     }
   }
 
+  function handleCloseSchedulePrompt(configure: boolean) {
+    setShowSchedulePrompt(false);
+    if (configure && createdMedicId) {
+      setShowScheduleWizard(true);
+    } else {
+      setCreatedMedicId(null);
+      setCreatedMedicName(null);
+      onSaved();
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    {/* Schedule prompt after creating a medic */}
+    <Dialog open={showSchedulePrompt} onOpenChange={() => handleCloseSchedulePrompt(false)}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5" />
+            Configurar horarios
+          </DialogTitle>
+          <DialogDescription>
+            El medico <strong>{createdMedicName}</strong> fue creado exitosamente.
+            Deseas configurar sus horarios de atencion ahora?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleCloseSchedulePrompt(false)}>
+            Mas tarde
+          </Button>
+          <Button onClick={() => handleCloseSchedulePrompt(true)}>
+            Configurar ahora
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Schedule wizard */}
+    {createdMedicId && (
+      <ScheduleSetupWizard
+        open={showScheduleWizard}
+        onOpenChange={(v) => {
+          if (!v) {
+            setShowScheduleWizard(false);
+            setCreatedMedicId(null);
+            setCreatedMedicName(null);
+            onSaved();
+          }
+        }}
+        userId={createdMedicId}
+        userName={createdMedicName ?? undefined}
+        onComplete={() => {
+          setShowScheduleWizard(false);
+          setCreatedMedicId(null);
+          setCreatedMedicName(null);
+          onSaved();
+        }}
+      />
+    )}
+
+    <Dialog open={open && !showSchedulePrompt && !showScheduleWizard} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>
@@ -382,5 +454,6 @@ export function UserFormDialog({
         </form>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

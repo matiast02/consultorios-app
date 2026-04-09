@@ -36,9 +36,10 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { CalendarIcon, Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Patient, Medic } from "@/types";
+import type { Patient, Medic, UserPreference, BlockDay } from "@/types";
+import { DAY_NAMES } from "@/types";
 
 const createShiftSchema = z.object({
   patientId: z.string().min(1, "Selecciona un paciente"),
@@ -152,6 +153,109 @@ export function CreateShiftDialog({
     }
     loadMedics();
   }, [open]);
+
+  // ─── Availability validation ──────────────────────────────────────────────
+  const [medicPreferences, setMedicPreferences] = useState<UserPreference[]>([]);
+  const [medicBlockDays, setMedicBlockDays] = useState<BlockDay[]>([]);
+
+  const watchedDate = watch("date");
+  const watchedStartTime = watch("startTime");
+  const watchedEndTime = watch("endTime");
+  const watchedMedicId = watch("medicId");
+
+  // Fetch availability when medic or date changes
+  useEffect(() => {
+    const medicId = watchedMedicId || defaultMedicId;
+    if (!open || !medicId) {
+      setMedicPreferences([]);
+      setMedicBlockDays([]);
+      return;
+    }
+
+    async function loadAvailability() {
+      try {
+        const res = await fetch(`/api/preferences?userId=${medicId}`);
+        if (res.ok) {
+          const json = await res.json();
+          setMedicPreferences(json.data?.preferences ?? []);
+          setMedicBlockDays(json.data?.blockDays ?? []);
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+    loadAvailability();
+  }, [open, watchedMedicId, defaultMedicId]);
+
+  // Compute validation warnings
+  const availabilityWarnings: { type: "error" | "warning"; message: string }[] = [];
+
+  if (watchedDate && watchedDate.length === 10) {
+    const selectedDate = new Date(watchedDate + "T12:00:00");
+    if (isNaN(selectedDate.getTime())) {
+      // Invalid date, skip validation
+    } else {
+    const dayOfWeek = selectedDate.getDay();
+    const dateStr = watchedDate; // YYYY-MM-DD
+
+    // Check blocked day
+    const isBlocked = medicBlockDays.some((b) => {
+      const bDate = new Date(b.date);
+      const bStr = `${bDate.getFullYear()}-${String(bDate.getMonth() + 1).padStart(2, "0")}-${String(bDate.getDate()).padStart(2, "0")}`;
+      return bStr === dateStr;
+    });
+
+    if (isBlocked) {
+      availabilityWarnings.push({
+        type: "error",
+        message: "Este dia esta bloqueado para el medico seleccionado",
+      });
+    }
+
+    // Check non-working day
+    const pref = medicPreferences.find((p) => p.day === dayOfWeek);
+    const hasAnySlot = pref && (
+      (pref.fromHourAM && pref.toHourAM) ||
+      (pref.fromHourPM && pref.toHourPM)
+    );
+
+    if (medicPreferences.length > 0 && !hasAnySlot) {
+      const dayName = DAY_NAMES[dayOfWeek] ?? "este dia";
+      availabilityWarnings.push({
+        type: "error",
+        message: `El medico no atiende los ${dayName.toLowerCase()}`,
+      });
+    }
+
+    // Check work hours
+    if (hasAnySlot && watchedStartTime && watchedEndTime) {
+      let withinSlot = false;
+
+      if (pref?.fromHourAM && pref?.toHourAM) {
+        if (watchedStartTime >= pref.fromHourAM && watchedEndTime <= pref.toHourAM) {
+          withinSlot = true;
+        }
+      }
+      if (!withinSlot && pref?.fromHourPM && pref?.toHourPM) {
+        if (watchedStartTime >= pref.fromHourPM && watchedEndTime <= pref.toHourPM) {
+          withinSlot = true;
+        }
+      }
+
+      if (!withinSlot) {
+        const parts: string[] = [];
+        if (pref?.fromHourAM && pref?.toHourAM) parts.push(`${pref.fromHourAM} - ${pref.toHourAM}`);
+        if (pref?.fromHourPM && pref?.toHourPM) parts.push(`${pref.fromHourPM} - ${pref.toHourPM}`);
+        availabilityWarnings.push({
+          type: "warning",
+          message: `Fuera del horario de atencion (${parts.join(", ")})`,
+        });
+      }
+    }
+    } // close else (valid date)
+  }
+
+  const hasErrors = availabilityWarnings.some((w) => w.type === "error");
 
   const filteredPatients = patients.filter((p) => {
     const search = patientSearch.toLowerCase();
@@ -331,6 +435,30 @@ export function CreateShiftDialog({
             </div>
           </div>
 
+          {/* Availability warnings */}
+          {availabilityWarnings.length > 0 && (
+            <div className="space-y-2">
+              {availabilityWarnings.map((w, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm",
+                    w.type === "error"
+                      ? "border-destructive/50 bg-destructive/10 text-destructive"
+                      : "border-amber-500/50 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
+                  )}
+                >
+                  {w.type === "error" ? (
+                    <Ban className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                  )}
+                  {w.message}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Medic (optional) */}
           {medics.length > 0 && (
             <div className="space-y-2">
@@ -362,7 +490,7 @@ export function CreateShiftDialog({
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || hasErrors}>
               {isSubmitting && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}

@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { ScheduleSetupWizard } from "@/components/schedule-setup-wizard";
 import {
   Card,
   CardContent,
@@ -33,6 +35,8 @@ import {
   Heart,
   Pill,
   AlertTriangle,
+  ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import type { Shift, ShiftStatus, ClinicalRecord } from "@/types";
 import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS, BLOOD_TYPES } from "@/types";
@@ -195,6 +199,7 @@ function PatientClinicalPanel({ patientId }: { patientId: string }) {
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
 export function MedicDashboard({ userName }: MedicDashboardProps) {
+  const { data: session } = useSession();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [attendShift, setAttendShift] = useState<Shift | null>(null);
@@ -207,6 +212,47 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
   const [editingObsId, setEditingObsId] = useState<string | null>(null);
   const [editingObsText, setEditingObsText] = useState("");
   const [savingObs, setSavingObs] = useState(false);
+  const [needsScheduleSetup, setNeedsScheduleSetup] = useState(false);
+  const [checkingSchedule, setCheckingSchedule] = useState(true);
+  const [rescheduledShifts, setRescheduledShifts] = useState<Shift[]>([]);
+  const [dismissedRescheduled, setDismissedRescheduled] = useState(false);
+
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+
+  // Check if medic has configured their schedule
+  useEffect(() => {
+    if (!userId) return;
+    async function checkSchedule() {
+      try {
+        const res = await fetch(`/api/users/${userId}/has-schedule`);
+        if (res.ok) {
+          const json = await res.json();
+          setNeedsScheduleSetup(!json.data?.hasSchedule);
+        }
+      } catch {
+        // Non-critical, don't block
+      } finally {
+        setCheckingSchedule(false);
+      }
+    }
+    checkSchedule();
+  }, [userId]);
+
+  // Fetch rescheduled shifts
+  useEffect(() => {
+    async function loadRescheduled() {
+      try {
+        const res = await fetch("/api/shifts/rescheduled");
+        if (res.ok) {
+          const json = await res.json();
+          setRescheduledShifts(json.data ?? []);
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+    loadRescheduled();
+  }, []);
 
   const today = new Date();
   const tomorrow = new Date(today);
@@ -339,8 +385,29 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     },
   ];
 
+  if (checkingSchedule) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Schedule setup wizard for first-time medics */}
+      {userId && (
+        <ScheduleSetupWizard
+          open={needsScheduleSetup}
+          userId={userId}
+          userName={userName}
+          mandatory
+          onComplete={() => {
+            setNeedsScheduleSetup(false);
+          }}
+        />
+      )}
+
       {/* Header */}
       <div className="relative overflow-hidden rounded-xl border bg-card p-6 shadow-sm">
         <div
@@ -367,6 +434,53 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
         </div>
       ) : (
         <>
+          {/* Rescheduled shifts notification */}
+          {rescheduledShifts.length > 0 && !dismissedRescheduled && (
+            <Card className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="mt-0.5 h-5 w-5 text-amber-600 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                        {rescheduledShifts.length} turno(s) reprogramado(s) automaticamente
+                      </p>
+                      <div className="space-y-1">
+                        {rescheduledShifts.slice(0, 3).map((s) => (
+                          <div key={s.id} className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+                            <span className="font-medium">
+                              {s.patient ? `${s.patient.lastName}, ${s.patient.firstName}` : "Paciente"}
+                            </span>
+                            <span>
+                              {s.rescheduledFrom && format(new Date(s.rescheduledFrom), "dd/MM", { locale: es })}
+                            </span>
+                            <ArrowRight className="h-3 w-3" />
+                            <span className="font-medium">
+                              {format(new Date(s.start), "dd/MM HH:mm", { locale: es })}
+                            </span>
+                          </div>
+                        ))}
+                        {rescheduledShifts.length > 3 && (
+                          <p className="text-xs text-amber-600">
+                            y {rescheduledShifts.length - 3} mas...
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-amber-700 hover:text-amber-900 shrink-0"
+                    onClick={() => setDismissedRescheduled(true)}
+                  >
+                    Entendido
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Stats */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {statCards.map((card) => (

@@ -76,6 +76,8 @@ export interface Shift {
     firstName?: string | null;
     lastName?: string | null;
   };
+  rescheduledFrom?: string | null;
+  rescheduledAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
