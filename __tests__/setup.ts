@@ -25,9 +25,12 @@ export const prismaMock = {
   user: createModelMock(),
   userPreference: createModelMock(),
   blockDay: createModelMock(),
+  studyOrder: createModelMock(),
+  notification: createModelMock(),
   consultationType: createModelMock(),
   userRole: createModelMock(),
   role: createModelMock(),
+  $queryRawUnsafe: vi.fn().mockResolvedValue([]),
   $transaction: vi.fn().mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {
       return arg(prismaMock);
@@ -90,6 +93,9 @@ export function resetAllMocks() {
       }
     }
   }
+
+  // Re-set $queryRawUnsafe mock
+  prismaMock.$queryRawUnsafe.mockResolvedValue([]);
 
   // Re-set $transaction mock
   prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
