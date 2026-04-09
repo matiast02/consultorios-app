@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createShiftSchema, shiftsQuerySchema } from "@/lib/validations";
 import { isMedic } from "@/lib/auth-utils";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 // GET /api/shifts — List shifts filtered by month/year/userId
 export async function GET(req: NextRequest) {
@@ -94,6 +95,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    // Rate limit: 30 requests per minute per user
+    const { allowed } = checkRateLimit(`shifts-create:${session.user.id}`, { maxRequests: 30, windowMs: 60000 });
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: "Demasiados intentos. Intenta en un minuto." },
+        { status: 429 }
       );
     }
 

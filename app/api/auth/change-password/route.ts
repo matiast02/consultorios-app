@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { changePasswordSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 // POST /api/auth/change-password
 export async function POST(req: NextRequest) {
@@ -13,6 +14,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    // Rate limit: 3 requests per minute per user
+    const { allowed } = checkRateLimit(`change-pw:${session.user.id}`, { maxRequests: 3, windowMs: 60000 });
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: "Demasiados intentos. Intenta en un minuto." },
+        { status: 429 }
       );
     }
 

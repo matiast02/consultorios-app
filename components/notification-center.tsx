@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useCachedFetch } from "@/hooks/use-cached-fetch";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -47,33 +48,14 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 export function NotificationCenter() {
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const { data: notifData, isLoading: loading } = useCachedFetch<{ notifications: AppNotification[] }>(
+    "/api/notifications",
+    { refreshInterval: 60000 } // poll every 60s
+  );
+
+  const notifications = notifData?.notifications ?? [];
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const fetchNotifications = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/notifications");
-      if (!res.ok) return;
-      const json = await res.json();
-      if (json.success) {
-        setNotifications(json.data.notifications);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Fetch on mount and poll every 60s
-  useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000);
-    return () => clearInterval(interval);
-  }, [fetchNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.read && !readIds.has(n.id)).length;
 

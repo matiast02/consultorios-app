@@ -1,69 +1,48 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
+import useSWR from "swr";
+import { fetcher } from "@/lib/fetcher";
 import { DEFAULT_LABELS, type ProfessionLabels } from "@/lib/profession-labels";
-
-// Cache to avoid re-fetching the same user's config
-const labelsCache = new Map<string, ProfessionLabels>();
 
 /**
  * Hook to get profession-specific labels for a given user (professional).
  * Fetches the ProfessionConfig via the user's specialization.
  * Falls back to DEFAULT_LABELS if no config found.
  *
+ * Uses SWR for automatic caching and deduplication.
+ *
  * @param userId - The professional's user ID (medic, psychologist, etc.)
  */
 export function useProfessionLabels(userId?: string | null): ProfessionLabels {
-  const [labels, setLabels] = useState<ProfessionLabels>(DEFAULT_LABELS);
-
-  useEffect(() => {
-    if (!userId) {
-      setLabels(DEFAULT_LABELS);
-      return;
+  const { data: config } = useSWR(
+    userId ? `/api/users/${userId}/profession-config` : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 300000, // 5 minutes — profession configs rarely change
     }
+  );
 
-    // Check cache first
-    const cached = labelsCache.get(userId);
-    if (cached) {
-      setLabels(cached);
-      return;
-    }
+  const labels = useMemo<ProfessionLabels>(() => {
+    if (!config || typeof config !== "object") return DEFAULT_LABELS;
 
-    async function fetchLabels() {
-      try {
-        const res = await fetch(`/api/users/${userId}/profession-config`);
-        if (res.ok) {
-          const json = await res.json();
-          const config = json.data;
-          if (config) {
-            const newLabels: ProfessionLabels = {
-              professionalLabel: config.professionalLabel ?? DEFAULT_LABELS.professionalLabel,
-              patientLabel: config.patientLabel ?? DEFAULT_LABELS.patientLabel,
-              prescriptionLabel: config.prescriptionLabel ?? DEFAULT_LABELS.prescriptionLabel,
-              evolutionLabel: config.evolutionLabel ?? DEFAULT_LABELS.evolutionLabel,
-              clinicalRecordLabel: config.clinicalRecordLabel ?? DEFAULT_LABELS.clinicalRecordLabel,
-              professionName: config.name ?? DEFAULT_LABELS.professionName,
-            };
-            labelsCache.set(userId!, newLabels);
-            setLabels(newLabels);
-            return;
-          }
-        }
-      } catch {
-        // Non-critical, fall back to defaults
-      }
-      setLabels(DEFAULT_LABELS);
-    }
-
-    fetchLabels();
-  }, [userId]);
+    const c = config as Record<string, string>;
+    return {
+      professionalLabel: c.professionalLabel ?? DEFAULT_LABELS.professionalLabel,
+      patientLabel: c.patientLabel ?? DEFAULT_LABELS.patientLabel,
+      prescriptionLabel: c.prescriptionLabel ?? DEFAULT_LABELS.prescriptionLabel,
+      evolutionLabel: c.evolutionLabel ?? DEFAULT_LABELS.evolutionLabel,
+      clinicalRecordLabel: c.clinicalRecordLabel ?? DEFAULT_LABELS.clinicalRecordLabel,
+      professionName: c.name ?? DEFAULT_LABELS.professionName,
+    };
+  }, [config]);
 
   return labels;
 }
 
 /**
- * Clear the labels cache (useful after config changes).
+ * Clear the SWR cache for profession labels.
+ * Import and call mutate from swr to invalidate specific keys if needed.
  */
-export function clearLabelsCache() {
-  labelsCache.clear();
-}
+export { mutate as clearLabelsCache } from "swr";
