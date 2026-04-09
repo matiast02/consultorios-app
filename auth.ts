@@ -7,6 +7,12 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "@/auth.config";
+import {
+  checkLoginAllowed,
+  recordFailedLogin,
+  recordSuccessfulLogin,
+  applyDelay,
+} from "@/lib/login-protection";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -33,14 +39,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const { email, password } = parsed.data;
 
+        // Brute-force protection: check if login is allowed
+        const loginCheck = checkLoginAllowed(email);
+        if (!loginCheck.allowed) {
+          // Throw CredentialsSignin with message for locked accounts
+          throw new Error(loginCheck.message ?? "Cuenta bloqueada temporalmente");
+        }
+
+        // Apply progressive delay (slows down automated attacks)
+        await applyDelay(loginCheck.delayMs);
+
         const user = await prisma.user.findUnique({
           where: { email },
         });
 
-        if (!user || !user.password) return null;
+        if (!user || !user.password) {
+          recordFailedLogin(email);
+          return null;
+        }
 
         const passwordsMatch = await bcrypt.compare(password, user.password);
-        if (!passwordsMatch) return null;
+        if (!passwordsMatch) {
+          recordFailedLogin(email);
+          return null;
+        }
+
+        // Success: reset failed attempts counter
+        recordSuccessfulLogin(email);
 
         return {
           id: user.id,
