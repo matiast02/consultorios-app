@@ -236,6 +236,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Insurance mismatch check (warning only, not a hard block)
+    let insuranceWarning: { code: string; message: string } | null = null;
+
+    const professionalInsurances = await prisma.userInsurance.findMany({
+      where: { userId: data.userId },
+    });
+
+    if (professionalInsurances.length > 0) {
+      // Professional has configured accepted insurances — check patient match
+      const acceptedIds = new Set(professionalInsurances.map((ui) => ui.healthInsuranceId));
+
+      // Gather all patient insurance IDs: legacy osId + patientInsurance records
+      const patientInsuranceIds: string[] = [];
+      if (patient.osId) patientInsuranceIds.push(patient.osId);
+
+      const patientInsuranceRecords = await prisma.patientInsurance.findMany({
+        where: { patientId: data.patientId },
+      });
+      for (const pi of patientInsuranceRecords) {
+        if (!patientInsuranceIds.includes(pi.healthInsuranceId)) {
+          patientInsuranceIds.push(pi.healthInsuranceId);
+        }
+      }
+
+      const hasMatch = patientInsuranceIds.some((id) => acceptedIds.has(id));
+
+      if (!hasMatch) {
+        insuranceWarning = {
+          code: "INSURANCE_MISMATCH",
+          message: "El paciente no tiene una obra social aceptada por este profesional. Se atendera como particular.",
+        };
+      }
+    }
+
     const shift = await prisma.shift.create({
       data: {
         userId: data.userId,
@@ -266,7 +300,14 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, data: shift }, { status: 201 });
+    return NextResponse.json(
+      {
+        success: true,
+        data: shift,
+        ...(insuranceWarning ? { warning: insuranceWarning } : {}),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("POST /api/shifts error:", error);
     return NextResponse.json(

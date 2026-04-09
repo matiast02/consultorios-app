@@ -39,7 +39,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Patient, Medic, UserPreference, BlockDay, ConsultationType } from "@/types";
+import type { Patient, Medic, UserPreference, BlockDay, ConsultationType, HealthInsurance } from "@/types";
 import { DAY_NAMES } from "@/types";
 
 const createShiftSchema = z.object({
@@ -228,6 +228,58 @@ export function CreateShiftDialog({
     loadAvailability();
   }, [open, watchedMedicId, defaultMedicId]);
 
+  // ─── Insurance mismatch check ──────────────────────────────────────────────
+  const [medicInsuranceIds, setMedicInsuranceIds] = useState<string[]>([]);
+  const [patientInsuranceIds, setPatientInsuranceIds] = useState<string[]>([]);
+
+  // Fetch medic's accepted insurances
+  useEffect(() => {
+    const medicId = watchedMedicId || defaultMedicId;
+    if (!open || !medicId) {
+      setMedicInsuranceIds([]);
+      return;
+    }
+    async function loadMedicInsurances() {
+      try {
+        const res = await fetch(`/api/users/${medicId}/insurances`);
+        if (res.ok) {
+          const json = await res.json();
+          const list: HealthInsurance[] = json.data ?? [];
+          setMedicInsuranceIds(list.map((ins) => ins.id));
+        }
+      } catch { /* non-critical */ }
+    }
+    loadMedicInsurances();
+  }, [open, watchedMedicId, defaultMedicId]);
+
+  // Fetch patient's insurances (legacy osId + additional)
+  useEffect(() => {
+    if (!open || !selectedPatientId) {
+      setPatientInsuranceIds([]);
+      return;
+    }
+    const pat = patients.find((p) => p.id === selectedPatientId);
+    const ids: string[] = [];
+    if (pat?.osId) ids.push(pat.osId);
+
+    async function loadPatientInsurances() {
+      try {
+        const res = await fetch(`/api/patients/${selectedPatientId}/insurances`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data ?? [];
+          for (const pi of list) {
+            if (pi.healthInsuranceId && !ids.includes(pi.healthInsuranceId)) {
+              ids.push(pi.healthInsuranceId);
+            }
+          }
+        }
+      } catch { /* non-critical */ }
+      setPatientInsuranceIds([...ids]);
+    }
+    loadPatientInsurances();
+  }, [open, selectedPatientId, patients]);
+
   // Compute validation warnings
   const availabilityWarnings: { type: "error" | "warning"; message: string }[] = [];
 
@@ -296,6 +348,18 @@ export function CreateShiftDialog({
     } // close else (valid date)
   }
 
+  // Insurance mismatch warning
+  const medicId = watchedMedicId || defaultMedicId;
+  if (medicId && selectedPatientId && medicInsuranceIds.length > 0) {
+    const hasMatch = patientInsuranceIds.some((id) => medicInsuranceIds.includes(id));
+    if (!hasMatch) {
+      availabilityWarnings.push({
+        type: "warning",
+        message: "Este profesional no acepta la obra social del paciente. Se atendera como particular.",
+      });
+    }
+  }
+
   const hasErrors = availabilityWarnings.some((w) => w.type === "error");
 
   const filteredPatients = patients.filter((p) => {
@@ -337,6 +401,13 @@ export function CreateShiftDialog({
         return;
       }
       throw new Error(err.error ?? "Error al crear el turno");
+    }
+
+    const resJson = await res.json().catch(() => ({}));
+
+    // Show insurance mismatch warning from backend
+    if (resJson.warning?.code === "INSURANCE_MISMATCH") {
+      toast.warning(resJson.warning.message);
     }
 
     const isOverbook = (body.isOverbook as boolean) ?? false;

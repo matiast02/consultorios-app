@@ -202,8 +202,12 @@ async function main() {
 
   const insurances: Record<string, { id: string }> = {};
   for (const os of osData) {
-    const created = await prisma.healthInsurance.create({ data: os });
-    insurances[os.name] = created;
+    // Use findFirst + create pattern since HealthInsurance has no unique name field
+    let existing = await prisma.healthInsurance.findFirst({ where: { name: os.name } });
+    if (!existing) {
+      existing = await prisma.healthInsurance.create({ data: os });
+    }
+    insurances[os.name] = existing;
   }
   console.log("✅ Health insurances created");
 

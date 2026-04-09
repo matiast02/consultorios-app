@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, CalendarIcon } from "lucide-react";
+import { Loader2, CalendarIcon, Plus, X } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -68,6 +68,17 @@ export function PatientFormDialog({
   const [healthInsurances, setHealthInsurances] = useState<HealthInsurance[]>(
     []
   );
+
+  // Additional insurances (multi-OS)
+  interface AdditionalInsurance {
+    healthInsuranceId: string;
+    affiliateNumber: string;
+    healthInsurance?: HealthInsurance;
+  }
+  const [additionalInsurances, setAdditionalInsurances] = useState<AdditionalInsurance[]>([]);
+  const [showAddInsurance, setShowAddInsurance] = useState(false);
+  const [newInsuranceId, setNewInsuranceId] = useState("");
+  const [newAffiliateNumber, setNewAffiliateNumber] = useState("");
 
   const {
     register,
@@ -117,6 +128,26 @@ export function PatientFormDialog({
           osId: patient.osId ?? "",
           osNumber: patient.osNumber ?? "",
         });
+        // Load existing additional insurances
+        async function loadPatientInsurances() {
+          try {
+            const res = await fetch(`/api/patients/${patient!.id}/insurances`);
+            if (res.ok) {
+              const json = await res.json();
+              const list = json.data ?? [];
+              setAdditionalInsurances(
+                list.map((pi: { healthInsuranceId: string; affiliateNumber?: string; healthInsurance?: HealthInsurance }) => ({
+                  healthInsuranceId: pi.healthInsuranceId,
+                  affiliateNumber: pi.affiliateNumber ?? "",
+                  healthInsurance: pi.healthInsurance,
+                }))
+              );
+            }
+          } catch {
+            // Non-critical
+          }
+        }
+        loadPatientInsurances();
       } else {
         reset({
           firstName: "",
@@ -132,7 +163,11 @@ export function PatientFormDialog({
           osId: "",
           osNumber: "",
         });
+        setAdditionalInsurances([]);
       }
+      setShowAddInsurance(false);
+      setNewInsuranceId("");
+      setNewAffiliateNumber("");
     }
   }, [open, patient, reset]);
 
@@ -153,6 +188,40 @@ export function PatientFormDialog({
     }
     loadInsurances();
   }, [open]);
+
+  function addAdditionalInsurance() {
+    if (!newInsuranceId) return;
+
+    // Don't add duplicates (also check against main OS)
+    const mainOsId = watch("osId");
+    if (newInsuranceId === mainOsId) {
+      toast.error("Esta obra social ya esta asignada como principal");
+      return;
+    }
+    if (additionalInsurances.some((ai) => ai.healthInsuranceId === newInsuranceId)) {
+      toast.error("Esta obra social ya fue agregada");
+      return;
+    }
+
+    const ins = healthInsurances.find((hi) => hi.id === newInsuranceId);
+    setAdditionalInsurances((prev) => [
+      ...prev,
+      {
+        healthInsuranceId: newInsuranceId,
+        affiliateNumber: newAffiliateNumber,
+        healthInsurance: ins,
+      },
+    ]);
+    setNewInsuranceId("");
+    setNewAffiliateNumber("");
+    setShowAddInsurance(false);
+  }
+
+  function removeAdditionalInsurance(healthInsuranceId: string) {
+    setAdditionalInsurances((prev) =>
+      prev.filter((ai) => ai.healthInsuranceId !== healthInsuranceId)
+    );
+  }
 
   async function onSubmit(data: PatientFormValues) {
     try {
@@ -176,6 +245,54 @@ export function PatientFormDialog({
         throw new Error(
           err.error ?? `Error al ${isEdit ? "actualizar" : "crear"} el paciente`
         );
+      }
+
+      const resJson = await res.json();
+      const patientId = isEdit ? patient.id : resJson.data?.id;
+
+      // Save additional insurances if we have a patient ID
+      if (patientId) {
+        // Fetch current insurances to diff
+        let currentInsurances: { healthInsuranceId: string }[] = [];
+        if (isEdit) {
+          try {
+            const curRes = await fetch(`/api/patients/${patientId}/insurances`);
+            if (curRes.ok) {
+              const curJson = await curRes.json();
+              currentInsurances = curJson.data ?? [];
+            }
+          } catch {
+            // Continue
+          }
+        }
+
+        const currentIds = new Set(currentInsurances.map((ci) => ci.healthInsuranceId));
+        const desiredIds = new Set(additionalInsurances.map((ai) => ai.healthInsuranceId));
+
+        // Delete removed
+        for (const id of currentIds) {
+          if (!desiredIds.has(id)) {
+            await fetch(`/api/patients/${patientId}/insurances`, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ healthInsuranceId: id }),
+            }).catch(() => {});
+          }
+        }
+
+        // Add new
+        for (const ai of additionalInsurances) {
+          if (!currentIds.has(ai.healthInsuranceId)) {
+            await fetch(`/api/patients/${patientId}/insurances`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                healthInsuranceId: ai.healthInsuranceId,
+                affiliateNumber: ai.affiliateNumber || undefined,
+              }),
+            }).catch(() => {});
+          }
+        }
       }
 
       toast.success(
@@ -346,10 +463,10 @@ export function PatientFormDialog({
             </div>
           </div>
 
-          {/* Health Insurance */}
+          {/* Health Insurance (principal) */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Obra Social</Label>
+              <Label>Obra Social principal</Label>
               <Select
                 value={selectedOsId ?? ""}
                 onValueChange={(val) =>
@@ -373,6 +490,116 @@ export function PatientFormDialog({
               <Label htmlFor="osNumber">N° Afiliado</Label>
               <Input id="osNumber" {...register("osNumber")} />
             </div>
+          </div>
+
+          {/* Additional insurances (multi-OS) */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Obras Sociales adicionales</Label>
+
+            {additionalInsurances.length > 0 && (
+              <div className="space-y-2">
+                {additionalInsurances.map((ai) => (
+                  <div
+                    key={ai.healthInsuranceId}
+                    className="flex items-center justify-between rounded-lg border px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-medium">
+                        {ai.healthInsurance?.name ?? "Obra social"}
+                      </span>
+                      {ai.affiliateNumber && (
+                        <span className="text-muted-foreground">
+                          - N° {ai.affiliateNumber}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeAdditionalInsurance(ai.healthInsuranceId)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showAddInsurance ? (
+              <div className="rounded-lg border p-3 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Obra Social</Label>
+                    <Select
+                      value={newInsuranceId || undefined}
+                      onValueChange={setNewInsuranceId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Seleccionar..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {healthInsurances
+                          .filter(
+                            (os) =>
+                              os.id !== selectedOsId &&
+                              !additionalInsurances.some(
+                                (ai) => ai.healthInsuranceId === os.id
+                              )
+                          )
+                          .map((os) => (
+                            <SelectItem key={os.id} value={os.id}>
+                              {os.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">N° Afiliado</Label>
+                    <Input
+                      className="h-8 text-xs"
+                      value={newAffiliateNumber}
+                      onChange={(e) => setNewAffiliateNumber(e.target.value)}
+                      placeholder="Opcional"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowAddInsurance(false);
+                      setNewInsuranceId("");
+                      setNewAffiliateNumber("");
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={addAdditionalInsurance}
+                    disabled={!newInsuranceId}
+                  >
+                    Agregar
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAddInsurance(true)}
+              >
+                <Plus className="mr-2 h-3 w-3" />
+                Agregar obra social
+              </Button>
+            )}
           </div>
 
           <DialogFooter>

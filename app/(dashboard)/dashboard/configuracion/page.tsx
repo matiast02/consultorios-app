@@ -41,6 +41,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { UserAvatar } from "@/components/user-avatar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Loader2,
   Plus,
@@ -50,10 +51,11 @@ import {
   AlertCircle,
   ArrowRight,
   RefreshCw,
+  ShieldCheck,
 } from "lucide-react";
 import { format, eachDayOfInterval, isAfter, isBefore, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
-import type { UserPreference, BlockDay } from "@/types";
+import type { UserPreference, BlockDay, HealthInsurance } from "@/types";
 import { DAY_NAMES } from "@/types";
 import type { DateRange } from "react-day-picker";
 
@@ -890,6 +892,173 @@ function BlockDaysSection() {
   );
 }
 
+// ─── Obras Sociales Section ─────────────────────────────────────────────────
+
+function InsuranceSection() {
+  const { data: session } = useSession();
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+
+  const [allInsurances, setAllInsurances] = useState<HealthInsurance[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    async function load() {
+      try {
+        const [allRes, userRes] = await Promise.all([
+          fetch("/api/health-insurance"),
+          fetch(`/api/users/${userId}/insurances`),
+        ]);
+
+        if (allRes.ok) {
+          const allJson = await allRes.json();
+          setAllInsurances(allJson.data ?? []);
+        }
+
+        if (userRes.ok) {
+          const userJson = await userRes.json();
+          const accepted: HealthInsurance[] = userJson.data ?? [];
+          setSelectedIds(new Set(accepted.map((ins) => ins.id)));
+        }
+      } catch {
+        toast.error("Error al cargar obras sociales");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [userId]);
+
+  function toggleInsurance(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(allInsurances.map((ins) => ins.id)));
+  }
+
+  function selectNone() {
+    setSelectedIds(new Set());
+  }
+
+  async function saveInsurances() {
+    if (!userId) {
+      toast.error("No se pudo obtener el usuario");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const res = await fetch(`/api/users/${userId}/insurances`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ insuranceIds: Array.from(selectedIds) }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "Error al guardar");
+      }
+
+      toast.success("Obras sociales guardadas correctamente");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Error al guardar obras sociales"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5" />
+          Obras Sociales Aceptadas
+        </CardTitle>
+        <CardDescription>
+          Selecciona las obras sociales que aceptas. Si no seleccionas ninguna,
+          se asumira que aceptas todas.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={selectAll}>
+            Seleccionar todas
+          </Button>
+          <Button variant="outline" size="sm" onClick={selectNone}>
+            Deseleccionar todas
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {allInsurances.map((ins) => (
+            <label
+              key={ins.id}
+              className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${
+                selectedIds.has(ins.id)
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:bg-muted/50"
+              }`}
+            >
+              <Checkbox
+                checked={selectedIds.has(ins.id)}
+                onCheckedChange={() => toggleInsurance(ins.id)}
+              />
+              <div>
+                <span className="text-sm font-medium">{ins.name}</span>
+                {ins.code && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    ({ins.code})
+                  </span>
+                )}
+              </div>
+            </label>
+          ))}
+        </div>
+
+        {allInsurances.length === 0 && (
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            No hay obras sociales registradas.
+          </p>
+        )}
+
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            {selectedIds.size} de {allInsurances.length} seleccionadas
+          </p>
+          <Button onClick={saveInsurances} disabled={saving}>
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Guardar
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -901,6 +1070,10 @@ function isSameDay(a: Date, b: Date): boolean {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ConfiguracionPage() {
+  const { data: session } = useSession();
+  const userRole = (session?.user as { role?: string | null } | undefined)?.role;
+  const isMedicRole = userRole === "medic";
+
   return (
     <div className="space-y-6">
       <div>
@@ -915,6 +1088,9 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="perfil">Perfil</TabsTrigger>
           <TabsTrigger value="horarios">Horarios</TabsTrigger>
           <TabsTrigger value="bloqueos">Dias Bloqueados</TabsTrigger>
+          {isMedicRole && (
+            <TabsTrigger value="obras-sociales">Obras Sociales</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="perfil" className="mt-6 space-y-6">
@@ -929,6 +1105,12 @@ export default function ConfiguracionPage() {
         <TabsContent value="bloqueos" className="mt-6">
           <BlockDaysSection />
         </TabsContent>
+
+        {isMedicRole && (
+          <TabsContent value="obras-sociales" className="mt-6">
+            <InsuranceSection />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

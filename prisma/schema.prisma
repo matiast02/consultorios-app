@@ -35,6 +35,7 @@ model User {
   mealPlans       MealPlan[]
   notifications   Notification[]
   moduleAccess    UserModuleAccess[]
+  acceptedInsurances UserInsurance[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -188,6 +189,7 @@ model Patient {
   prescriptions  Prescription[]
   studyOrders    StudyOrder[]
   mealPlans      MealPlan[]
+  insurances     PatientInsurance[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -204,10 +206,45 @@ model HealthInsurance {
   name String
   code String?
 
-  patients Patient[]
+  patients          Patient[]
+  patientInsurances PatientInsurance[]
+  userInsurances    UserInsurance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Paciente puede tener multiples obras sociales
+model PatientInsurance {
+  id               String @id @default(cuid())
+  patientId        String
+  healthInsuranceId String
+  affiliateNumber  String?  // Numero de afiliado
+
+  patient          Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  healthInsurance  HealthInsurance   @relation(fields: [healthInsuranceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([patientId, healthInsuranceId])
+  @@index([patientId])
+  @@index([healthInsuranceId])
+}
+
+// Profesional acepta ciertas obras sociales
+model UserInsurance {
+  id               String @id @default(cuid())
+  userId           String
+  healthInsuranceId String
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  healthInsurance  HealthInsurance   @relation(fields: [healthInsuranceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, healthInsuranceId])
+  @@index([userId])
+  @@index([healthInsuranceId])
 }
 
 // ─── Shifts (Turnos) ─────────────────────────────────────────────────────────
