@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -191,39 +191,41 @@ export function CreateMealPlanDialog({
   }
 
   // Populate form when editing
-  const populatedRef = { current: false };
-  if (open && editPlan && !populatedRef.current) {
-    try {
-      const meals: MealSection[] = JSON.parse(editPlan.meals);
-      reset({
-        title: editPlan.title,
-        targetCalories: editPlan.targetCalories ?? undefined,
-        proteinPct: editPlan.proteinPct ?? undefined,
-        carbsPct: editPlan.carbsPct ?? undefined,
-        fatPct: editPlan.fatPct ?? undefined,
-        hydration: editPlan.hydration ?? "",
-        meals: meals.map((m) => ({
-          name: m.name,
-          time: m.time ?? "",
-          options: m.options,
-          isDefault: DEFAULT_MEAL_SECTIONS.some((d) => d.name === m.name),
-        })),
-        avoidFoods: editPlan.avoidFoods ?? "",
-        supplements: editPlan.supplements ?? "",
-        notes: editPlan.notes ?? "",
-      });
-      populatedRef.current = true;
-    } catch { /* invalid JSON */ }
-  }
+  const lastEditId = useRef<string | null>(null);
+  useEffect(() => {
+    if (open && editPlan && lastEditId.current !== editPlan.id) {
+      try {
+        const meals: MealSection[] = JSON.parse(editPlan.meals);
+        reset({
+          title: editPlan.title,
+          targetCalories: editPlan.targetCalories ?? undefined,
+          proteinPct: editPlan.proteinPct ?? undefined,
+          carbsPct: editPlan.carbsPct ?? undefined,
+          fatPct: editPlan.fatPct ?? undefined,
+          hydration: editPlan.hydration ?? "",
+          meals: meals.map((m) => ({
+            name: m.name,
+            time: m.time ?? "",
+            options: m.options,
+            isDefault: DEFAULT_MEAL_SECTIONS.some((d) => d.name === m.name),
+          })),
+          avoidFoods: editPlan.avoidFoods ?? "",
+          supplements: editPlan.supplements ?? "",
+          notes: editPlan.notes ?? "",
+        });
+        lastEditId.current = editPlan.id;
+      } catch { /* invalid JSON */ }
+    }
+    if (!open) {
+      lastEditId.current = null;
+    }
+  }, [open, editPlan, reset]);
 
   return (
     <Dialog
       open={open}
       onOpenChange={(val) => {
-        if (!val) {
-          reset();
-          populatedRef.current = false;
-        }
+        if (!val) reset();
         onOpenChange(val);
       }}
     >

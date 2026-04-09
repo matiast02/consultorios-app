@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useProfessionLabels } from "@/hooks/use-profession-labels";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -105,7 +106,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role;
-  const roleLabel = role ? (ROLE_LABELS[role] ?? role) : "Usuario";
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const profLabels = useProfessionLabels(role === "medic" ? userId : null);
+  const roleLabel = role === "medic"
+    ? profLabels.professionName !== "Profesional" ? profLabels.professionName : (ROLE_LABELS[role] ?? role)
+    : role ? (ROLE_LABELS[role] ?? role) : "Usuario";
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
