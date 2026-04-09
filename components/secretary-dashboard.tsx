@@ -146,8 +146,8 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const medicName = (shift: Shift) => {
     if (!shift.user) return "—";
     return shift.user.lastName
-      ? `Dr. ${shift.user.lastName}`
-      : shift.user.name ?? "Medico";
+      ? shift.user.lastName
+      : shift.user.name ?? "Profesional";
   };
 
   return (
@@ -246,7 +246,7 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
           <div>
             <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
               <Stethoscope className="h-5 w-5 text-primary" />
-              Agenda por Medico
+              Agenda por Profesional
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {medicStats.map(({ medic, total, pending, finished, absent }) => (
@@ -266,8 +266,8 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
                           <div>
                             <p className="font-medium">
                               {medic.lastName
-                                ? `Dr. ${medic.lastName}`
-                                : medic.name ?? "Medico"}
+                                ? medic.lastName
+                                : medic.name ?? "Profesional"}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {medic.specialization?.name ?? "Sin especialidad"}

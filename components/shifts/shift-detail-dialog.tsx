@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import type { Shift, ShiftStatus } from "@/types";
 import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS } from "@/types";
+import { useProfessionLabels } from "@/hooks/use-profession-labels";
 
 interface ShiftDetailDialogProps {
   open: boolean;
@@ -50,6 +51,7 @@ export function ShiftDetailDialog({
   onScheduleNext,
   onReschedule,
 }: ShiftDetailDialogProps) {
+  const labels = useProfessionLabels(shift.userId);
   const [observations, setObservations] = useState(shift.observations ?? "");
   const [saving, setSaving] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -243,7 +245,7 @@ export function ShiftDetailDialog({
             <div className="flex items-start gap-3">
               <Stethoscope className="mt-0.5 h-4 w-4 text-muted-foreground" />
               <p className="text-sm">
-                Dr/a.{" "}
+                {labels.professionalLabel}{" "}
                 {shift.user.name ??
                   `${shift.user.firstName ?? ""} ${shift.user.lastName ?? ""}`.trim()}
               </p>

@@ -31,6 +31,7 @@ import {
   Trash2,
   BookX,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import type { Specialization } from "@/types";
 
 export default function EspecialidadesPage() {
@@ -171,6 +172,7 @@ export default function EspecialidadesPage() {
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="font-semibold">Nombre</TableHead>
+                    <TableHead className="font-semibold">Profesion</TableHead>
                     <TableHead className="font-semibold">Medicos</TableHead>
                     <TableHead className="w-[120px] text-right font-semibold">
                       Acciones
@@ -190,6 +192,15 @@ export default function EspecialidadesPage() {
                           </div>
                           {item.name}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {item.professionConfig ? (
+                          <Badge variant="secondary" className="text-xs">
+                            {item.professionConfig.name}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {item._count?.users ?? 0}

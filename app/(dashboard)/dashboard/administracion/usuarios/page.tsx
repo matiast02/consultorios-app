@@ -172,7 +172,7 @@ export default function UsuariosPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Usuarios y Medicos
+            Usuarios y Profesionales
           </h1>
           <p className="text-muted-foreground">
             Gestiona los usuarios del sistema y sus roles

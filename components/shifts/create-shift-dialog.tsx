@@ -249,7 +249,7 @@ export function CreateShiftDialog({
     if (isBlocked) {
       availabilityWarnings.push({
         type: "error",
-        message: "Este dia esta bloqueado para el medico seleccionado",
+        message: "Este dia esta bloqueado para el profesional seleccionado",
       });
     }
 
@@ -264,7 +264,7 @@ export function CreateShiftDialog({
       const dayName = DAY_NAMES[dayOfWeek] ?? "este dia";
       availabilityWarnings.push({
         type: "error",
-        message: `El medico no atiende los ${dayName.toLowerCase()}`,
+        message: `El profesional no atiende los ${dayName.toLowerCase()}`,
       });
     }
 
@@ -654,15 +654,15 @@ export function CreateShiftDialog({
             </div>
           )}
 
-          {/* Medic (optional) */}
+          {/* Profesional (optional) */}
           {medics.length > 0 && (
             <div className="space-y-2">
-              <Label>Médico</Label>
+              <Label>Profesional</Label>
               <Select
                 onValueChange={(val) => setValue("medicId", val)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar médico (opcional)" />
+                  <SelectValue placeholder="Seleccionar profesional (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
                   {medics.map((m) => (

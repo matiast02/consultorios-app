@@ -74,6 +74,11 @@ const adminItems = [
     icon: Clock,
   },
   {
+    label: "Profesiones",
+    href: "/dashboard/administracion/profesiones",
+    icon: Users,
+  },
+  {
     label: "Usuarios",
     href: "/dashboard/administracion/usuarios",
     icon: UserCog,

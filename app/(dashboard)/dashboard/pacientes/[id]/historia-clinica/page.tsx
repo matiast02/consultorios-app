@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,11 +49,15 @@ import { CreatePrescriptionDialog } from "@/components/prescriptions/create-pres
 import { PrescriptionView } from "@/components/prescriptions/prescription-view";
 import type { Patient, ClinicalRecord, Evolution, Prescription, PrescriptionItem, ModuleConfig } from "@/types";
 import { BLOOD_TYPES } from "@/types";
+import { useProfessionLabels } from "@/hooks/use-profession-labels";
 
 export default function HistoriaClinicaPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const patientId = params.id as string;
+  const sessionUserId = (session?.user as { id?: string } | undefined)?.id;
+  const labels = useProfessionLabels(sessionUserId);
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [record, setRecord] = useState<ClinicalRecord | null>(null);
@@ -258,7 +263,7 @@ export default function HistoriaClinicaPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              Historia Clinica
+              {labels.clinicalRecordLabel}
             </h1>
             <p className="text-muted-foreground">
               {patient.lastName}, {patient.firstName}
@@ -270,10 +275,10 @@ export default function HistoriaClinicaPage() {
       {/* Tabs */}
       <Tabs defaultValue="ficha" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="ficha">Ficha Clinica</TabsTrigger>
-          <TabsTrigger value="evoluciones">Evoluciones</TabsTrigger>
+          <TabsTrigger value="ficha">{labels.clinicalRecordLabel}</TabsTrigger>
+          <TabsTrigger value="evoluciones">{labels.evolutionLabel}s</TabsTrigger>
           {prescriptionsEnabled && (
-            <TabsTrigger value="recetas">Recetas</TabsTrigger>
+            <TabsTrigger value="recetas">{labels.prescriptionLabel}s</TabsTrigger>
           )}
         </TabsList>
 
@@ -281,7 +286,7 @@ export default function HistoriaClinicaPage() {
         <TabsContent value="ficha">
           <Card>
             <CardHeader>
-              <CardTitle>Ficha Clinica</CardTitle>
+              <CardTitle>{labels.clinicalRecordLabel}</CardTitle>
             </CardHeader>
             <CardContent className="max-w-3xl space-y-6">
               {/* Blood Type */}
@@ -397,7 +402,7 @@ export default function HistoriaClinicaPage() {
               </div>
               <Button onClick={() => setEvolutionDialogOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                Nueva Evolucion
+                Nueva {labels.evolutionLabel}
               </Button>
             </div>
 
@@ -407,8 +412,8 @@ export default function HistoriaClinicaPage() {
                 <CardContent className="py-12">
                   <p className="text-center text-sm text-muted-foreground">
                     {evolutions.length === 0
-                      ? "No hay evoluciones registradas para este paciente."
-                      : "No se encontraron evoluciones con ese criterio de busqueda."}
+                      ? `No hay ${labels.evolutionLabel.toLowerCase()}s registradas para este paciente.`
+                      : `No se encontraron ${labels.evolutionLabel.toLowerCase()}s con ese criterio de busqueda.`}
                   </p>
                 </CardContent>
               </Card>
@@ -580,11 +585,13 @@ export default function HistoriaClinicaPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted-foreground">
                   {sortedPrescriptions.length}{" "}
-                  {sortedPrescriptions.length === 1 ? "receta" : "recetas"}
+                  {sortedPrescriptions.length === 1
+                    ? labels.prescriptionLabel.toLowerCase()
+                    : `${labels.prescriptionLabel.toLowerCase()}s`}
                 </p>
                 <Button onClick={() => setPrescriptionDialogOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Nueva Receta
+                  Nueva {labels.prescriptionLabel}
                 </Button>
               </div>
 
@@ -597,10 +604,10 @@ export default function HistoriaClinicaPage() {
                         <Pill className="h-8 w-8 text-muted-foreground/50" />
                       </div>
                       <p className="mt-4 font-medium text-foreground">
-                        No hay recetas registradas
+                        No hay {labels.prescriptionLabel.toLowerCase()}s registradas
                       </p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Crea la primera receta para este paciente.
+                        Crea la primera {labels.prescriptionLabel.toLowerCase()} para este paciente.
                       </p>
                     </div>
                   </CardContent>
@@ -685,6 +692,7 @@ export default function HistoriaClinicaPage() {
             onOpenChange={setPrescriptionDialogOpen}
             patientId={patientId}
             patientName={patient ? `${patient.lastName}, ${patient.firstName}` : "Paciente"}
+            userId={sessionUserId}
             onCreated={() => {
               setPrescriptionDialogOpen(false);
               fetchData();
@@ -697,7 +705,7 @@ export default function HistoriaClinicaPage() {
           >
             <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[800px]">
               <DialogHeader>
-                <DialogTitle>Receta Medica</DialogTitle>
+                <DialogTitle>{labels.prescriptionLabel}</DialogTitle>
               </DialogHeader>
               {viewingPrescription && (
                 <PrescriptionView
@@ -707,6 +715,7 @@ export default function HistoriaClinicaPage() {
                   }
                   patientDni={patient?.dni}
                   medicName={getPrescDocName(viewingPrescription)}
+                  prescriptionLabel={labels.prescriptionLabel}
                 />
               )}
             </DialogContent>

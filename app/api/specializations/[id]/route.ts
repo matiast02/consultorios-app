@@ -22,6 +22,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       where: { id },
       include: {
         _count: { select: { users: true } },
+        professionConfig: true,
       },
     });
 
@@ -93,9 +94,15 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     const specialization = await prisma.specialization.update({
       where: { id },
-      data: { name: parsed.data.name },
+      data: {
+        name: parsed.data.name,
+        ...(parsed.data.professionConfigId !== undefined && {
+          professionConfigId: parsed.data.professionConfigId ?? null,
+        }),
+      },
       include: {
         _count: { select: { users: true } },
+        professionConfig: true,
       },
     });
 

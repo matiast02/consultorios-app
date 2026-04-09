@@ -71,7 +71,7 @@ interface UserFormDialogProps {
 }
 
 const ROLE_OPTIONS = [
-  { value: "medic", label: "Medico" },
+  { value: "medic", label: "Profesional de salud" },
   { value: "secretary", label: "Secretaria" },
   { value: "admin", label: "Administrador" },
 ];
@@ -278,7 +278,7 @@ export function UserFormDialog({
             Configurar horarios
           </DialogTitle>
           <DialogDescription>
-            El medico <strong>{createdMedicName}</strong> fue creado exitosamente.
+            El profesional <strong>{createdMedicName}</strong> fue creado exitosamente.
             Deseas configurar sus horarios de atencion ahora?
           </DialogDescription>
         </DialogHeader>

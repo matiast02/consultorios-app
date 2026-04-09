@@ -101,6 +101,7 @@ export const updateClinicalRecordSchema = z.object({
   familyHistory: z.string().nullable().optional(),
   currentMedication: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  customFields: z.string().nullable().optional(), // JSON: profession-specific fields
 });
 
 export const createEvolutionSchema = z.object({
@@ -194,11 +195,29 @@ export const updateConsultationTypeSchema = createConsultationTypeSchema.partial
 
 export const createSpecializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
+  professionConfigId: z.string().nullable().optional(),
 });
 
 export const updateSpecializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
+  professionConfigId: z.string().nullable().optional(),
 });
+
+// ─── Profession Configs ─────────────────────────────────────────────────────
+
+export const createProfessionConfigSchema = z.object({
+  code: z.string().min(1).max(50),
+  name: z.string().min(1).max(100),
+  professionalLabel: z.string().min(1).max(20),
+  patientLabel: z.string().min(1).max(50).default("Paciente"),
+  prescriptionLabel: z.string().min(1).max(50),
+  evolutionLabel: z.string().min(1).max(50),
+  clinicalRecordLabel: z.string().min(1).max(50),
+  enabledModules: z.array(z.string()).default([]),
+  clinicalFields: z.array(z.string()).default([]),
+});
+
+export const updateProfessionConfigSchema = createProfessionConfigSchema.partial();
 
 // ─── Audit Logs ──────────────────────────────────────────────────────────────
 
@@ -319,3 +338,5 @@ export type CreateMedicationInput = z.infer<typeof createMedicationSchema>;
 export type CreateRecurringShiftsInput = z.infer<typeof createRecurringShiftsSchema>;
 export type CreateConsultationTypeInput = z.infer<typeof createConsultationTypeSchema>;
 export type UpdateConsultationTypeInput = z.infer<typeof updateConsultationTypeSchema>;
+export type CreateProfessionConfigInput = z.infer<typeof createProfessionConfigSchema>;
+export type UpdateProfessionConfigInput = z.infer<typeof updateProfessionConfigSchema>;

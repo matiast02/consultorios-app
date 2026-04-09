@@ -18,6 +18,7 @@ export async function GET() {
       orderBy: { name: "asc" },
       include: {
         _count: { select: { users: true } },
+        professionConfig: true,
       },
     });
 
@@ -67,9 +68,13 @@ export async function POST(req: NextRequest) {
     }
 
     const specialization = await prisma.specialization.create({
-      data: { name: parsed.data.name },
+      data: {
+        name: parsed.data.name,
+        professionConfigId: parsed.data.professionConfigId ?? null,
+      },
       include: {
         _count: { select: { users: true } },
+        professionConfig: true,
       },
     });
 

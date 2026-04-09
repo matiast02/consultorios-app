@@ -26,6 +26,59 @@ async function main() {
   ]);
   console.log("✅ Roles created");
 
+  // ─── Profession Configs ───────────────────────────────────────────────────
+  const medicConfig = await prisma.professionConfig.upsert({
+    where: { code: "medic" },
+    update: {},
+    create: {
+      code: "medic",
+      name: "Médico",
+      professionalLabel: "Dr/a.",
+      patientLabel: "Paciente",
+      prescriptionLabel: "Receta",
+      evolutionLabel: "Evolución",
+      clinicalRecordLabel: "Historia Clínica",
+      enabledModules: JSON.stringify(["prescriptions", "study_orders"]),
+      clinicalFields: JSON.stringify(["bloodType", "allergies", "personalHistory", "familyHistory", "currentMedication"]),
+    },
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const psychologistConfig = await prisma.professionConfig.upsert({
+    where: { code: "psychologist" },
+    update: {},
+    create: {
+      code: "psychologist",
+      name: "Psicólogo",
+      professionalLabel: "Lic.",
+      patientLabel: "Paciente",
+      prescriptionLabel: "Indicación",
+      evolutionLabel: "Nota de sesión",
+      clinicalRecordLabel: "Ficha Psicológica",
+      enabledModules: JSON.stringify(["study_orders"]),
+      clinicalFields: JSON.stringify(["personalHistory", "familyHistory", "consultReason", "previousTherapy", "psychodiagnosis"]),
+    },
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const dentistConfig = await prisma.professionConfig.upsert({
+    where: { code: "dentist" },
+    update: {},
+    create: {
+      code: "dentist",
+      name: "Dentista",
+      professionalLabel: "Od.",
+      patientLabel: "Paciente",
+      prescriptionLabel: "Plan de tratamiento",
+      evolutionLabel: "Registro odontológico",
+      clinicalRecordLabel: "Ficha Odontológica",
+      enabledModules: JSON.stringify(["prescriptions", "study_orders"]),
+      clinicalFields: JSON.stringify(["allergies", "currentMedication", "dentalHistory", "odontogram"]),
+    },
+  });
+
+  console.log("✅ Profession configs created");
+
   // ─── Specializations ──────────────────────────────────────────────────────
   const specializations = [
     "Medicina General",
@@ -40,12 +93,19 @@ async function main() {
     "Nutrición",
   ];
 
+  // Map specializations to profession configs
+  const specProfessionMap: Record<string, string> = {
+    "Medicina General": medicConfig.id,
+    "Pediatría": medicConfig.id,
+  };
+
   const specMap: Record<string, { id: string }> = {};
   for (const name of specializations) {
+    const profConfigId = specProfessionMap[name] ?? null;
     const spec = await prisma.specialization.upsert({
       where: { name },
-      update: {},
-      create: { name },
+      update: { professionConfigId: profConfigId },
+      create: { name, professionConfigId: profConfigId },
     });
     specMap[name] = spec;
   }

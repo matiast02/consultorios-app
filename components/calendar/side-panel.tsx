@@ -22,6 +22,8 @@ export interface SidePanelProps {
   getWorkScheduleText: (dayOfWeek: number) => string;
   onShiftClick: (shift: Shift) => void;
   onCreateOpen: (date?: Date) => void;
+  /** Label for the professional title (e.g. "Dr/a.", "Lic."). Defaults to "Prof." for multi-medic views. */
+  professionLabel?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -37,6 +39,7 @@ export function SidePanel({
   getWorkScheduleText,
   onShiftClick,
   onCreateOpen,
+  professionLabel = "Prof.",
 }: SidePanelProps) {
   return (
     <Card>
@@ -145,8 +148,8 @@ export function SidePanel({
                         <p className="mt-1 text-xs text-primary/80">
                           <Stethoscope className="mr-1 inline h-3 w-3" />
                           {shift.user.lastName
-                            ? `Dr/a. ${shift.user.lastName}`
-                            : shift.user.name ?? "Medico"}
+                            ? `${professionLabel} ${shift.user.lastName}`
+                            : shift.user.name ?? "Profesional"}
                         </p>
                       )}
                       {/* Consultation type */}

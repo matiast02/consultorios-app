@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus, X, Pill } from "lucide-react";
 import type { MedicationOption } from "@/types";
+import { useProfessionLabels } from "@/hooks/use-profession-labels";
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,8 @@ interface CreatePrescriptionDialogProps {
   patientId: string;
   patientName: string;
   shiftId?: string;
+  /** The logged-in professional's user ID, used to derive the correct prescription label. */
+  userId?: string | null;
   onCreated: () => void;
 }
 
@@ -163,8 +166,10 @@ export function CreatePrescriptionDialog({
   patientId,
   patientName,
   shiftId,
+  userId,
   onCreated,
 }: CreatePrescriptionDialogProps) {
+  const labels = useProfessionLabels(userId);
   const {
     register,
     control,
@@ -214,7 +219,7 @@ export function CreatePrescriptionDialog({
         throw new Error(err.error ?? "Error al crear la receta");
       }
 
-      toast.success("Receta creada exitosamente");
+      toast.success(`${labels.prescriptionLabel} creada exitosamente`);
       reset();
       onCreated();
     } catch (error) {
@@ -236,10 +241,10 @@ export function CreatePrescriptionDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pill className="h-5 w-5 text-primary" />
-            Nueva Receta
+            Nueva {labels.prescriptionLabel}
           </DialogTitle>
           <DialogDescription>
-            Crear receta para {patientName}
+            Crear {labels.prescriptionLabel.toLowerCase()} para {patientName}
           </DialogDescription>
         </DialogHeader>
 
@@ -384,7 +389,7 @@ export function CreatePrescriptionDialog({
             </Button>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Crear Receta
+              Crear {labels.prescriptionLabel}
             </Button>
           </DialogFooter>
         </form>

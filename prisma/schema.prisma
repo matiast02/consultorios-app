@@ -87,16 +87,40 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// ─── Specializations ─────────────────────────────────────────────────────────
+// ─── Profession Configs ──────────────────────────────────────────────────────
 
-model Specialization {
-  id   String @id @default(cuid())
-  name String @unique
+model ProfessionConfig {
+  id                  String @id @default(cuid())
+  code                String @unique    // "medic", "psychologist", "dentist"
+  name                String            // "Médico", "Psicólogo", "Dentista"
+  professionalLabel   String            // "Dr/a.", "Lic.", "Od."
+  patientLabel        String @default("Paciente")
+  prescriptionLabel   String            // "Receta", "Indicación", "Plan de tratamiento"
+  evolutionLabel      String            // "Evolución", "Nota de sesión", "Registro odontológico"
+  clinicalRecordLabel String            // "Historia Clínica", "Ficha Psicológica", "Ficha Dental"
+  enabledModules      String @db.Text   // JSON: ["prescriptions","study_orders"]
+  clinicalFields      String @db.Text   // JSON: campos del template de HC
 
-  users User[]
+  specializations Specialization[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── Specializations ─────────────────────────────────────────────────────────
+
+model Specialization {
+  id                 String @id @default(cuid())
+  name               String @unique
+  professionConfigId String?
+
+  professionConfig ProfessionConfig? @relation(fields: [professionConfigId], references: [id])
+  users            User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([professionConfigId])
 }
 
 // ─── Consultation Types ─────────────────────────────────────────────────────
@@ -282,6 +306,7 @@ model ClinicalRecord {
   familyHistory   String? @db.Text  // antecedentes familiares
   currentMedication String? @db.Text // medicación habitual
   notes         String?  @db.Text
+  customFields  String?  @db.Text   // JSON: campos custom por profesión
 
   patient    Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
   evolutions Evolution[]

@@ -45,7 +45,7 @@ export function RescheduledBanner({
                     </span>
                     {showMedicName && s.user && (
                       <span className="text-amber-600">
-                        (Dr. {s.user.lastName ?? s.user.name})
+                        ({s.user.lastName ?? s.user.name})
                       </span>
                     )}
                     <span>

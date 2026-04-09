@@ -414,14 +414,16 @@ export default function CalendarioPage() {
               <SelectTrigger className="w-[220px]">
                 <div className="flex items-center gap-2">
                   <Stethoscope className="h-3.5 w-3.5 text-primary" />
-                  <SelectValue placeholder="Todos los medicos" />
+                  <SelectValue placeholder="Todos los profesionales" />
                 </div>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all__">Todos los medicos</SelectItem>
+                <SelectItem value="__all__">Todos los profesionales</SelectItem>
                 {medics.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
-                    {m.lastName ? `Dr. ${m.lastName}` : m.name ?? "Medico"}
+                    {m.lastName
+                      ? `${m.lastName}${m.firstName ? `, ${m.firstName}` : ""}`
+                      : m.name ?? "Profesional"}
                     {m.specialization?.name ? ` — ${m.specialization.name}` : ""}
                   </SelectItem>
                 ))}

@@ -19,6 +19,8 @@ interface PrescriptionViewProps {
   patientName: string;
   patientDni?: string | null;
   medicName: string;
+  /** Label for the document heading (e.g. "Receta Medica", "Indicacion"). Defaults to "Receta Medica". */
+  prescriptionLabel?: string;
 }
 
 function parseItems(items: string): PrescriptionItem[] {
@@ -42,6 +44,7 @@ export function PrescriptionView({
   patientName,
   patientDni,
   medicName,
+  prescriptionLabel = "Receta Medica",
 }: PrescriptionViewProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const items = parseItems(prescription.items);
@@ -78,7 +81,7 @@ export function PrescriptionView({
             </div>
           </div>
           <div className="text-right">
-            <h2 className="text-lg font-bold uppercase tracking-wider">Receta Medica</h2>
+            <h2 className="text-lg font-bold uppercase tracking-wider">{prescriptionLabel}</h2>
             <p className="text-sm text-gray-500">Fecha: {formatDate(prescription.createdAt)}</p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,22 +16,41 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
 const specializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
+  professionConfigId: z.string().nullable().optional(),
 });
 
 type FormValues = z.infer<typeof specializationSchema>;
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface ProfessionConfigOption {
+  id: string;
+  name: string;
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 interface SpecializationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  specialization?: { id: string; name: string } | null;
+  specialization?: {
+    id: string;
+    name: string;
+    professionConfigId?: string | null;
+  } | null;
   onSaved: () => void;
 }
 
@@ -42,23 +61,45 @@ export function SpecializationDialog({
   onSaved,
 }: SpecializationDialogProps) {
   const isEdit = !!specialization;
+  const [professionConfigs, setProfessionConfigs] = useState<ProfessionConfigOption[]>([]);
 
   const {
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(specializationSchema),
-    defaultValues: { name: "" },
+    defaultValues: { name: "", professionConfigId: null },
   });
+
+  const professionConfigId = watch("professionConfigId");
+
+  // Fetch profession configs when dialog opens
+  useEffect(() => {
+    if (open) {
+      fetch("/api/profession-configs")
+        .then((res) => res.json())
+        .then((json) => {
+          setProfessionConfigs(json.data ?? []);
+        })
+        .catch(() => {
+          setProfessionConfigs([]);
+        });
+    }
+  }, [open]);
 
   useEffect(() => {
     if (open) {
       if (specialization) {
-        reset({ name: specialization.name });
+        reset({
+          name: specialization.name,
+          professionConfigId: specialization.professionConfigId ?? null,
+        });
       } else {
-        reset({ name: "" });
+        reset({ name: "", professionConfigId: null });
       }
     }
   }, [open, specialization, reset]);
@@ -73,7 +114,10 @@ export function SpecializationDialog({
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: data.name }),
+        body: JSON.stringify({
+          name: data.name,
+          professionConfigId: data.professionConfigId || null,
+        }),
       });
 
       if (!res.ok) {
@@ -122,6 +166,31 @@ export function SpecializationDialog({
                 {errors.name.message}
               </p>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="spec-profession">Profesion</Label>
+            <Select
+              value={professionConfigId ?? "__none__"}
+              onValueChange={(value) =>
+                setValue(
+                  "professionConfigId",
+                  value === "__none__" ? null : value
+                )
+              }
+            >
+              <SelectTrigger id="spec-profession">
+                <SelectValue placeholder="Sin profesion asignada" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Sin profesion asignada</SelectItem>
+                {professionConfigs.map((pc) => (
+                  <SelectItem key={pc.id} value={pc.id}>
+                    {pc.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <DialogFooter>

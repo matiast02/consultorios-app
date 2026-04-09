@@ -158,6 +158,21 @@ export interface AppNotification {
   createdAt: string;
 }
 
+// ─── Profession Config ───────────────────────────────────────────────────────
+
+export interface ProfessionConfig {
+  id: string;
+  code: string;
+  name: string;
+  professionalLabel: string;
+  patientLabel: string;
+  prescriptionLabel: string;
+  evolutionLabel: string;
+  clinicalRecordLabel: string;
+  enabledModules: string; // JSON
+  clinicalFields: string; // JSON
+}
+
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 export interface DashboardStats {
@@ -182,6 +197,8 @@ export interface StatsData {
 export interface Specialization {
   id: string;
   name: string;
+  professionConfigId?: string | null;
+  professionConfig?: ProfessionConfig | null;
   _count?: { users: number };
 }
 
