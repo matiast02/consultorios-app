@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { QuickAttendDialog } from "@/components/shifts/quick-attend-dialog";
 import { RecurringShiftDialog } from "@/components/shifts/recurring-shift-dialog";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
+import { CreateStudyOrderDialog } from "@/components/study-orders/create-study-order-dialog";
 import {
   Stethoscope,
   Clock,
@@ -212,6 +213,11 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     patientId: string;
     patientName: string;
     medicId: string;
+  } | null>(null);
+  const [createStudyOrder, setCreateStudyOrder] = useState<{
+    patientId: string;
+    patientName: string;
+    shiftId: string;
   } | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [expandedShiftId, setExpandedShiftId] = useState<string | null>(null);
@@ -905,6 +911,14 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
               : "Paciente";
             setScheduleRecurring({ patientId, medicId, patientName: pName });
           }}
+          onCreateStudyOrder={(patientId, shiftId) => {
+            const shift = attendShift;
+            setAttendShift(null);
+            const pName = shift?.patient
+              ? `${shift.patient.lastName}, ${shift.patient.firstName}`
+              : "Paciente";
+            setCreateStudyOrder({ patientId, patientName: pName, shiftId });
+          }}
         />
       )}
 
@@ -936,6 +950,21 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           onCreated={() => {
             setScheduleRecurring(null);
             fetchShifts();
+          }}
+        />
+      )}
+
+      {createStudyOrder && (
+        <CreateStudyOrderDialog
+          open={!!createStudyOrder}
+          onOpenChange={(open) => {
+            if (!open) setCreateStudyOrder(null);
+          }}
+          patientId={createStudyOrder.patientId}
+          patientName={createStudyOrder.patientName}
+          shiftId={createStudyOrder.shiftId}
+          onCreated={() => {
+            setCreateStudyOrder(null);
           }}
         />
       )}

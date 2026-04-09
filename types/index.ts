@@ -96,6 +96,68 @@ export interface ConsultationType {
   isDefault: boolean;
 }
 
+// ─── Study Order ────────────────────────────────────────────────────────────
+
+export type StudyOrderStatus = "PENDING" | "COMPLETED" | "CANCELLED";
+
+export interface StudyOrderItem {
+  type: "laboratorio" | "imagen" | "interconsulta" | "otro";
+  description: string;
+  urgency: "normal" | "urgente";
+  notes?: string;
+}
+
+export interface StudyOrder {
+  id: string;
+  userId: string;
+  patientId: string;
+  shiftId?: string | null;
+  items: string; // JSON string of StudyOrderItem[]
+  status: StudyOrderStatus;
+  resultNotes?: string | null;
+  patient?: Patient;
+  user?: {
+    id: string;
+    name?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const STUDY_ORDER_STATUS_LABELS: Record<StudyOrderStatus, string> = {
+  PENDING: "Pendiente",
+  COMPLETED: "Completado",
+  CANCELLED: "Cancelado",
+};
+
+export const STUDY_ORDER_STATUS_COLORS: Record<StudyOrderStatus, string> = {
+  PENDING: "border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/40",
+  COMPLETED: "border-emerald-500 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40",
+  CANCELLED: "border-slate-400 text-slate-500 bg-slate-50 dark:bg-slate-800/40",
+};
+
+export const STUDY_TYPE_LABELS: Record<StudyOrderItem["type"], string> = {
+  laboratorio: "Laboratorio",
+  imagen: "Imagen",
+  interconsulta: "Interconsulta",
+  otro: "Otro",
+};
+
+// ─── Notification ───────────────────────────────────────────────────────────
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  resourceId?: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 export interface DashboardStats {

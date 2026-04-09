@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle, CalendarPlus, Pill, Repeat } from "lucide-react";
+import { Loader2, CheckCircle, CalendarPlus, Pill, Repeat, ClipboardList } from "lucide-react";
 import type { Shift, ModuleConfig } from "@/types";
 
 interface QuickAttendDialogProps {
@@ -24,6 +24,7 @@ interface QuickAttendDialogProps {
   onScheduleNext?: (patientId: string, medicId: string) => void;
   onScheduleRecurring?: (patientId: string, medicId: string) => void;
   onCreatePrescription?: (patientId: string, shiftId: string) => void;
+  onCreateStudyOrder?: (patientId: string, shiftId: string) => void;
 }
 
 export function QuickAttendDialog({
@@ -34,11 +35,13 @@ export function QuickAttendDialog({
   onScheduleNext,
   onScheduleRecurring,
   onCreatePrescription,
+  onCreateStudyOrder,
 }: QuickAttendDialogProps) {
   const [observations, setObservations] = useState(shift.observations ?? "");
   const [saving, setSaving] = useState(false);
   const [finished, setFinished] = useState(false);
   const [prescriptionsEnabled, setPrescriptionsEnabled] = useState(false);
+  const [studyOrdersEnabled, setStudyOrdersEnabled] = useState(false);
 
   const checkModules = useCallback(async () => {
     try {
@@ -48,6 +51,8 @@ export function QuickAttendDialog({
         const modules: ModuleConfig[] = json.data ?? [];
         const prescMod = modules.find((m) => m.module === "prescriptions");
         setPrescriptionsEnabled(prescMod?.enabled ?? false);
+        const studyMod = modules.find((m) => m.module === "study_orders");
+        setStudyOrdersEnabled(studyMod?.enabled ?? false);
       }
     } catch {
       // Silently fail
@@ -102,6 +107,13 @@ export function QuickAttendDialog({
   function handleCreatePrescription() {
     if (onCreatePrescription) {
       onCreatePrescription(shift.patientId, shift.id);
+    }
+    handleClose();
+  }
+
+  function handleCreateStudyOrder() {
+    if (onCreateStudyOrder) {
+      onCreateStudyOrder(shift.patientId, shift.id);
     }
     handleClose();
   }
@@ -196,6 +208,12 @@ export function QuickAttendDialog({
                 <Button variant="outline" onClick={handleCreatePrescription} className="flex-1">
                   <Pill className="mr-2 h-4 w-4" />
                   Crear Receta
+                </Button>
+              )}
+              {studyOrdersEnabled && onCreateStudyOrder && (
+                <Button variant="outline" onClick={handleCreateStudyOrder} className="flex-1">
+                  <ClipboardList className="mr-2 h-4 w-4" />
+                  Ordenar estudio
                 </Button>
               )}
               {onScheduleNext && (

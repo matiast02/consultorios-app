@@ -30,6 +30,8 @@ model User {
   evolutions      Evolution[]
   auditLogs       AuditLog[]
   prescriptions   Prescription[]
+  studyOrders     StudyOrder[]
+  notifications   Notification[]
   moduleAccess    UserModuleAccess[]
 
   createdAt DateTime  @default(now())
@@ -157,6 +159,7 @@ model Patient {
   shifts         Shift[]
   clinicalRecord ClinicalRecord?
   prescriptions  Prescription[]
+  studyOrders    StudyOrder[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -208,6 +211,7 @@ model Shift {
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   evolution     Evolution?
   prescriptions Prescription[]
+  studyOrders   StudyOrder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -393,4 +397,53 @@ model Medication {
   category     String? // ej: "Analgésico", "Antibiótico"
 
   createdAt DateTime @default(now())
+}
+
+// ─── Study Orders (Ordenes de Estudios) ─────────────────────────────────────
+
+enum StudyOrderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+model StudyOrder {
+  id          String           @id @default(cuid())
+  userId      String                          // Medico que ordena
+  patientId   String
+  shiftId     String?                         // Turno asociado
+  items       String           @db.Text       // JSON array of StudyOrderItem
+  status      StudyOrderStatus @default(PENDING)
+  resultNotes String?          @db.Text       // Notas de resultados
+
+  user    User    @relation(fields: [userId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  shift   Shift?  @relation(fields: [shiftId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([userId])
+  @@index([shiftId])
+  @@index([status])
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+
+model Notification {
+  id         String  @id @default(cuid())
+  userId     String                 // Destinatario
+  type       String                 // "pending_studies", "inactive_patient", "rescheduled"
+  title      String
+  message    String  @db.Text
+  resourceId String?                // ID del recurso relacionado
+  read       Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
 }

@@ -552,6 +552,11 @@ async function main() {
     update: {},
     create: { module: "prescriptions", name: "Recetas Medicas", enabled: true },
   });
+  await prisma.moduleConfig.upsert({
+    where: { module: "study_orders" },
+    update: {},
+    create: { module: "study_orders", name: "Ordenes de Estudio", enabled: true },
+  });
   console.log("✅ Module config created");
 
   // ─── Medications (Vademécum) ──────────────────────────────────────────────

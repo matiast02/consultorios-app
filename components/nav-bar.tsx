@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, Settings, LayoutDashboard, Stethoscope, ChevronRight, Sun, Moon } from "lucide-react";
+import { NotificationCenter } from "@/components/notification-center";
 import {
   LayoutDashboard as DashboardIcon,
   Calendar,
@@ -98,6 +99,7 @@ export function NavBar() {
             <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
             <span className="sr-only">Cambiar tema</span>
           </Button>
+          {session?.user && <NotificationCenter />}
           {session?.user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

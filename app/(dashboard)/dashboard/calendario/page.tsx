@@ -1,9 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+  DragEndEvent,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -337,6 +347,69 @@ export default function CalendarioPage() {
     };
   }
 
+  // ─── Drag & Drop ────────────────────────────────────────────────────
+  const [draggingShift, setDraggingShift] = useState<Shift | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setDraggingShift(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const shiftId = active.id as string;
+    const shift = shifts.find((s) => s.id === shiftId);
+    if (!shift) return;
+
+    // Only allow dragging PENDING or CONFIRMED shifts
+    if (shift.status !== "PENDING" && shift.status !== "CONFIRMED") return;
+
+    // Parse drop target: "slot-{dateISO}-{hour}"
+    const dropId = over.id as string;
+    if (!dropId.startsWith("slot-")) return;
+
+    const parts = dropId.split("-");
+    const dropDateStr = parts.slice(1, 4).join("-"); // YYYY-MM-DD
+    const dropHour = parseInt(parts[4], 10);
+
+    // Calculate new start/end preserving duration
+    const oldStart = new Date(shift.start);
+    const oldEnd = new Date(shift.end);
+    const durationMs = oldEnd.getTime() - oldStart.getTime();
+
+    const newStart = new Date(dropDateStr + "T00:00:00");
+    newStart.setHours(dropHour, 0, 0, 0);
+    const newEnd = new Date(newStart.getTime() + durationMs);
+
+    // Skip if same time
+    if (newStart.getTime() === oldStart.getTime()) return;
+
+    try {
+      const res = await fetch(`/api/shifts/${shiftId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: newStart.toISOString(),
+          end: newEnd.toISOString(),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "No se pudo mover el turno");
+        return;
+      }
+
+      toast.success(
+        `Turno movido a ${pad(dropHour)}:00 del ${newStart.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}`
+      );
+      fetchShifts();
+    } catch {
+      toast.error("Error al mover el turno");
+    }
+  }
+
   // Title for header
   function getHeaderTitle(): string {
     if (viewMode === "month") {
@@ -454,36 +527,72 @@ export default function CalendarioPage() {
                 showMedicInitials={!selectedMedicId}
               />
             ) : viewMode === "week" ? (
-              <WeekView
-                weekDays={weekDays}
-                getShiftsForDay={getShiftsForDay}
-                isDayBlocked={isDayBlocked}
-                isToday={isToday}
-                isSelected={isSelected}
-                isWithinWorkHours={isWithinWorkHours}
-                getShiftPosition={getShiftPosition}
-                onSelectDay={setSelectedDate}
-                onSlotClick={handleSlotClick}
-                onShiftClick={(shift) => {
-                  setSelectedShift(shift);
-                  setDetailOpen(true);
+              <DndContext
+                sensors={sensors}
+                onDragStart={(e) => {
+                  const s = shifts.find((sh) => sh.id === e.active.id);
+                  if (s) setDraggingShift(s);
                 }}
-              />
+                onDragEnd={handleDragEnd}
+              >
+                <WeekView
+                  weekDays={weekDays}
+                  getShiftsForDay={getShiftsForDay}
+                  isDayBlocked={isDayBlocked}
+                  isToday={isToday}
+                  isSelected={isSelected}
+                  isWithinWorkHours={isWithinWorkHours}
+                  getShiftPosition={getShiftPosition}
+                  onSelectDay={setSelectedDate}
+                  onSlotClick={handleSlotClick}
+                  onShiftClick={(shift) => {
+                    setSelectedShift(shift);
+                    setDetailOpen(true);
+                  }}
+                />
+                <DragOverlay>
+                  {draggingShift && (
+                    <div className={`rounded border px-2 py-1 text-[10px] shadow-lg ${SHIFT_STATUS_COLORS[draggingShift.status]}`}>
+                      {draggingShift.patient
+                        ? `${draggingShift.patient.lastName}`
+                        : "Turno"}
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
             ) : (
-              <DayView
-                date={currentDate}
-                shifts={getShiftsForDay(currentDate)}
-                isBlocked={isDayBlocked(currentDate)}
-                isWithinWorkHours={(hour) =>
-                  isWithinWorkHours(currentDate.getDay(), hour)
-                }
-                getShiftPosition={getShiftPosition}
-                onSlotClick={(hour) => handleSlotClick(currentDate, hour)}
-                onShiftClick={(shift) => {
-                  setSelectedShift(shift);
+              <DndContext
+                sensors={sensors}
+                onDragStart={(e) => {
+                  const s = shifts.find((sh) => sh.id === e.active.id);
+                  if (s) setDraggingShift(s);
+                }}
+                onDragEnd={handleDragEnd}
+              >
+                <DayView
+                  date={currentDate}
+                  shifts={getShiftsForDay(currentDate)}
+                  isBlocked={isDayBlocked(currentDate)}
+                  isWithinWorkHours={(hour) =>
+                    isWithinWorkHours(currentDate.getDay(), hour)
+                  }
+                  getShiftPosition={getShiftPosition}
+                  onSlotClick={(hour) => handleSlotClick(currentDate, hour)}
+                  onShiftClick={(shift) => {
+                    setSelectedShift(shift);
                   setDetailOpen(true);
                 }}
               />
+                <DragOverlay>
+                  {draggingShift && (
+                    <div className={`rounded border px-2 py-1 text-xs shadow-lg ${SHIFT_STATUS_COLORS[draggingShift.status]}`}>
+                      {draggingShift.patient
+                        ? `${draggingShift.patient.lastName}, ${draggingShift.patient.firstName}`
+                        : "Turno"}
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
             )}
           </CardContent>
         </Card>
@@ -824,6 +933,71 @@ function MonthView({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Week View Component
+// ─── DnD Helper Components ──────────────────────────────────────────────────
+
+function DroppableSlot({
+  id,
+  children,
+  className,
+  onClick,
+}: {
+  id: string;
+  children?: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={onClick}
+      className={`${className} ${isOver ? "!bg-primary/20 ring-1 ring-primary/40" : ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DraggableShift({
+  shift,
+  children,
+  className,
+  style,
+  onClick,
+}: {
+  shift: Shift;
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  onClick?: (e: React.MouseEvent) => void;
+}) {
+  const isDraggable = shift.status === "PENDING" || shift.status === "CONFIRMED";
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: shift.id,
+    disabled: !isDraggable,
+  });
+
+  const dragStyle: React.CSSProperties = {
+    ...style,
+    ...(transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : {}),
+    opacity: isDragging ? 0.4 : 1,
+    cursor: isDraggable ? "grab" : "pointer",
+    zIndex: isDragging ? 50 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...(isDraggable ? { ...listeners, ...attributes } : {})}
+      className={className}
+      style={dragStyle}
+      onClick={onClick}
+    >
+      {children}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function WeekView({
@@ -907,12 +1081,14 @@ function WeekView({
 
             return (
               <div key={day.toISOString()} className="relative border-l">
-                {/* Hour rows */}
+                {/* Hour rows (droppable slots) */}
                 {HOUR_SLOTS.map((hour) => {
                   const withinWork = isWithinWorkHours(day.getDay(), hour);
+                  const slotId = `slot-${dateToYMD(day)}-${hour}`;
                   return (
-                    <div
+                    <DroppableSlot
                       key={hour}
+                      id={slotId}
                       onClick={() => !blocked && onSlotClick(day, hour)}
                       className={`h-14 border-b cursor-pointer transition-colors hover:bg-accent/50 ${
                         blocked
@@ -925,7 +1101,7 @@ function WeekView({
                   );
                 })}
 
-                {/* Shift blocks (absolutely positioned) */}
+                {/* Shift blocks (draggable, absolutely positioned) */}
                 {dayShifts.map((shift) => {
                   const pos = getShiftPosition(shift);
                   const totalHeight = HOUR_SLOTS.length * 56; // 56px = h-14
@@ -936,13 +1112,14 @@ function WeekView({
                   );
 
                   return (
-                    <div
+                    <DraggableShift
                       key={shift.id}
+                      shift={shift}
                       onClick={(e) => {
                         e.stopPropagation();
                         onShiftClick(shift);
                       }}
-                      className={`absolute left-0.5 right-0.5 rounded border px-1 py-0.5 text-[10px] overflow-hidden cursor-pointer transition-opacity hover:opacity-80 ${shift.isOverbook ? "border-amber-500 border-dashed" : ""} ${SHIFT_STATUS_COLORS[shift.status]}`}
+                      className={`absolute left-0.5 right-0.5 rounded border px-1 py-0.5 text-[10px] overflow-hidden transition-opacity hover:opacity-80 ${shift.isOverbook ? "border-amber-500 border-dashed" : ""} ${SHIFT_STATUS_COLORS[shift.status]}`}
                       style={{
                         top: `${topPx}px`,
                         height: `${heightPx}px`,
@@ -959,7 +1136,7 @@ function WeekView({
                       <div className="truncate">
                         {formatTime(new Date(shift.start))}
                       </div>
-                    </div>
+                    </DraggableShift>
                   );
                 })}
               </div>
@@ -1020,12 +1197,14 @@ function DayView({
 
           {/* Main column */}
           <div className="relative border-l">
-            {/* Hour slots */}
+            {/* Hour slots (droppable) */}
             {HOUR_SLOTS.map((hour) => {
               const withinWork = isWithinWorkHours(hour);
+              const slotId = `slot-${dateToYMD(date)}-${hour}`;
               return (
-                <div
+                <DroppableSlot
                   key={hour}
+                  id={slotId}
                   onClick={() => !isBlocked && onSlotClick(hour)}
                   className={`h-16 border-b cursor-pointer transition-colors hover:bg-accent/50 ${
                     isBlocked
@@ -1038,7 +1217,7 @@ function DayView({
               );
             })}
 
-            {/* Shift blocks */}
+            {/* Shift blocks (draggable) */}
             {shifts.map((shift) => {
               const pos = getShiftPosition(shift);
               const totalHeight = HOUR_SLOTS.length * 64; // 64px = h-16
@@ -1049,13 +1228,14 @@ function DayView({
               );
 
               return (
-                <div
+                <DraggableShift
                   key={shift.id}
+                  shift={shift}
                   onClick={(e) => {
                     e.stopPropagation();
                     onShiftClick(shift);
                   }}
-                  className={`absolute left-1 right-1 rounded-md border px-2 py-1 overflow-hidden cursor-pointer transition-opacity hover:opacity-80 ${shift.isOverbook ? "border-amber-500 border-dashed" : ""} ${SHIFT_STATUS_COLORS[shift.status]}`}
+                  className={`absolute left-1 right-1 rounded-md border px-2 py-1 overflow-hidden transition-opacity hover:opacity-80 ${shift.isOverbook ? "border-amber-500 border-dashed" : ""} ${SHIFT_STATUS_COLORS[shift.status]}`}
                   style={{
                     top: `${topPx}px`,
                     height: `${heightPx}px`,
@@ -1088,7 +1268,7 @@ function DayView({
                       {shift.observations}
                     </p>
                   )}
-                </div>
+                </DraggableShift>
               );
             })}
           </div>

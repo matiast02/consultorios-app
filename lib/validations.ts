@@ -259,6 +259,27 @@ export const createMedicationSchema = z.object({
   category: z.string().max(100).optional(),
 });
 
+// ─── Study Orders ───────────────────────────────────────────────────────────
+
+export const studyOrderItemSchema = z.object({
+  type: z.enum(["laboratorio", "imagen", "interconsulta", "otro"]),
+  description: z.string().min(1, "La descripcion es obligatoria"),
+  urgency: z.enum(["normal", "urgente"]).default("normal"),
+  notes: z.string().optional(),
+});
+
+export const createStudyOrderSchema = z.object({
+  userId: z.string().min(1),
+  patientId: z.string().min(1),
+  shiftId: z.string().optional(),
+  items: z.array(studyOrderItemSchema).min(1, "Agregar al menos un estudio"),
+});
+
+export const updateStudyOrderSchema = z.object({
+  status: z.enum(["PENDING", "COMPLETED", "CANCELLED"]).optional(),
+  resultNotes: z.string().nullable().optional(),
+});
+
 // ─── Recurring Shifts ────────────────────────────────────────────────────────
 
 export const createRecurringShiftsSchema = z.object({
