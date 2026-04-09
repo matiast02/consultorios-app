@@ -139,12 +139,19 @@ export function ShiftDetailDialog({
           {/* Status */}
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Estado</span>
-            <Badge
-              variant="outline"
-              className={SHIFT_STATUS_COLORS[shift.status]}
-            >
-              {SHIFT_STATUS_LABELS[shift.status]}
-            </Badge>
+            <div className="flex items-center gap-2">
+              {shift.isOverbook && (
+                <Badge variant="outline" className="border-amber-500 text-amber-600 text-[10px]">
+                  Sobreturno
+                </Badge>
+              )}
+              <Badge
+                variant="outline"
+                className={SHIFT_STATUS_COLORS[shift.status]}
+              >
+                {SHIFT_STATUS_LABELS[shift.status]}
+              </Badge>
+            </div>
           </div>
 
           <Separator />

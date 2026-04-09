@@ -182,6 +182,7 @@ model Shift {
   end             DateTime
   observations    String?     @db.Text
   status          ShiftStatus @default(PENDING)
+  isOverbook      Boolean     @default(false) // Sobreturno
   rescheduledFrom DateTime?   // Original date before auto-reschedule
   rescheduledAt   DateTime?   // When the auto-reschedule happened
 

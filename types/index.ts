@@ -69,6 +69,7 @@ export interface Shift {
   end: string;
   observations?: string | null;
   status: ShiftStatus;
+  isOverbook?: boolean;
   patient?: Patient;
   user?: {
     id: string;

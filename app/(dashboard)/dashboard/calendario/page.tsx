@@ -629,6 +629,10 @@ export default function CalendarioPage() {
           <div className="h-2.5 w-2.5 rounded-full bg-red-300" />
           <span className="text-xs text-muted-foreground">Bloqueado</span>
         </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-amber-500">ST</span>
+          <span className="text-xs text-muted-foreground">Sobreturno</span>
+        </div>
       </div>
 
       <CreateShiftDialog
@@ -768,6 +772,9 @@ function MonthView({
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${SHIFT_STATUS_DOT_COLORS[s.status]}`}
                     />
                     <span className="truncate text-[10px] text-muted-foreground">
+                      {s.isOverbook && (
+                        <span className="mr-0.5 font-bold text-amber-500">ST</span>
+                      )}
                       {showMedicInitials && s.user?.lastName
                         ? `${s.user.lastName.substring(0, 3)}. `
                         : ""}
@@ -909,13 +916,16 @@ function WeekView({
                         e.stopPropagation();
                         onShiftClick(shift);
                       }}
-                      className={`absolute left-0.5 right-0.5 rounded border px-1 py-0.5 text-[10px] overflow-hidden cursor-pointer transition-opacity hover:opacity-80 ${SHIFT_STATUS_COLORS[shift.status]}`}
+                      className={`absolute left-0.5 right-0.5 rounded border px-1 py-0.5 text-[10px] overflow-hidden cursor-pointer transition-opacity hover:opacity-80 ${shift.isOverbook ? "border-amber-500 border-dashed" : ""} ${SHIFT_STATUS_COLORS[shift.status]}`}
                       style={{
                         top: `${topPx}px`,
                         height: `${heightPx}px`,
                       }}
                     >
                       <div className="font-medium truncate">
+                        {shift.isOverbook && (
+                          <span className="mr-0.5 text-amber-600 dark:text-amber-400">ST</span>
+                        )}
                         {shift.patient
                           ? `${shift.patient.lastName}`
                           : "Turno"}
@@ -1019,7 +1029,7 @@ function DayView({
                     e.stopPropagation();
                     onShiftClick(shift);
                   }}
-                  className={`absolute left-1 right-1 rounded-md border px-2 py-1 overflow-hidden cursor-pointer transition-opacity hover:opacity-80 ${SHIFT_STATUS_COLORS[shift.status]}`}
+                  className={`absolute left-1 right-1 rounded-md border px-2 py-1 overflow-hidden cursor-pointer transition-opacity hover:opacity-80 ${shift.isOverbook ? "border-amber-500 border-dashed" : ""} ${SHIFT_STATUS_COLORS[shift.status]}`}
                   style={{
                     top: `${topPx}px`,
                     height: `${heightPx}px`,
@@ -1027,6 +1037,11 @@ function DayView({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium truncate">
+                      {shift.isOverbook && (
+                        <Badge variant="outline" className="mr-1 text-[9px] border-amber-500 text-amber-600 px-1 py-0">
+                          ST
+                        </Badge>
+                      )}
                       {shift.patient
                         ? `${shift.patient.lastName}, ${shift.patient.firstName}`
                         : "Paciente"}

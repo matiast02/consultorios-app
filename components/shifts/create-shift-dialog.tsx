@@ -267,6 +267,38 @@ export function CreateShiftDialog({
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
+  // Overbook conflict state
+  const [conflictInfo, setConflictInfo] = useState<{
+    message: string;
+    pendingBody: Record<string, unknown>;
+  } | null>(null);
+
+  async function createShift(body: Record<string, unknown>) {
+    const res = await fetch("/api/shifts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      // If conflict, offer overbook
+      if (err.code === "SHIFT_CONFLICT") {
+        setConflictInfo({
+          message: err.error,
+          pendingBody: body,
+        });
+        return;
+      }
+      throw new Error(err.error ?? "Error al crear el turno");
+    }
+
+    const isOverbook = (body.isOverbook as boolean) ?? false;
+    toast.success(isOverbook ? "Sobreturno creado exitosamente" : "Turno creado exitosamente");
+    setConflictInfo(null);
+    onCreated();
+  }
+
   async function onSubmit(data: CreateShiftForm) {
     try {
       const startDatetime = new Date(`${data.date}T${data.startTime}:00`);
@@ -277,7 +309,7 @@ export function CreateShiftDialog({
         return;
       }
 
-      const body: Record<string, string> = {
+      const body: Record<string, unknown> = {
         patientId: data.patientId,
         start: startDatetime.toISOString(),
         end: endDatetime.toISOString(),
@@ -287,22 +319,21 @@ export function CreateShiftDialog({
         body.userId = data.medicId;
       }
 
-      const res = await fetch("/api/shifts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? "Error al crear el turno");
-      }
-
-      toast.success("Turno creado exitosamente");
-      onCreated();
+      await createShift(body);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Error al crear el turno"
+      );
+    }
+  }
+
+  async function confirmOverbook() {
+    if (!conflictInfo) return;
+    try {
+      await createShift({ ...conflictInfo.pendingBody, isOverbook: true });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Error al crear sobreturno"
       );
     }
   }
@@ -482,6 +513,44 @@ export function CreateShiftDialog({
             </div>
           )}
 
+          {/* Overbook conflict prompt */}
+          {conflictInfo && (
+            <div className="rounded-lg border border-amber-500/50 bg-amber-50 p-3 space-y-2 dark:bg-amber-950/30">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600 shrink-0" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                    Conflicto de horario
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    {conflictInfo.message}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConflictInfo(null)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  className="bg-amber-600 hover:bg-amber-700"
+                  onClick={confirmOverbook}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Crear como sobreturno
+                </Button>
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
             <Button
               type="button"
@@ -490,7 +559,7 @@ export function CreateShiftDialog({
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={isSubmitting || hasErrors}>
+            <Button type="submit" disabled={isSubmitting || hasErrors || !!conflictInfo}>
               {isSubmitting && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}

@@ -616,6 +616,11 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
 
                           {/* Actions */}
                           <div className="flex items-center gap-2 sm:shrink-0">
+                            {shift.isOverbook && (
+                              <Badge variant="outline" className="text-[10px] border-amber-500 text-amber-600">
+                                ST
+                              </Badge>
+                            )}
                             <Badge
                               variant="outline"
                               className={`text-xs ${SHIFT_STATUS_COLORS[shift.status]}`}

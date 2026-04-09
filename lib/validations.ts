@@ -35,6 +35,7 @@ export const createShiftSchema = z.object({
   end: z.string().min(1, "La fecha de fin es obligatoria"),
   observations: z.string().nullable().optional(),
   status: shiftStatusEnum.optional().default("PENDING"),
+  isOverbook: z.boolean().optional().default(false),
 });
 
 export const updateShiftSchema = z.object({

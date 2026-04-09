@@ -122,11 +122,33 @@ export async function POST(req: NextRequest) {
         status: { notIn: ["CANCELLED"] },
         AND: [{ start: { lt: end } }, { end: { gt: start } }],
       },
+      include: {
+        patient: {
+          select: { firstName: true, lastName: true },
+        },
+      },
     });
 
-    if (conflict) {
+    if (conflict && !data.isOverbook) {
+      const conflictTime = new Date(conflict.start).toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const conflictPatient = conflict.patient
+        ? `${conflict.patient.lastName}, ${conflict.patient.firstName}`
+        : "otro paciente";
       return NextResponse.json(
-        { success: false, error: "El médico ya tiene un turno en ese horario" },
+        {
+          success: false,
+          error: `El médico ya tiene un turno a las ${conflictTime} con ${conflictPatient}`,
+          code: "SHIFT_CONFLICT",
+          conflictDetails: {
+            shiftId: conflict.id,
+            start: conflict.start,
+            end: conflict.end,
+            patient: conflictPatient,
+          },
+        },
         { status: 409 }
       );
     }
@@ -209,6 +231,7 @@ export async function POST(req: NextRequest) {
         end,
         observations: data.observations ?? null,
         status: data.status,
+        isOverbook: data.isOverbook ?? false,
       },
       include: {
         patient: {
