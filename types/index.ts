@@ -174,6 +174,59 @@ export interface ProfessionConfig {
   clinicalFields: string; // JSON
 }
 
+// ─── Meal Plan ──────────────────────────────────────────────────────────────
+
+export interface MealSection {
+  name: string; // "Desayuno", "Media mañana", "Almuerzo", etc.
+  time?: string; // "07:30 - 08:30"
+  options: string; // Free text with food options and portions
+}
+
+export interface MealPlan {
+  id: string;
+  userId: string;
+  patientId: string;
+  shiftId?: string | null;
+  title: string;
+  targetCalories?: number | null;
+  proteinPct?: number | null;
+  carbsPct?: number | null;
+  fatPct?: number | null;
+  hydration?: string | null;
+  meals: string; // JSON MealSection[]
+  avoidFoods?: string | null;
+  supplements?: string | null;
+  notes?: string | null;
+  user?: {
+    id: string;
+    name?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const MEAL_PLAN_TYPES = [
+  "Plan hipocalórico",
+  "Plan normocalórico",
+  "Plan hipercalórico",
+  "Plan cetogénico",
+  "Plan vegetariano",
+  "Plan sin TACC",
+  "Plan para diabetes",
+  "Plan personalizado",
+];
+
+export const DEFAULT_MEAL_SECTIONS: MealSection[] = [
+  { name: "Desayuno", time: "07:30 - 08:30", options: "" },
+  { name: "Media mañana", time: "10:30 - 11:00", options: "" },
+  { name: "Almuerzo", time: "12:30 - 13:30", options: "" },
+  { name: "Merienda", time: "16:00 - 17:00", options: "" },
+  { name: "Media tarde", time: "18:00 - 18:30", options: "" },
+  { name: "Cena", time: "20:30 - 21:30", options: "" },
+];
+
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 export interface DashboardStats {

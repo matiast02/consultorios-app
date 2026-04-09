@@ -43,11 +43,14 @@ import {
   Calendar,
   Pill,
   Eye,
+  UtensilsCrossed,
 } from "lucide-react";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
 import { CreatePrescriptionDialog } from "@/components/prescriptions/create-prescription-dialog";
 import { PrescriptionView } from "@/components/prescriptions/prescription-view";
-import type { Patient, ClinicalRecord, Evolution, Prescription, PrescriptionItem, ModuleConfig } from "@/types";
+import { CreateMealPlanDialog } from "@/components/nutrition/create-meal-plan-dialog";
+import { MealPlanView } from "@/components/nutrition/meal-plan-view";
+import type { Patient, ClinicalRecord, Evolution, Prescription, PrescriptionItem, MealPlan, MealSection, ModuleConfig } from "@/types";
 import { BLOOD_TYPES } from "@/types";
 import { useProfessionLabels } from "@/hooks/use-profession-labels";
 import { OdontogramEditor } from "@/components/dental/odontogram-editor";
@@ -81,6 +84,11 @@ export default function HistoriaClinicaPage() {
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [prescriptionDialogOpen, setPrescriptionDialogOpen] = useState(false);
   const [viewingPrescription, setViewingPrescription] = useState<Prescription | null>(null);
+
+  // Meal plans state
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
+  const [mealPlanDialogOpen, setMealPlanDialogOpen] = useState(false);
+  const [viewingMealPlan, setViewingMealPlan] = useState<MealPlan | null>(null);
 
   // Form state for clinical record
   const [bloodType, setBloodType] = useState("");
@@ -150,6 +158,12 @@ export default function HistoriaClinicaPage() {
           if (prescRes.ok) {
             const prescJson = await prescRes.json();
             setPrescriptions(prescJson.data ?? []);
+          }
+          // Also fetch meal plans (for nutritionists the tab shows meal plans instead)
+          const mealRes = await fetch(`/api/meal-plans?patientId=${patientId}`);
+          if (mealRes.ok) {
+            const mealJson = await mealRes.json();
+            setMealPlans(mealJson.data ?? []);
           }
         } else {
           setPrescriptionsEnabled(false);
@@ -267,9 +281,32 @@ export default function HistoriaClinicaPage() {
     }
   }
 
+  // Determine if the current profession uses meal plans instead of prescriptions
+  const isMealPlanMode = labels.prescriptionLabel.toLowerCase().includes("plan alimentario") ||
+    labels.prescriptionLabel.toLowerCase().includes("plan nutricional");
+
   const sortedPrescriptions = [...prescriptions].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
+
+  const sortedMealPlans = [...mealPlans].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
+  function getMealPlanDocName(mp: MealPlan): string {
+    if (!mp.user) return "Profesional";
+    const parts = [mp.user.firstName, mp.user.lastName].filter(Boolean);
+    if (parts.length > 0) return parts.join(" ");
+    return mp.user.name ?? "Profesional";
+  }
+
+  function parseMealSections(meals: string): MealSection[] {
+    try {
+      return JSON.parse(meals);
+    } catch {
+      return [];
+    }
+  }
 
   const filteredEvolutions = evolutions
     .filter((evo) => {
@@ -658,115 +695,218 @@ export default function HistoriaClinicaPage() {
             )}
           </div>
         </TabsContent>
-        {/* Tab: Recetas */}
+        {/* Tab: Recetas / Planes alimentarios */}
         {prescriptionsEnabled && (
           <TabsContent value="recetas">
-            <div className="space-y-4">
-              {/* Header */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-muted-foreground">
-                  {sortedPrescriptions.length}{" "}
-                  {sortedPrescriptions.length === 1
-                    ? labels.prescriptionLabel.toLowerCase()
-                    : `${labels.prescriptionLabel.toLowerCase()}s`}
-                </p>
-                <Button onClick={() => setPrescriptionDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nueva {labels.prescriptionLabel}
-                </Button>
-              </div>
-
-              {/* List */}
-              {sortedPrescriptions.length === 0 ? (
-                <Card>
-                  <CardContent className="py-12">
-                    <div className="flex flex-col items-center justify-center text-center">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                        <Pill className="h-8 w-8 text-muted-foreground/50" />
-                      </div>
-                      <p className="mt-4 font-medium text-foreground">
-                        No hay {labels.prescriptionLabel.toLowerCase()}s registradas
-                      </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Crea la primera {labels.prescriptionLabel.toLowerCase()} para este paciente.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-3">
-                  {sortedPrescriptions.map((presc) => {
-                    const date = new Date(presc.createdAt);
-                    const items = parsePrescItems(presc.items);
-                    const docName = getPrescDocName(presc);
-
-                    return (
-                      <Card key={presc.id} className="transition-colors hover:bg-accent/50">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 space-y-2">
-                              {/* Date + Doctor */}
-                              <div className="flex flex-wrap items-center gap-2 text-sm">
-                                <div className="flex items-center gap-1 text-muted-foreground">
-                                  <Calendar className="h-3.5 w-3.5" />
-                                  <span>
-                                    {date.toLocaleDateString("es-AR", {
-                                      day: "2-digit",
-                                      month: "2-digit",
-                                      year: "numeric",
-                                    })}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1 text-muted-foreground">
-                                  <Stethoscope className="h-3.5 w-3.5" />
-                                  <span>{docName}</span>
-                                </div>
-                              </div>
-
-                              {/* Diagnosis */}
-                              {presc.diagnosis && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {presc.diagnosis}
-                                </Badge>
-                              )}
-
-                              {/* Items summary */}
-                              <div className="flex flex-wrap gap-1.5">
-                                {items.map((item, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs"
-                                  >
-                                    <Pill className="h-3 w-3" />
-                                    {item.medication} - {item.dose}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* View/Print button */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setViewingPrescription(presc)}
-                            >
-                              <Eye className="mr-1.5 h-3.5 w-3.5" />
-                              Ver / Imprimir
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+            {isMealPlanMode ? (
+              /* ── Meal Plans mode ── */
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {sortedMealPlans.length}{" "}
+                    {sortedMealPlans.length === 1
+                      ? labels.prescriptionLabel.toLowerCase()
+                      : `${labels.prescriptionLabel.toLowerCase()}s`}
+                  </p>
+                  <Button onClick={() => setMealPlanDialogOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuevo {labels.prescriptionLabel}
+                  </Button>
                 </div>
-              )}
-            </div>
+
+                {/* List */}
+                {sortedMealPlans.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-12">
+                      <div className="flex flex-col items-center justify-center text-center">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                          <UtensilsCrossed className="h-8 w-8 text-muted-foreground/50" />
+                        </div>
+                        <p className="mt-4 font-medium text-foreground">
+                          No hay {labels.prescriptionLabel.toLowerCase()}s registrados
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Crea el primer {labels.prescriptionLabel.toLowerCase()} para este paciente.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    {sortedMealPlans.map((mp) => {
+                      const date = new Date(mp.createdAt);
+                      const meals = parseMealSections(mp.meals);
+                      const docName = getMealPlanDocName(mp);
+
+                      return (
+                        <Card key={mp.id} className="transition-colors hover:bg-accent/50">
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 space-y-2">
+                                {/* Date + Doctor */}
+                                <div className="flex flex-wrap items-center gap-2 text-sm">
+                                  <div className="flex items-center gap-1 text-muted-foreground">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    <span>
+                                      {date.toLocaleDateString("es-AR", {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                        year: "numeric",
+                                      })}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-muted-foreground">
+                                    <Stethoscope className="h-3.5 w-3.5" />
+                                    <span>{docName}</span>
+                                  </div>
+                                </div>
+
+                                {/* Title */}
+                                <p className="text-sm font-medium">{mp.title}</p>
+
+                                {/* Macro badges */}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {mp.targetCalories && (
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs">
+                                      {mp.targetCalories} kcal
+                                    </span>
+                                  )}
+                                  {meals.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs">
+                                      <UtensilsCrossed className="h-3 w-3" />
+                                      {meals.length} comidas
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* View/Print button */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setViewingMealPlan(mp)}
+                              >
+                                <Eye className="mr-1.5 h-3.5 w-3.5" />
+                                Ver / Imprimir
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* ── Prescriptions mode (original) ── */
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {sortedPrescriptions.length}{" "}
+                    {sortedPrescriptions.length === 1
+                      ? labels.prescriptionLabel.toLowerCase()
+                      : `${labels.prescriptionLabel.toLowerCase()}s`}
+                  </p>
+                  <Button onClick={() => setPrescriptionDialogOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nueva {labels.prescriptionLabel}
+                  </Button>
+                </div>
+
+                {/* List */}
+                {sortedPrescriptions.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-12">
+                      <div className="flex flex-col items-center justify-center text-center">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                          <Pill className="h-8 w-8 text-muted-foreground/50" />
+                        </div>
+                        <p className="mt-4 font-medium text-foreground">
+                          No hay {labels.prescriptionLabel.toLowerCase()}s registradas
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Crea la primera {labels.prescriptionLabel.toLowerCase()} para este paciente.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    {sortedPrescriptions.map((presc) => {
+                      const date = new Date(presc.createdAt);
+                      const items = parsePrescItems(presc.items);
+                      const docName = getPrescDocName(presc);
+
+                      return (
+                        <Card key={presc.id} className="transition-colors hover:bg-accent/50">
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 space-y-2">
+                                {/* Date + Doctor */}
+                                <div className="flex flex-wrap items-center gap-2 text-sm">
+                                  <div className="flex items-center gap-1 text-muted-foreground">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    <span>
+                                      {date.toLocaleDateString("es-AR", {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                        year: "numeric",
+                                      })}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-muted-foreground">
+                                    <Stethoscope className="h-3.5 w-3.5" />
+                                    <span>{docName}</span>
+                                  </div>
+                                </div>
+
+                                {/* Diagnosis */}
+                                {presc.diagnosis && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {presc.diagnosis}
+                                  </Badge>
+                                )}
+
+                                {/* Items summary */}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {items.map((item, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs"
+                                    >
+                                      <Pill className="h-3 w-3" />
+                                      {item.medication} - {item.dose}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* View/Print button */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setViewingPrescription(presc)}
+                              >
+                                <Eye className="mr-1.5 h-3.5 w-3.5" />
+                                Ver / Imprimir
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </TabsContent>
         )}
       </Tabs>
 
       {/* Prescription Dialogs */}
-      {prescriptionsEnabled && (
+      {prescriptionsEnabled && !isMealPlanMode && (
         <>
           <CreatePrescriptionDialog
             open={prescriptionDialogOpen}
@@ -796,6 +936,40 @@ export default function HistoriaClinicaPage() {
                   }
                   patientDni={patient?.dni}
                   medicName={getPrescDocName(viewingPrescription)}
+                  prescriptionLabel={labels.prescriptionLabel}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+
+      {/* Meal Plan Dialogs */}
+      {prescriptionsEnabled && isMealPlanMode && (
+        <>
+          <CreateMealPlanDialog
+            open={mealPlanDialogOpen}
+            onOpenChange={setMealPlanDialogOpen}
+            patientId={patientId}
+            patientName={patient ? `${patient.lastName}, ${patient.firstName}` : "Paciente"}
+            userId={sessionUserId}
+            onCreated={() => {
+              setMealPlanDialogOpen(false);
+              fetchData();
+            }}
+          />
+
+          <Dialog
+            open={!!viewingMealPlan}
+            onOpenChange={(val) => { if (!val) setViewingMealPlan(null); }}
+          >
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[800px]">
+              <DialogHeader>
+                <DialogTitle>{labels.prescriptionLabel}</DialogTitle>
+              </DialogHeader>
+              {viewingMealPlan && (
+                <MealPlanView
+                  plan={viewingMealPlan}
                   prescriptionLabel={labels.prescriptionLabel}
                 />
               )}

@@ -300,6 +300,32 @@ export const updateStudyOrderSchema = z.object({
   resultNotes: z.string().nullable().optional(),
 });
 
+// ─── Meal Plans ─────────────────────────────────────────────────────────────
+
+export const mealSectionSchema = z.object({
+  name: z.string().min(1),
+  time: z.string().optional(),
+  options: z.string(),
+});
+
+export const createMealPlanSchema = z.object({
+  userId: z.string().min(1),
+  patientId: z.string().min(1),
+  shiftId: z.string().optional(),
+  title: z.string().min(1, "El titulo es obligatorio"),
+  targetCalories: z.number().int().min(500).max(6000).nullable().optional(),
+  proteinPct: z.number().int().min(0).max(100).nullable().optional(),
+  carbsPct: z.number().int().min(0).max(100).nullable().optional(),
+  fatPct: z.number().int().min(0).max(100).nullable().optional(),
+  hydration: z.string().nullable().optional(),
+  meals: z.array(mealSectionSchema).min(1, "Agregar al menos una comida"),
+  avoidFoods: z.string().nullable().optional(),
+  supplements: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export const updateMealPlanSchema = createMealPlanSchema.partial();
+
 // ─── Recurring Shifts ────────────────────────────────────────────────────────
 
 export const createRecurringShiftsSchema = z.object({
