@@ -549,6 +549,45 @@ export function CreateShiftDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* Profesional — first so date/slots react to selection */}
+          {medics.length > 0 && (
+            <div className="space-y-2">
+              <Label>Profesional</Label>
+              <Select
+                value={watch("medicId") || undefined}
+                onValueChange={(val) => setValue("medicId", val)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar profesional" />
+                </SelectTrigger>
+                <SelectContent>
+                  {medics.map((m) => {
+                    const displayName = m.name ??
+                      `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() ??
+                      "Sin nombre";
+                    const profName = m.specialization?.professionConfig?.name;
+                    const specName = m.specialization?.name;
+                    const subtitle = profName && profName !== "Médico" && profName !== "Profesional"
+                      ? profName
+                      : specName ?? null;
+                    return (
+                      <SelectItem key={m.id} value={m.id}>
+                        <div>
+                          <span>{displayName}</span>
+                          {subtitle && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {subtitle}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Patient selector */}
           <div className="space-y-2">
             <Label>Paciente</Label>
@@ -658,7 +697,31 @@ export function CreateShiftDialog({
                     setValue("date", date ? format(date, "yyyy-MM-dd") : "")
                   }
                   locale={es}
-                  disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                  disabled={(date) => {
+                    // Past dates
+                    if (date < new Date(new Date().setHours(0, 0, 0, 0))) return true;
+                    // Non-working days (if medic selected and preferences loaded)
+                    if (medicPreferences.length > 0) {
+                      const dow = date.getDay();
+                      const pref = medicPreferences.find((p) => p.day === dow);
+                      const hasSlot = pref && (
+                        (pref.fromHourAM && pref.toHourAM) ||
+                        (pref.fromHourPM && pref.toHourPM)
+                      );
+                      if (!hasSlot) return true;
+                    }
+                    // Blocked days
+                    if (medicBlockDays.length > 0) {
+                      const ymd = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+                      const isBlocked = medicBlockDays.some((b) => {
+                        const bd = new Date(b.date);
+                        const bYmd = `${bd.getFullYear()}-${String(bd.getMonth() + 1).padStart(2, "0")}-${String(bd.getDate()).padStart(2, "0")}`;
+                        return bYmd === ymd;
+                      });
+                      if (isBlocked) return true;
+                    }
+                    return false;
+                  }}
                 />
               </PopoverContent>
             </Popover>
@@ -833,45 +896,6 @@ export function CreateShiftDialog({
                   {w.message}
                 </div>
               ))}
-            </div>
-          )}
-
-          {/* Profesional (optional) */}
-          {medics.length > 0 && (
-            <div className="space-y-2">
-              <Label>Profesional</Label>
-              <Select
-                onValueChange={(val) => setValue("medicId", val)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar profesional (opcional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {medics.map((m) => {
-                    const displayName = m.name ??
-                      `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() ??
-                      "Sin nombre";
-                    const profName = m.specialization?.professionConfig?.name;
-                    const specName = m.specialization?.name;
-                    // Show: specialization if medic profession, else profession name
-                    const subtitle = profName && profName !== "Médico" && profName !== "Profesional"
-                      ? profName  // "Dentista", "Nutricionista", "Psicólogo"
-                      : specName ?? null; // "Medicina General", "Pediatría"
-                    return (
-                      <SelectItem key={m.id} value={m.id}>
-                        <div>
-                          <span>{displayName}</span>
-                          {subtitle && (
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              {subtitle}
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
             </div>
           )}
 
