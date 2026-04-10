@@ -82,6 +82,4 @@ pnpm run docker:down  # Stop MySQL container
 
 - `DATABASE_URL` — MySQL connection string
 - `AUTH_SECRET` — Auth.js secret
-- `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` — GitHub OAuth
-- `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` — Google OAuth
 - `NEXTAUTH_URL` — App base URL (default: `http://localhost:3000`)
