@@ -82,6 +82,8 @@ export function CreateShiftDialog({
   const [patientSearch, setPatientSearch] = useState("");
   const [patientPopoverOpen, setPatientPopoverOpen] = useState(false);
   const [loadingPatients, setLoadingPatients] = useState(false);
+  const [medicSearch, setMedicSearch] = useState("");
+  const [medicPopoverOpen, setMedicPopoverOpen] = useState(false);
 
   const {
     register,
@@ -184,6 +186,17 @@ export function CreateShiftDialog({
     }
     loadMedics();
   }, [open]);
+
+  const selectedMedic = medics.find((m) => m.id === watch("medicId")) ?? null;
+
+  const filteredMedics = medics.filter((m) => {
+    if (!medicSearch) return true;
+    const s = medicSearch.toLowerCase();
+    const name = `${m.firstName ?? ""} ${m.lastName ?? ""} ${m.name ?? ""}`.toLowerCase();
+    const spec = m.specialization?.name?.toLowerCase() ?? "";
+    const prof = m.specialization?.professionConfig?.name?.toLowerCase() ?? "";
+    return name.includes(s) || spec.includes(s) || prof.includes(s);
+  });
 
   // ─── Consultation types ────────────────────────────────────────────────────
   const [consultationTypes, setConsultationTypes] = useState<ConsultationType[]>([]);
@@ -571,42 +584,82 @@ export function CreateShiftDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* Profesional — first so date/slots react to selection */}
+          {/* Profesional — searchable combobox */}
           {medics.length > 0 && (
             <div className="space-y-2">
               <Label>Profesional</Label>
-              <Select
-                value={watch("medicId") || undefined}
-                onValueChange={(val) => setValue("medicId", val)}
+              <Popover
+                open={medicPopoverOpen}
+                onOpenChange={setMedicPopoverOpen}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar profesional" />
-                </SelectTrigger>
-                <SelectContent>
-                  {medics.map((m) => {
-                    const displayName = m.name ??
-                      `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() ??
-                      "Sin nombre";
-                    const profName = m.specialization?.professionConfig?.name;
-                    const specName = m.specialization?.name;
-                    const subtitle = profName && profName !== "Médico" && profName !== "Profesional"
-                      ? profName
-                      : specName ?? null;
-                    return (
-                      <SelectItem key={m.id} value={m.id}>
-                        <div>
-                          <span>{displayName}</span>
-                          {subtitle && (
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              {subtitle}
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between"
+                  >
+                    {selectedMedic
+                      ? (() => {
+                          const name = selectedMedic.name ??
+                            `${selectedMedic.firstName ?? ""} ${selectedMedic.lastName ?? ""}`.trim();
+                          const prof = selectedMedic.specialization?.professionConfig?.name;
+                          const spec = selectedMedic.specialization?.name;
+                          const sub = prof && prof !== "Médico" && prof !== "Profesional" ? prof : spec;
+                          return `${name}${sub ? ` — ${sub}` : ""}`;
+                        })()
+                      : "Seleccionar profesional..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command>
+                    <CommandInput
+                      placeholder="Buscar por nombre o especialidad..."
+                      value={medicSearch}
+                      onValueChange={setMedicSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>No se encontraron profesionales.</CommandEmpty>
+                      <CommandGroup>
+                        {filteredMedics.map((m) => {
+                          const displayName = m.name ??
+                            `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() ??
+                            "Sin nombre";
+                          const profName = m.specialization?.professionConfig?.name;
+                          const specName = m.specialization?.name;
+                          const subtitle = profName && profName !== "Médico" && profName !== "Profesional"
+                            ? profName : specName ?? null;
+                          return (
+                            <CommandItem
+                              key={m.id}
+                              value={`${displayName} ${subtitle ?? ""} ${specName ?? ""}`}
+                              onSelect={() => {
+                                setValue("medicId", m.id);
+                                setMedicPopoverOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  watch("medicId") === m.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div>
+                                <span className="font-medium">{displayName}</span>
+                                {subtitle && (
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    {subtitle}
+                                  </span>
+                                )}
+                              </div>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           )}
 
