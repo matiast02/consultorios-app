@@ -1,112 +1,226 @@
-# consultorio-app
+# Consultorio App
 
-later
+Medical office management system built with Next.js 15, Prisma ORM, Auth.js v5, MySQL, and shadcn/ui.
 
-**Author:** matias <terradasmatias@gmail.com>
+## Tech Stack
 
-## Stack
+- **Framework:** Next.js 15 (App Router, Turbopack, standalone output)
+- **Language:** TypeScript 5
+- **Database:** MySQL 8.0 + Prisma ORM 6
+- **Auth:** Auth.js v5 (credentials-based)
+- **Styling:** Tailwind CSS 4 + shadcn/ui (Radix UI)
+- **Forms:** React Hook Form + Zod
+- **Deployment:** Docker + Dokploy
 
-- [Next.js 15](https://nextjs.org/) — React framework with App Router and Turbopack
-- [Prisma](https://www.prisma.io/) — Type-safe ORM for PostgreSQL
-- [Auth.js v5](https://authjs.dev/) — Authentication with Credentials, GitHub, and Google
-- [Tailwind CSS v4](https://tailwindcss.com/) — Utility-first CSS framework
-- [shadcn/ui](https://ui.shadcn.com/) — Accessible component library
-- [Zod](https://zod.dev/) — Schema validation
-- [Docker Compose](https://docs.docker.com/compose/) — Local PostgreSQL database
+## Features
 
-## Getting Started
+- **Role-based access control** — Admin, Secretary, Health Professional (medic)
+- **Patient management** — Demographics, health insurance, clinical records
+- **Appointment scheduling** — Calendar views, recurring shifts, overbooking
+- **Clinical records** — Evolutions, prescriptions, study orders
+- **Profession-based configuration** — Custom labels, modules, and clinical fields per profession type
+- **User management** — Enable/disable users (soft delete), admin password reset
+- **Audit logging** — Track all system actions
 
-### 1. Start the database
+### Role Permissions
+
+| Action | Admin | Secretary | Professional |
+|--------|-------|-----------|--------------|
+| Manage all users | Yes | No | No |
+| Manage professionals | Yes | Create/Edit/Delete | No |
+| View secretaries | Yes | Read-only | No |
+| Manage secretaries | Yes | No | No |
+| Reference data (specialties, etc.) | Yes | No | No |
+| Schedule config (hours, blocked days) | No | No | Yes |
+| Patient CRUD | Yes | Yes | Yes |
+| Appointments | Yes | Yes | Yes |
+
+## Getting Started (Development)
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm
+- Docker (for MySQL)
+
+### Setup
 
 ```bash
-docker compose up -d
-```
+# Clone the repository
+git clone https://github.com/matiast02/consultorios-app.git
+cd consultorios-app
 
-### 2. Install dependencies
-
-```bash
+# Install dependencies
 pnpm install
-```
 
-### 3. Configure environment variables
+# Start MySQL (Docker)
+docker compose up -d
 
-Copy `.env.example` to `.env.local` and fill in the values:
+# Copy environment variables
+cp .env.example .env
+# Edit .env and set AUTH_SECRET (generate with: openssl rand -base64 32)
 
-```bash
-cp .env.example .env.local
-```
+# Generate Prisma client and apply migrations
+npx prisma generate
+npx prisma migrate dev
 
-Generate `AUTH_SECRET`:
+# Seed database with base data + test data
+pnpm run db:seed
 
-```bash
-openssl rand -base64 32
-```
-
-### 4. Push the database schema
-
-```bash
-pnpm run db:push
-```
-
-### 5. Run the development server
-
-```bash
+# Start development server
 pnpm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser.
+The app will be available at `http://localhost:3000`.
 
-## Database Commands
+### Test Credentials
 
-| Command | Description |
-|---------|-------------|
-| `pnpm run db:generate` | Generate Prisma client |
-| `pnpm run db:push` | Push schema changes (no migration file) |
-| `pnpm run db:migrate` | Create and apply migration |
-| `pnpm run db:studio` | Open Prisma Studio UI |
-| `pnpm run docker:up` | Start PostgreSQL container |
-| `pnpm run docker:down` | Stop PostgreSQL container |
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@consultorio.com | password123 |
+| Secretary | maria@consultorio.com | password123 |
+| Professional | dr.gervilla@consultorio.com | password123 |
+| Professional | dra.lopez@consultorio.com | password123 |
 
-## OAuth Setup
+### Commands
 
-### GitHub
+```bash
+pnpm run dev             # Start dev server (Turbopack)
+pnpm run build           # Production build
+pnpm run start           # Start production server
+pnpm run lint            # Run ESLint
+pnpm run test            # Run tests
+pnpm run db:generate     # Generate Prisma client
+pnpm run db:push         # Push schema to database (dev only)
+pnpm run db:migrate      # Create and apply migration (dev)
+pnpm run db:migrate:deploy # Apply pending migrations (production)
+pnpm run db:studio       # Open Prisma Studio
+pnpm run db:seed         # Seed base data + test data
+pnpm run db:seed-base    # Seed base data only (production-safe)
+pnpm run docker:up       # Start MySQL container
+pnpm run docker:down     # Stop MySQL container
+```
 
-1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
-2. Create a new OAuth App
-3. Set the callback URL to `http://localhost:3000/api/auth/callback/github`
-4. Copy the Client ID and Client Secret into `.env.local`
+## Production Deployment (Dokploy)
 
-### Google
+### Architecture
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the Google+ API
-4. Create OAuth 2.0 credentials
-5. Set the callback URL to `http://localhost:3000/api/auth/callback/google`
-6. Copy the Client ID and Client Secret into `.env.local`
+```
+Push to main --> Dokploy detects change --> Docker build --> Deploy
+                                              |
+                                              |-- Stage 1: Install dependencies (pnpm)
+                                              |-- Stage 2: Generate Prisma client + build Next.js
+                                              +-- Stage 3: Minimal runner (~150MB)
+                                                    |
+                                                    +-- Entrypoint:
+                                                        1. prisma migrate deploy
+                                                        2. node seed-base.cjs (idempotent)
+                                                        3. node server.js
+```
+
+### First-Time Setup
+
+1. **Create a MySQL database** in Dokploy (or use an external MySQL 8.0 instance).
+
+2. **Create the application** in Dokploy pointing to this repository, branch `main`, using the Dockerfile.
+
+3. **Configure environment variables** in Dokploy:
+
+   | Variable | Required | Description |
+   |----------|----------|-------------|
+   | `DATABASE_URL` | Yes | MySQL connection string: `mysql://user:pass@host:3306/consultorio` |
+   | `AUTH_SECRET` | Yes | Generate with `openssl rand -base64 32` |
+   | `NEXTAUTH_URL` | Yes | Your production URL: `https://your-domain.com` |
+   | `ADMIN_EMAIL` | First deploy | Email for the initial admin account |
+   | `ADMIN_PASSWORD` | First deploy | Password for the initial admin (min 8 chars, 1 uppercase, 1 number) |
+
+4. **Deploy.** The entrypoint will automatically:
+   - Run all pending database migrations
+   - Seed base data (roles, professions, specialties, health insurances, consultation types, medications)
+   - Create the admin user if `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set
+   - Start the Next.js server
+
+5. **After the first deploy:** remove `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the environment variables. They are no longer needed — the admin user is already created and can manage all other users from the dashboard.
+
+### Subsequent Deploys
+
+Every push to `main` triggers an automatic deployment:
+
+1. Docker rebuilds the image
+2. The entrypoint runs pending migrations (if any)
+3. Base data seed runs (idempotent — uses upserts, safe to run every time)
+4. The app restarts
+
+No manual intervention needed.
+
+### Database Migrations
+
+Migrations are managed with Prisma Migrate:
+
+- **Development:** `pnpm run db:migrate` creates a new migration file and applies it
+- **Production:** migrations are applied automatically on deploy via `prisma migrate deploy`
+- Migration files are committed to the repository under `prisma/migrations/`
+
+### Seed Data
+
+The system uses two seed files:
+
+| File | Purpose | When to use |
+|------|---------|-------------|
+| `prisma/seed-base.ts` | Master data (roles, professions, specialties, health insurances, consultation types, medications). Idempotent. | Runs automatically on every deploy |
+| `prisma/seed.ts` | Base data + test users, patients, appointments | Development only (`pnpm run db:seed`) |
 
 ## Project Structure
 
 ```
-├── app/
-│   ├── (auth)/          # Auth pages (login, register)
-│   ├── (dashboard)/     # Protected dashboard pages
-│   ├── api/             # API routes
-│   └── globals.css      # Global styles
-├── auth.ts              # Auth.js configuration
-├── auth.config.ts       # Edge-compatible auth config
-├── middleware.ts         # Route protection middleware
-├── components/          # React components
-│   └── ui/              # shadcn/ui components
-├── lib/
-│   ├── prisma.ts        # Prisma client singleton
-│   └── auth-utils.ts    # Auth helper functions
-├── prisma/
-│   └── schema.prisma    # Database schema
-├── types/               # TypeScript type declarations
-└── docker-compose.yml   # Local database setup
+app/
+|-- (auth)/                    # Public pages (login)
+|-- (dashboard)/               # Protected pages
+|   +-- dashboard/
+|       |-- administracion/    # Admin pages
+|       |   |-- profesionales/ # Health professional CRUD
+|       |   |-- secretarias/   # Secretary CRUD
+|       |   |-- usuarios/      # All users (admin-only)
+|       |   |-- especialidades/
+|       |   |-- obras-sociales/
+|       |   |-- tipos-consulta/
+|       |   |-- profesiones/   # Read-only
+|       |   |-- auditoria/
+|       |   +-- modulos/
+|       |-- calendario/        # Appointment calendar
+|       |-- configuracion/     # User profile and schedule
+|       |-- estadisticas/      # Statistics
+|       +-- pacientes/         # Patient management
++-- api/                       # API routes
+
+components/
+|-- admin/                     # Admin dialogs and forms
+|-- calendar/                  # Calendar views
+|-- clinical/                  # Clinical record components
+|-- shifts/                    # Appointment components
+|-- ui/                        # shadcn/ui components
++-- ...
+
+prisma/
+|-- schema.prisma              # Database schema
+|-- migrations/                # Migration files (committed)
+|-- seed-base.ts               # Production seed (master data)
++-- seed.ts                    # Development seed (test data)
+
+lib/                           # Utilities, validations, auth helpers
+types/                         # TypeScript type definitions
 ```
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | MySQL connection string | `mysql://app_user:app_password_2024@localhost:3307/consultorio` |
+| `AUTH_SECRET` | Auth.js secret key | — |
+| `NEXTAUTH_URL` | Application base URL | `http://localhost:3000` |
+| `ADMIN_EMAIL` | Initial admin email (first deploy only) | — |
+| `ADMIN_PASSWORD` | Initial admin password (first deploy only) | — |
 
 ## License
 
-MIT
+Private project.
