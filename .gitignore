@@ -16,7 +16,7 @@ out/
 build/
 
 # Prisma
-prisma/migrations/
+# prisma/migrations/ — migrations must be tracked for production deploys
 
 # Vercel
 .vercel

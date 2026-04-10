@@ -239,7 +239,7 @@ export function UserFormDialog({
           confirmPassword: "",
           firstName: user.firstName ?? "",
           lastName: user.lastName ?? "",
-          licenseNumber: (user as Record<string, unknown>).licenseNumber as string ?? "",
+          licenseNumber: ((user as unknown) as Record<string, unknown>).licenseNumber as string ?? "",
           professionConfigId: "", // will be set after specs load
           specializationId: userSpecId,
           role: isRequesterSecretary ? "medic" : primaryRole,

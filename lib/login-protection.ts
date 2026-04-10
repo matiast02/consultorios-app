@@ -44,7 +44,7 @@ export interface LoginCheckResult {
 export function checkLoginAllowed(email: string): LoginCheckResult {
   const key = email.toLowerCase().trim();
   const now = Date.now();
-  let entry = loginAttempts.get(key);
+  const entry = loginAttempts.get(key);
 
   // No previous attempts
   if (!entry) {

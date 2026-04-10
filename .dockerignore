@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.local
+.env.*.local
+.claude
+.vscode
+*.md
+!README.md
+docker-compose.yml
+__tests__
+vitest.config.ts
+.DS_Store
+Thumbs.db
