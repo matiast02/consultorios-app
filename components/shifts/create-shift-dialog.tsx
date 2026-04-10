@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -120,13 +120,15 @@ export function CreateShiftDialog({
     }
   }, [open, defaultDate, defaultStartTime, defaultEndTime, defaultPatientId, defaultMedicId, reset]);
 
-  // Fetch patients
+  // Fetch patients: initial recent + async search with debounce
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!open) return;
-    async function loadPatients() {
+    async function loadRecent() {
       setLoadingPatients(true);
       try {
-        const res = await fetch("/api/patients?limit=100");
+        const res = await fetch("/api/patients?limit=15");
         if (res.ok) {
           const json = await res.json();
           const list = json.data ?? [];
@@ -138,8 +140,32 @@ export function CreateShiftDialog({
         setLoadingPatients(false);
       }
     }
-    loadPatients();
+    loadRecent();
   }, [open]);
+
+  // Async search when typing
+  useEffect(() => {
+    if (!open || !patientSearch || patientSearch.length < 2) return;
+
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      setLoadingPatients(true);
+      try {
+        const res = await fetch(`/api/patients?search=${encodeURIComponent(patientSearch)}&limit=20`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data ?? [];
+          setPatients(Array.isArray(list) ? list : []);
+        }
+      } catch { /* non-critical */ }
+      finally { setLoadingPatients(false); }
+    }, 300); // 300ms debounce
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [open, patientSearch]);
 
   // Fetch medics
   useEffect(() => {
@@ -408,13 +434,9 @@ export function CreateShiftDialog({
 
   const hasErrors = availabilityWarnings.some((w) => w.type === "error");
 
-  const filteredPatients = patients.filter((p) => {
-    const search = patientSearch.toLowerCase();
-    return (
-      `${p.firstName} ${p.lastName}`.toLowerCase().includes(search) ||
-      (p.dni?.toLowerCase().includes(search) ?? false)
-    );
-  });
+  // When search is active, patients are already filtered by API
+  // When no search, show all loaded patients (recent 15)
+  const filteredPatients = patients;
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
@@ -617,11 +639,13 @@ export function CreateShiftDialog({
                   <CommandList>
                     <CommandEmpty>
                       {loadingPatients
-                        ? "Cargando..."
+                        ? "Buscando..."
+                        : patientSearch.length < 2
+                        ? "Escribe al menos 2 caracteres para buscar"
                         : "No se encontraron pacientes."}
                     </CommandEmpty>
                     <CommandGroup>
-                      {filteredPatients.slice(0, 50).map((patient) => (
+                      {filteredPatients.map((patient) => (
                         <CommandItem
                           key={patient.id}
                           value={`${patient.lastName} ${patient.firstName} ${patient.dni ?? ""}`}
