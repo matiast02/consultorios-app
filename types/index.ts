@@ -263,7 +263,11 @@ export interface Medic {
   name?: string | null;
   firstName?: string | null;
   lastName?: string | null;
-  specialization?: { id: string; name: string } | null;
+  specialization?: {
+    id: string;
+    name: string;
+    professionConfig?: { name: string } | null;
+  } | null;
 }
 
 // ─── Preferences ─────────────────────────────────────────────────────────────

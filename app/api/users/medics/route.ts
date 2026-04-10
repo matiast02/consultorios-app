@@ -28,7 +28,13 @@ export async function GET() {
         firstName: true,
         lastName: true,
         email: true,
-        specialization: { select: { id: true, name: true } },
+        specialization: {
+          select: {
+            id: true,
+            name: true,
+            professionConfig: { select: { name: true } },
+          },
+        },
         image: true,
       },
       orderBy: { lastName: "asc" },

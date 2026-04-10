@@ -736,13 +736,29 @@ export function CreateShiftDialog({
                   <SelectValue placeholder="Seleccionar profesional (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  {medics.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name ??
-                        `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() ??
-                        "Sin nombre"}
-                    </SelectItem>
-                  ))}
+                  {medics.map((m) => {
+                    const displayName = m.name ??
+                      `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() ??
+                      "Sin nombre";
+                    const profName = m.specialization?.professionConfig?.name;
+                    const specName = m.specialization?.name;
+                    // Show: specialization if medic profession, else profession name
+                    const subtitle = profName && profName !== "Médico" && profName !== "Profesional"
+                      ? profName  // "Dentista", "Nutricionista", "Psicólogo"
+                      : specName ?? null; // "Medicina General", "Pediatría"
+                    return (
+                      <SelectItem key={m.id} value={m.id}>
+                        <div>
+                          <span>{displayName}</span>
+                          {subtitle && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {subtitle}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>

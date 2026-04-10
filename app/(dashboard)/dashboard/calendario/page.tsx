@@ -419,14 +419,20 @@ export default function CalendarioPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">Todos los profesionales</SelectItem>
-                {medics.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.lastName
-                      ? `${m.lastName}${m.firstName ? `, ${m.firstName}` : ""}`
-                      : m.name ?? "Profesional"}
-                    {m.specialization?.name ? ` — ${m.specialization.name}` : ""}
-                  </SelectItem>
-                ))}
+                {medics.map((m) => {
+                  const name = m.lastName
+                    ? `${m.lastName}${m.firstName ? `, ${m.firstName}` : ""}`
+                    : m.name ?? "Profesional";
+                  const profName = m.specialization?.professionConfig?.name;
+                  const detail = profName && profName !== "Médico"
+                    ? profName // "Dentista", "Nutricionista"
+                    : m.specialization?.name ?? null; // "Medicina General"
+                  return (
+                    <SelectItem key={m.id} value={m.id}>
+                      {name}{detail ? ` — ${detail}` : ""}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           )}
