@@ -23,6 +23,7 @@ import {
   Stethoscope,
   Heart,
   UserCog,
+  UserRoundCog,
   GraduationCap,
   Clock,
   Shield,
@@ -58,6 +59,7 @@ const navItems = [
   },
 ];
 
+// Items visible to both admin and secretary
 const adminItems = [
   {
     label: "Obras Sociales",
@@ -79,6 +81,15 @@ const adminItems = [
     href: "/dashboard/administracion/profesiones",
     icon: Users,
   },
+  {
+    label: "Secretarias",
+    href: "/dashboard/administracion/secretarias",
+    icon: UserRoundCog,
+  },
+];
+
+// Items visible only to admin
+const adminOnlyItems = [
   {
     label: "Usuarios",
     href: "/dashboard/administracion/usuarios",
@@ -166,7 +177,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
             Administración
           </p>
-          {adminItems.map((item) => {
+          {[...adminItems, ...(role === "admin" ? adminOnlyItems : [])].map((item) => {
             const isActive = pathname.startsWith(item.href);
 
             return (

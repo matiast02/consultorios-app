@@ -52,7 +52,14 @@ export function LoginForm() {
       });
 
       if (result?.error) {
-        toast.error("Email o contraseña incorrectos");
+        // Auth.js passes the error message from authorize() throw
+        if (result.error.includes("deshabilitada")) {
+          toast.error("Tu cuenta esta deshabilitada. Contacta al administrador.", {
+            duration: 6000,
+          });
+        } else {
+          toast.error("Email o contrasena incorrectos");
+        }
         return;
       }
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +35,8 @@ import {
   Pencil,
   Trash2,
   UserX,
+  Power,
+  ShieldAlert,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -43,6 +47,7 @@ interface UserWithRoles {
   firstName?: string | null;
   lastName?: string | null;
   email?: string | null;
+  isActive: boolean;
   specialization?: { id: string; name: string } | null;
   image?: string | null;
   roles: { id: string; name: string }[];
@@ -87,6 +92,11 @@ function RoleBadge({ roleName }: { roleName: string }) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function UsuariosPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const userRole = (session?.user as { role?: string })?.role;
+  const isAdmin = userRole === "admin";
+
   const [users, setUsers] = useState<UserWithRoles[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -94,6 +104,14 @@ export default function UsuariosPage() {
   const [editing, setEditing] = useState<UserWithRoles | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserWithRoles | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Redirect non-admin users
+  useEffect(() => {
+    if (status === "authenticated" && !isAdmin) {
+      router.replace("/dashboard");
+    }
+  }, [status, isAdmin, router]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -114,9 +132,10 @@ export default function UsuariosPage() {
   }, [search]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     const debounce = setTimeout(fetchData, 300);
     return () => clearTimeout(debounce);
-  }, [fetchData]);
+  }, [fetchData, isAdmin]);
 
   function handleEdit(user: UserWithRoles) {
     setEditing(user);
@@ -164,6 +183,46 @@ export default function UsuariosPage() {
       user.name?.charAt(0) ??
       "U"
     ).toUpperCase();
+  }
+
+  async function handleToggleActive(user: UserWithRoles) {
+    try {
+      setTogglingId(user.id);
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !user.isActive }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "Error al cambiar estado");
+      }
+      toast.success(
+        user.isActive ? "Usuario deshabilitado" : "Usuario habilitado"
+      );
+      fetchData();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Error al cambiar estado"
+      );
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  // Show access denied for non-admin while redirecting
+  if (status === "authenticated" && !isAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+          <ShieldAlert className="h-8 w-8 text-destructive" />
+        </div>
+        <p className="mt-4 font-medium text-foreground">Acceso restringido</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Solo los administradores pueden acceder a esta pagina.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -261,7 +320,8 @@ export default function UsuariosPage() {
                       Especialidad
                     </TableHead>
                     <TableHead className="font-semibold">Rol</TableHead>
-                    <TableHead className="w-[120px] text-right font-semibold">
+                    <TableHead className="font-semibold">Estado</TableHead>
+                    <TableHead className="w-[150px] text-right font-semibold">
                       Acciones
                     </TableHead>
                   </TableRow>
@@ -299,8 +359,34 @@ export default function UsuariosPage() {
                           )}
                         </div>
                       </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            user.isActive
+                              ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800"
+                              : "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800"
+                          }
+                        >
+                          {user.isActive ? "Activo" : "Inactivo"}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                            onClick={() => handleToggleActive(user)}
+                            disabled={togglingId === user.id}
+                            title={user.isActive ? "Deshabilitar" : "Habilitar"}
+                          >
+                            {togglingId === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Power className="h-4 w-4" />
+                            )}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -308,7 +394,6 @@ export default function UsuariosPage() {
                             onClick={() => handleEdit(user)}
                           >
                             <Pencil className="h-4 w-4" />
-                            <span className="sr-only">Editar</span>
                           </Button>
                           <Button
                             variant="ghost"
@@ -317,7 +402,6 @@ export default function UsuariosPage() {
                             onClick={() => setDeleteTarget(user)}
                           >
                             <Trash2 className="h-4 w-4" />
-                            <span className="sr-only">Eliminar</span>
                           </Button>
                         </div>
                       </TableCell>
@@ -353,7 +437,9 @@ export default function UsuariosPage() {
             <AlertDialogDescription>
               ¿Estas seguro de que queres eliminar a{" "}
               <strong>
-                {deleteTarget?.name ?? deleteTarget?.email ?? "este usuario"}
+                {deleteTarget?.firstName && deleteTarget?.lastName
+                  ? `${deleteTarget.firstName} ${deleteTarget.lastName}`
+                  : deleteTarget?.email ?? "este usuario"}
               </strong>
               ? El usuario sera desactivado del sistema.
             </AlertDialogDescription>

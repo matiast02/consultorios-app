@@ -180,6 +180,7 @@ export const updateUserSchema = z.object({
   licenseNumber: z.string().max(50).nullable().optional(),
   specializationId: z.string().nullable().optional(),
   role: z.enum(["medic", "secretary", "admin"]).optional(),
+  isActive: z.boolean().optional(),
 });
 
 // ─── Consultation Types ─────────────────────────────────────────────────────

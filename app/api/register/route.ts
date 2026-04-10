@@ -4,6 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { auth } from "@/auth";
+import { getUserRole } from "@/lib/auth-utils";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -17,6 +19,23 @@ const registerSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    // Auth required: only admin can register users
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: "No autorizado" },
+        { status: 401 }
+      );
+    }
+
+    const requesterRole = await getUserRole(session.user.id);
+    if (requesterRole !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Solo el administrador puede registrar usuarios" },
+        { status: 403 }
+      );
+    }
+
     // Rate limit: 5 requests per minute per IP
     const ip = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "unknown";
     const { allowed } = checkRateLimit(`register:${ip}`, { maxRequests: 5, windowMs: 60000 });
@@ -46,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     if (existingUser) {
       return NextResponse.json(
-        { error: "An account with this email already exists" },
+        { error: "Ya existe una cuenta con este email" },
         { status: 409 }
       );
     }
@@ -69,11 +88,11 @@ export async function POST(request: NextRequest) {
     });
 
     logAudit({
-      userId: user.id,
+      userId: session.user.id,
       action: "CREATE",
       resource: "user",
       resourceId: user.id,
-      details: { name, email },
+      details: { name, email, createdBy: session.user.id },
       req: request,
     });
 

@@ -72,6 +72,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
+        // Block disabled users
+        if (!user.isActive) {
+          logAudit({
+            userId: user.id,
+            action: "LOGIN_BLOCKED",
+            resource: "auth",
+            resourceId: email,
+            details: { reason: "user_disabled" },
+          });
+          throw new Error("Tu cuenta esta deshabilitada. Contacta al administrador.");
+        }
+
         const passwordsMatch = await bcrypt.compare(password, user.password);
         if (!passwordsMatch) {
           recordFailedLogin(email);

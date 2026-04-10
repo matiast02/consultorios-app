@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/users — List all users with roles
+// Supports ?search=... and ?role=secretary|medic|admin filters
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search")?.trim();
+    const role = searchParams.get("role")?.trim();
 
     const users = await prisma.user.findMany({
       where: {
@@ -29,6 +31,15 @@ export async function GET(req: NextRequest) {
               ],
             }
           : {}),
+        ...(role
+          ? {
+              roles: {
+                some: {
+                  role: { name: role },
+                },
+              },
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -36,6 +47,7 @@ export async function GET(req: NextRequest) {
         firstName: true,
         lastName: true,
         email: true,
+        isActive: true,
         specialization: { select: { id: true, name: true } },
         image: true,
         roles: {

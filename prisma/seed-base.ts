@@ -42,7 +42,7 @@ export async function seedBase(prisma: PrismaClient) {
     },
   });
 
-  await prisma.professionConfig.upsert({
+  const psychologistConfig = await prisma.professionConfig.upsert({
     where: { code: "psychologist" },
     update: {},
     create: {
@@ -58,7 +58,7 @@ export async function seedBase(prisma: PrismaClient) {
     },
   });
 
-  await prisma.professionConfig.upsert({
+  const dentistConfig = await prisma.professionConfig.upsert({
     where: { code: "dentist" },
     update: {},
     create: {
@@ -93,6 +93,14 @@ export async function seedBase(prisma: PrismaClient) {
   const specProfessionMap: Record<string, string> = {
     "Medicina General": medicConfig.id,
     "Pediatría": medicConfig.id,
+    "Cardiología": medicConfig.id,
+    "Dermatología": medicConfig.id,
+    "Ginecología": medicConfig.id,
+    "Traumatología": medicConfig.id,
+    "Oftalmología": medicConfig.id,
+    "Neurología": medicConfig.id,
+    "Psiquiatría": psychologistConfig.id,
+    "Nutrición": medicConfig.id,
   };
 
   for (const name of specializations) {

@@ -37,6 +37,7 @@ model User {
   moduleAccess    UserModuleAccess[]
   acceptedInsurances UserInsurance[]
 
+  isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?

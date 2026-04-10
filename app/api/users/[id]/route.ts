@@ -29,6 +29,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
         lastName: true,
         licenseNumber: true,
         email: true,
+        isActive: true,
         specialization: { select: { id: true, name: true } },
         image: true,
         roles: {
@@ -76,15 +77,29 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     const { id } = await context.params;
+    const requesterRole = await getUserRole(session.user.id!);
 
     const existing = await prisma.user.findUnique({
       where: { id, deletedAt: null },
+      include: { roles: { include: { role: true } } },
     });
     if (!existing) {
       return NextResponse.json(
         { success: false, error: "Usuario no encontrado" },
         { status: 404 }
       );
+    }
+
+    const targetRole = existing.roles[0]?.role?.name;
+
+    // Secretary can only edit medic users
+    if (requesterRole === "secretary") {
+      if (targetRole !== "medic") {
+        return NextResponse.json(
+          { success: false, error: "No tenes permisos para editar este usuario" },
+          { status: 403 }
+        );
+      }
     }
 
     const body = await req.json();
@@ -97,21 +112,40 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const { role, ...userData } = parsed.data;
+    const { role, isActive, ...userData } = parsed.data;
+
+    // Only admin can change roles or toggle isActive
+    if (role && requesterRole !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Solo el administrador puede cambiar roles" },
+        { status: 403 }
+      );
+    }
+
+    // Extra safety: even admin cannot set invalid role via API
+    if (role && requesterRole === "secretary" && (role === "admin" || role === "secretary")) {
+      return NextResponse.json(
+        { success: false, error: "No tenes permisos para asignar este rol" },
+        { status: 403 }
+      );
+    }
+
+    if (isActive !== undefined && requesterRole !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Solo el administrador puede habilitar/deshabilitar usuarios" },
+        { status: 403 }
+      );
+    }
 
     // Update user fields
-    const user = await prisma.user.update({
+    const updateData: Record<string, unknown> = { ...userData };
+    if (isActive !== undefined) {
+      updateData.isActive = isActive;
+    }
+
+    await prisma.user.update({
       where: { id },
-      data: userData,
-      select: {
-        id: true,
-        name: true,
-        firstName: true,
-        lastName: true,
-        licenseNumber: true,
-        email: true,
-        specialization: { select: { id: true, name: true } },
-      },
+      data: updateData,
     });
 
     // Update role if provided
@@ -140,6 +174,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         lastName: true,
         licenseNumber: true,
         email: true,
+        isActive: true,
         specialization: { select: { id: true, name: true } },
         image: true,
         roles: {
@@ -155,7 +190,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     const data = updated
       ? { ...updated, roles: updated.roles.map((ur) => ur.role) }
-      : user;
+      : null;
 
     logAudit({
       userId: session.user.id!,
