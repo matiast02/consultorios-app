@@ -223,9 +223,11 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
 
     const { id } = await context.params;
 
-    // Only admin role can delete users
     const requesterRole = await getUserRole(session.user.id!);
-    if (requesterRole !== "admin") {
+
+    // Admin can delete any non-admin user
+    // Secretary can only soft-delete medic users
+    if (requesterRole !== "admin" && requesterRole !== "secretary") {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 403 }
@@ -242,11 +244,20 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Prevent deleting admin users
     const targetRole = await getUserRole(id);
+
+    // Prevent deleting admin users
     if (targetRole === "admin") {
       return NextResponse.json(
         { success: false, error: "No se puede eliminar un usuario administrador" },
+        { status: 403 }
+      );
+    }
+
+    // Secretary can only delete medic users
+    if (requesterRole === "secretary" && targetRole !== "medic") {
+      return NextResponse.json(
+        { success: false, error: "No tenes permisos para eliminar este usuario" },
         { status: 403 }
       );
     }

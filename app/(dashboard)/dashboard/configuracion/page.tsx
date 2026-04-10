@@ -1086,10 +1086,12 @@ export default function ConfiguracionPage() {
       <Tabs defaultValue="perfil">
         <TabsList>
           <TabsTrigger value="perfil">Perfil</TabsTrigger>
-          <TabsTrigger value="horarios">Horarios</TabsTrigger>
-          <TabsTrigger value="bloqueos">Dias Bloqueados</TabsTrigger>
           {isMedicRole && (
-            <TabsTrigger value="obras-sociales">Obras Sociales</TabsTrigger>
+            <>
+              <TabsTrigger value="horarios">Horarios</TabsTrigger>
+              <TabsTrigger value="bloqueos">Dias Bloqueados</TabsTrigger>
+              <TabsTrigger value="obras-sociales">Obras Sociales</TabsTrigger>
+            </>
           )}
         </TabsList>
 
@@ -1098,18 +1100,20 @@ export default function ConfiguracionPage() {
           <ChangePasswordSection />
         </TabsContent>
 
-        <TabsContent value="horarios" className="mt-6">
-          <WorkHoursSection />
-        </TabsContent>
-
-        <TabsContent value="bloqueos" className="mt-6">
-          <BlockDaysSection />
-        </TabsContent>
-
         {isMedicRole && (
-          <TabsContent value="obras-sociales" className="mt-6">
-            <InsuranceSection />
-          </TabsContent>
+          <>
+            <TabsContent value="horarios" className="mt-6">
+              <WorkHoursSection />
+            </TabsContent>
+
+            <TabsContent value="bloqueos" className="mt-6">
+              <BlockDaysSection />
+            </TabsContent>
+
+            <TabsContent value="obras-sociales" className="mt-6">
+              <InsuranceSection />
+            </TabsContent>
+          </>
         )}
       </Tabs>
     </div>

@@ -59,8 +59,22 @@ const navItems = [
   },
 ];
 
-// Items visible to both admin and secretary
-const adminItems = [
+// Items visible to secretary (and admin)
+const secretaryItems = [
+  {
+    label: "Profesionales",
+    href: "/dashboard/administracion/profesionales",
+    icon: Stethoscope,
+  },
+  {
+    label: "Secretarias",
+    href: "/dashboard/administracion/secretarias",
+    icon: UserRoundCog,
+  },
+];
+
+// Items visible only to admin
+const adminOnlyItems = [
   {
     label: "Obras Sociales",
     href: "/dashboard/administracion/obras-sociales",
@@ -81,15 +95,6 @@ const adminItems = [
     href: "/dashboard/administracion/profesiones",
     icon: Users,
   },
-  {
-    label: "Secretarias",
-    href: "/dashboard/administracion/secretarias",
-    icon: UserRoundCog,
-  },
-];
-
-// Items visible only to admin
-const adminOnlyItems = [
   {
     label: "Usuarios",
     href: "/dashboard/administracion/usuarios",
@@ -177,7 +182,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
             Administración
           </p>
-          {[...adminItems, ...(role === "admin" ? adminOnlyItems : [])].map((item) => {
+          {[...secretaryItems, ...(role === "admin" ? adminOnlyItems : [])].map((item) => {
             const isActive = pathname.startsWith(item.href);
 
             return (

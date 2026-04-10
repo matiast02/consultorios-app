@@ -222,13 +222,7 @@ export function LoginForm() {
 
       <CardFooter>
         <p className="w-full text-center text-sm text-muted-foreground">
-          ¿No tenés una cuenta?{" "}
-          <Link
-            href="/register"
-            className="font-medium text-primary underline-offset-4 transition-colors hover:underline"
-          >
-            Registrarse
-          </Link>
+          Contacta al administrador para obtener una cuenta.
         </p>
       </CardFooter>
     </Card>

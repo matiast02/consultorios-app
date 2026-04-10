@@ -1,14 +1,7 @@
-import { RegisterForm } from "@/components/register-form";
-import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
-export default async function RegisterPage() {
-  const session = await auth();
-
-  // Already logged in — redirect to dashboard
-  if (session) {
-    redirect("/dashboard");
-  }
-
-  return <RegisterForm />;
+// Registration is now admin-only (via dashboard).
+// Redirect to login if someone visits /register directly.
+export default function RegisterPage() {
+  redirect("/login");
 }

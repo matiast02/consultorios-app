@@ -30,7 +30,7 @@ async function main() {
     update: { specializationId: specMedGen.id },
     create: {
       email: "dr.gervilla@consultorio.com",
-      name: "Dr. Martín Gervilla",
+      name: "Martín Gervilla",
       firstName: "Martín",
       lastName: "Gervilla",
       password: hashedPassword,
@@ -43,7 +43,7 @@ async function main() {
     update: { specializationId: specPediatria.id },
     create: {
       email: "dra.lopez@consultorio.com",
-      name: "Dra. Carolina López",
+      name: "Carolina López",
       firstName: "Carolina",
       lastName: "López",
       password: hashedPassword,
@@ -68,7 +68,7 @@ async function main() {
     update: {},
     create: {
       email: "admin@consultorio.com",
-      name: "Admin",
+      name: "Admin Sistema",
       firstName: "Admin",
       lastName: "Sistema",
       password: hashedPassword,
