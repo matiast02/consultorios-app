@@ -39,11 +39,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { format, parse } from "date-fns";
 import { es } from "date-fns/locale";
 import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repeat, Clock } from "lucide-react";
