@@ -218,9 +218,13 @@ export async function seedBase(prisma: PrismaClient) {
 }
 
 // ─── Standalone execution ─────────────────────────────────────────────────
-// Only run when executed directly (not when imported from seed.ts)
-const isMain = require.main === module || process.argv[1]?.includes("seed-base");
-if (isMain) {
+// Runs when executed directly via `tsx prisma/seed-base.ts` or `node prisma/seed-base.cjs`
+// Does NOT run when imported from seed.ts (seed.ts calls seedBase() directly)
+const isDirectExecution =
+  require.main === module ||
+  process.argv[1]?.includes("seed-base");
+
+if (isDirectExecution) {
   const prisma = new PrismaClient();
   seedBase(prisma)
     .then(async () => {

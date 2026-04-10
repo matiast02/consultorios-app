@@ -26,6 +26,9 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
+# Compile seed-base.ts to JS for production seeding (idempotent upserts)
+RUN npx esbuild prisma/seed-base.ts --bundle --platform=node --outfile=prisma/seed-base.cjs --format=cjs
+
 # Build Next.js (standalone output)
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
@@ -54,8 +57,8 @@ COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 
-# Copy seed files for initial setup
-COPY --from=builder /app/prisma/seed-base.ts ./prisma/seed-base.ts
+# Copy compiled seed for automatic base data seeding
+COPY --from=builder /app/prisma/seed-base.cjs ./prisma/seed-base.cjs
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh ./
