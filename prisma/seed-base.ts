@@ -1,8 +1,12 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 /**
  * Seed base — datos maestros para produccion y desarrollo.
  * Se puede ejecutar de forma independiente o ser importado desde seed.ts.
+ *
+ * Si las variables ADMIN_EMAIL y ADMIN_PASSWORD estan definidas,
+ * crea el usuario admin inicial (solo si no existe).
  */
 export async function seedBase(prisma: PrismaClient) {
   // ─── Roles ────────────────────────────────────────────────────────────────
@@ -215,6 +219,44 @@ export async function seedBase(prisma: PrismaClient) {
     });
   }
   console.log(`✅ ${medications.length} medications created`);
+
+  // ─── Initial Admin User (production first-time setup) ─────────────────────
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+
+  if (adminEmail && adminPassword) {
+    const existingAdmin = await prisma.user.findUnique({
+      where: { email: adminEmail },
+    });
+
+    if (!existingAdmin) {
+      const hashedPassword = await bcrypt.hash(adminPassword, 12);
+
+      const adminUser = await prisma.user.create({
+        data: {
+          email: adminEmail,
+          name: "Administrador",
+          firstName: "Admin",
+          lastName: "Sistema",
+          password: hashedPassword,
+        },
+      });
+
+      const adminRole = await prisma.role.findUnique({
+        where: { name: "admin" },
+      });
+
+      if (adminRole) {
+        await prisma.userRole.create({
+          data: { userId: adminUser.id, roleId: adminRole.id },
+        });
+      }
+
+      console.log(`✅ Admin user created: ${adminEmail}`);
+    } else {
+      console.log(`ℹ️  Admin user already exists: ${adminEmail}`);
+    }
+  }
 }
 
 // ─── Standalone execution ─────────────────────────────────────────────────
