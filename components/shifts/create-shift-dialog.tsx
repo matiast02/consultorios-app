@@ -36,8 +36,9 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repeat } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repeat, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Patient, Medic, UserPreference, BlockDay, ConsultationType, HealthInsurance } from "@/types";
 import { DAY_NAMES } from "@/types";
@@ -194,6 +195,48 @@ export function CreateShiftDialog({
       }
     }
   }, [selectedTypeId, watch("startTime")]);
+
+  // ─── Available slots ───────────────────────────────────────────────────────
+  interface TimeSlot { start: string; end: string; available: boolean }
+  const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+  const [slotsMessage, setSlotsMessage] = useState<string>("");
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // Fetch slots when medic + date + duration change
+  useEffect(() => {
+    const medicId = watch("medicId") || defaultMedicId;
+    const date = watch("date");
+    const ct = consultationTypes.find((t) => t.id === selectedTypeId);
+    const duration = ct?.durationMinutes ?? 30;
+
+    if (!open || !medicId || !date || date.length !== 10) {
+      setAvailableSlots([]);
+      setSlotsMessage("");
+      return;
+    }
+
+    async function fetchSlots() {
+      setLoadingSlots(true);
+      try {
+        const res = await fetch(`/api/users/${medicId}/available-slots?date=${date}&duration=${duration}`);
+        if (res.ok) {
+          const json = await res.json();
+          setAvailableSlots(json.data?.slots ?? []);
+          setSlotsMessage(json.data?.message ?? "");
+        }
+      } catch { /* non-critical */ }
+      finally { setLoadingSlots(false); }
+    }
+    fetchSlots();
+  }, [open, watch("medicId"), defaultMedicId, watch("date"), selectedTypeId, consultationTypes]);
+
+  function selectSlot(slot: TimeSlot) {
+    if (!slot.available) return;
+    setValue("startTime", slot.start);
+    setValue("endTime", slot.end);
+  }
+
+  const selectedStartTime = watch("startTime");
 
   // ─── Availability validation ──────────────────────────────────────────────
   const [medicPreferences, setMedicPreferences] = useState<UserPreference[]>([]);
@@ -626,30 +669,68 @@ export function CreateShiftDialog({
             </div>
           )}
 
-          {/* Time */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="startTime">Hora inicio</Label>
-              <Input
-                id="startTime"
-                type="time"
-                {...register("startTime")}
-              />
-              {errors.startTime && (
-                <p className="text-sm text-destructive">
-                  {errors.startTime.message}
-                </p>
+          {/* Time slots */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              Horario
+              {selectedStartTime && (
+                <Badge variant="secondary" className="ml-2 text-xs font-normal">
+                  {watch("startTime")} - {watch("endTime")}
+                </Badge>
               )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="endTime">Hora fin</Label>
-              <Input id="endTime" type="time" {...register("endTime")} />
-              {errors.endTime && (
-                <p className="text-sm text-destructive">
-                  {errors.endTime.message}
+            </Label>
+
+            {/* Slot grid when medic is selected */}
+            {(watch("medicId") || defaultMedicId) && watch("date") ? (
+              loadingSlots ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-xs text-muted-foreground">Cargando horarios...</span>
+                </div>
+              ) : slotsMessage ? (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {slotsMessage}
+                </div>
+              ) : availableSlots.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {availableSlots.map((slot) => (
+                    <button
+                      key={slot.start}
+                      type="button"
+                      disabled={!slot.available}
+                      onClick={() => selectSlot(slot)}
+                      className={cn(
+                        "rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                        slot.available
+                          ? selectedStartTime === slot.start
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                          : "border-muted bg-muted/30 text-muted-foreground/50 line-through cursor-not-allowed"
+                      )}
+                    >
+                      {slot.start}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground py-2">
+                  No hay horarios configurados para este dia
                 </p>
-              )}
-            </div>
+              )
+            ) : (
+              <p className="text-xs text-muted-foreground py-2">
+                Selecciona un profesional y una fecha para ver los horarios disponibles
+              </p>
+            )}
+
+            {/* Hidden inputs for form */}
+            <input type="hidden" {...register("startTime")} />
+            <input type="hidden" {...register("endTime")} />
+            {errors.startTime && (
+              <p className="text-sm text-destructive">{errors.startTime.message}</p>
+            )}
           </div>
 
           {/* Recurring toggle */}
