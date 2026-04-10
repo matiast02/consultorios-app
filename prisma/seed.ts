@@ -1,142 +1,53 @@
 import { PrismaClient, ShiftStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { seedBase } from "./seed-base";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🌱 Seeding database...");
+  console.log("🌱 Seeding database (base + dev data)...\n");
 
-  // ─── Roles ────────────────────────────────────────────────────────────────
+  // ─── Base data (production-ready) ─────────────────────────────────────────
+  await seedBase(prisma);
+
+  console.log("\n🔧 Seeding development data...\n");
+
+  // ─── Fetch references needed for dev data ─────────────────────────────────
   const [medicRole, secretaryRole, adminRole] = await Promise.all([
-    prisma.role.upsert({
-      where: { name: "medic" },
-      update: {},
-      create: { name: "medic" },
-    }),
-    prisma.role.upsert({
-      where: { name: "secretary" },
-      update: {},
-      create: { name: "secretary" },
-    }),
-    prisma.role.upsert({
-      where: { name: "admin" },
-      update: {},
-      create: { name: "admin" },
-    }),
+    prisma.role.findUniqueOrThrow({ where: { name: "medic" } }),
+    prisma.role.findUniqueOrThrow({ where: { name: "secretary" } }),
+    prisma.role.findUniqueOrThrow({ where: { name: "admin" } }),
   ]);
-  console.log("✅ Roles created");
 
-  // ─── Profession Configs ───────────────────────────────────────────────────
-  const medicConfig = await prisma.professionConfig.upsert({
-    where: { code: "medic" },
-    update: {},
-    create: {
-      code: "medic",
-      name: "Médico",
-      professionalLabel: "Dr/a.",
-      patientLabel: "Paciente",
-      prescriptionLabel: "Receta",
-      evolutionLabel: "Evolución",
-      clinicalRecordLabel: "Historia Clínica",
-      enabledModules: JSON.stringify(["prescriptions", "study_orders"]),
-      clinicalFields: JSON.stringify(["bloodType", "allergies", "personalHistory", "familyHistory", "currentMedication"]),
-    },
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const psychologistConfig = await prisma.professionConfig.upsert({
-    where: { code: "psychologist" },
-    update: {},
-    create: {
-      code: "psychologist",
-      name: "Psicólogo",
-      professionalLabel: "Lic.",
-      patientLabel: "Paciente",
-      prescriptionLabel: "Indicación",
-      evolutionLabel: "Nota de sesión",
-      clinicalRecordLabel: "Ficha Psicológica",
-      enabledModules: JSON.stringify(["study_orders"]),
-      clinicalFields: JSON.stringify(["personalHistory", "familyHistory", "consultReason", "previousTherapy", "psychodiagnosis", "genogram"]),
-    },
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const dentistConfig = await prisma.professionConfig.upsert({
-    where: { code: "dentist" },
-    update: {},
-    create: {
-      code: "dentist",
-      name: "Dentista",
-      professionalLabel: "Od.",
-      patientLabel: "Paciente",
-      prescriptionLabel: "Plan de tratamiento",
-      evolutionLabel: "Registro odontológico",
-      clinicalRecordLabel: "Ficha Odontológica",
-      enabledModules: JSON.stringify(["prescriptions", "study_orders"]),
-      clinicalFields: JSON.stringify(["allergies", "currentMedication", "dentalHistory", "odontogram"]),
-    },
-  });
-
-  console.log("✅ Profession configs created");
-
-  // ─── Specializations ──────────────────────────────────────────────────────
-  const specializations = [
-    "Medicina General",
-    "Pediatría",
-    "Cardiología",
-    "Dermatología",
-    "Ginecología",
-    "Traumatología",
-    "Oftalmología",
-    "Neurología",
-    "Psiquiatría",
-    "Nutrición",
-  ];
-
-  // Map specializations to profession configs
-  const specProfessionMap: Record<string, string> = {
-    "Medicina General": medicConfig.id,
-    "Pediatría": medicConfig.id,
-  };
-
-  const specMap: Record<string, { id: string }> = {};
-  for (const name of specializations) {
-    const profConfigId = specProfessionMap[name] ?? null;
-    const spec = await prisma.specialization.upsert({
-      where: { name },
-      update: { professionConfigId: profConfigId },
-      create: { name, professionConfigId: profConfigId },
-    });
-    specMap[name] = spec;
-  }
-  console.log("✅ Specializations created");
+  const specMedGen = await prisma.specialization.findUniqueOrThrow({ where: { name: "Medicina General" } });
+  const specPediatria = await prisma.specialization.findUniqueOrThrow({ where: { name: "Pediatría" } });
 
   // ─── Users ────────────────────────────────────────────────────────────────
   const hashedPassword = await bcrypt.hash("password123", 12);
 
   const drGervilla = await prisma.user.upsert({
     where: { email: "dr.gervilla@consultorio.com" },
-    update: { specializationId: specMap["Medicina General"].id },
+    update: { specializationId: specMedGen.id },
     create: {
       email: "dr.gervilla@consultorio.com",
       name: "Dr. Martín Gervilla",
       firstName: "Martín",
       lastName: "Gervilla",
       password: hashedPassword,
-      specializationId: specMap["Medicina General"].id,
+      specializationId: specMedGen.id,
     },
   });
 
   const draLopez = await prisma.user.upsert({
     where: { email: "dra.lopez@consultorio.com" },
-    update: { specializationId: specMap["Pediatría"].id },
+    update: { specializationId: specPediatria.id },
     create: {
       email: "dra.lopez@consultorio.com",
       name: "Dra. Carolina López",
       firstName: "Carolina",
       lastName: "López",
       password: hashedPassword,
-      specializationId: specMap["Pediatría"].id,
+      specializationId: specPediatria.id,
     },
   });
 
@@ -188,28 +99,13 @@ async function main() {
   }
   console.log("✅ Roles assigned");
 
-  // ─── Health Insurance (Obras Sociales) ────────────────────────────────────
-  const osData = [
-    { name: "OSDE", code: "400" },
-    { name: "Swiss Medical", code: "401" },
-    { name: "Galeno", code: "402" },
-    { name: "Medifé", code: "403" },
-    { name: "IOMA", code: "500" },
-    { name: "PAMI", code: "600" },
-    { name: "Particular", code: "000" },
-    { name: "Unión Personal", code: "404" },
-  ];
-
+  // ─── Health Insurance references ──────────────────────────────────────────
+  const insuranceNames = ["OSDE", "Swiss Medical", "Galeno", "Medifé", "IOMA", "PAMI", "Particular", "Unión Personal"];
   const insurances: Record<string, { id: string }> = {};
-  for (const os of osData) {
-    // Use findFirst + create pattern since HealthInsurance has no unique name field
-    let existing = await prisma.healthInsurance.findFirst({ where: { name: os.name } });
-    if (!existing) {
-      existing = await prisma.healthInsurance.create({ data: os });
-    }
-    insurances[os.name] = existing;
+  for (const name of insuranceNames) {
+    const ins = await prisma.healthInsurance.findFirst({ where: { name } });
+    if (ins) insurances[name] = ins;
   }
-  console.log("✅ Health insurances created");
 
   // ─── Patients ─────────────────────────────────────────────────────────────
   const patientsData = [
@@ -223,7 +119,7 @@ async function main() {
       address: "Av. Corrientes 1234",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["OSDE"].id,
+      osId: insurances["OSDE"]?.id,
       osNumber: "12345678",
     },
     {
@@ -236,7 +132,7 @@ async function main() {
       address: "Calle Florida 567",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["Swiss Medical"].id,
+      osId: insurances["Swiss Medical"]?.id,
       osNumber: "87654321",
     },
     {
@@ -249,7 +145,7 @@ async function main() {
       address: "Av. Santa Fe 890",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["Galeno"].id,
+      osId: insurances["Galeno"]?.id,
       osNumber: "11223344",
     },
     {
@@ -262,7 +158,7 @@ async function main() {
       address: "Belgrano 456",
       country: "Argentina",
       province: "Córdoba",
-      osId: insurances["OSDE"].id,
+      osId: insurances["OSDE"]?.id,
       osNumber: "55667788",
     },
     {
@@ -275,7 +171,7 @@ async function main() {
       address: "San Martín 789",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["PAMI"].id,
+      osId: insurances["PAMI"]?.id,
       osNumber: "99001122",
     },
     {
@@ -288,7 +184,7 @@ async function main() {
       address: "Rivadavia 2345",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["Medifé"].id,
+      osId: insurances["Medifé"]?.id,
       osNumber: "33445566",
     },
     {
@@ -301,7 +197,7 @@ async function main() {
       address: "Callao 678",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["Swiss Medical"].id,
+      osId: insurances["Swiss Medical"]?.id,
       osNumber: "77889900",
     },
     {
@@ -314,7 +210,7 @@ async function main() {
       address: "Av. de Mayo 1010",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["IOMA"].id,
+      osId: insurances["IOMA"]?.id,
       osNumber: "44556677",
     },
     {
@@ -327,7 +223,7 @@ async function main() {
       address: "Tucumán 321",
       country: "Argentina",
       province: "Tucumán",
-      osId: insurances["PAMI"].id,
+      osId: insurances["PAMI"]?.id,
       osNumber: "11002233",
     },
     {
@@ -340,7 +236,7 @@ async function main() {
       address: "Mitre 555",
       country: "Argentina",
       province: "Santa Fe",
-      osId: insurances["Particular"].id,
+      osId: insurances["Particular"]?.id,
       osNumber: undefined,
     },
     {
@@ -352,7 +248,7 @@ async function main() {
       address: "Sarmiento 1500",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["Galeno"].id,
+      osId: insurances["Galeno"]?.id,
       osNumber: "66778899",
     },
     {
@@ -365,7 +261,7 @@ async function main() {
       address: "Av. Libertador 4321",
       country: "Argentina",
       province: "Buenos Aires",
-      osId: insurances["Unión Personal"].id,
+      osId: insurances["Unión Personal"]?.id,
       osNumber: "22334455",
     },
   ];
@@ -560,7 +456,6 @@ async function main() {
   console.log(`✅ ${shifts.length} shifts created`);
 
   // ─── User Preferences ─────────────────────────────────────────────────────
-  // Dr. Gervilla works Mon-Fri, mornings and afternoons
   const gervillaPrefs = [
     { day: 1, fromHourAM: "08:00", toHourAM: "12:00", fromHourPM: "14:00", toHourPM: "18:00" },
     { day: 2, fromHourAM: "08:00", toHourAM: "12:00", fromHourPM: "14:00", toHourPM: "18:00" },
@@ -577,7 +472,6 @@ async function main() {
     });
   }
 
-  // Dra. López works Mon, Wed, Fri afternoons only
   const lopezPrefs = [
     { day: 1, fromHourAM: null, toHourAM: null, fromHourPM: "14:00", toHourPM: "19:00" },
     { day: 3, fromHourAM: null, toHourAM: null, fromHourPM: "14:00", toHourPM: "19:00" },
@@ -594,7 +488,6 @@ async function main() {
   console.log("✅ User preferences created");
 
   // ─── Block Days ───────────────────────────────────────────────────────────
-  // Dr. Gervilla blocks a few days next month
   const blockDays = [
     new Date(currentYear, currentMonth + 1, 10),
     new Date(currentYear, currentMonth + 1, 11),
@@ -609,89 +502,6 @@ async function main() {
     });
   }
   console.log("✅ Block days created");
-
-  // ─── Module Config ────────────────────────────────────────────────────────
-  await prisma.moduleConfig.upsert({
-    where: { module: "prescriptions" },
-    update: {},
-    create: { module: "prescriptions", name: "Recetas Medicas", enabled: true },
-  });
-  await prisma.moduleConfig.upsert({
-    where: { module: "study_orders" },
-    update: {},
-    create: { module: "study_orders", name: "Ordenes de Estudio", enabled: true },
-  });
-  console.log("✅ Module config created");
-
-  // ─── Medications (Vademécum) ──────────────────────────────────────────────
-  const medications = [
-    { name: "Ibuprofeno 400mg", genericName: "Ibuprofeno", presentation: "Comprimidos", category: "Analgésico/Antiinflamatorio" },
-    { name: "Ibuprofeno 600mg", genericName: "Ibuprofeno", presentation: "Comprimidos", category: "Analgésico/Antiinflamatorio" },
-    { name: "Paracetamol 500mg", genericName: "Paracetamol", presentation: "Comprimidos", category: "Analgésico/Antipirético" },
-    { name: "Paracetamol 1g", genericName: "Paracetamol", presentation: "Comprimidos", category: "Analgésico/Antipirético" },
-    { name: "Amoxicilina 500mg", genericName: "Amoxicilina", presentation: "Cápsulas", category: "Antibiótico" },
-    { name: "Amoxicilina 875mg + Ác. Clavulánico", genericName: "Amoxicilina/Clavulánico", presentation: "Comprimidos", category: "Antibiótico" },
-    { name: "Azitromicina 500mg", genericName: "Azitromicina", presentation: "Comprimidos", category: "Antibiótico" },
-    { name: "Cefalexina 500mg", genericName: "Cefalexina", presentation: "Cápsulas", category: "Antibiótico" },
-    { name: "Ciprofloxacina 500mg", genericName: "Ciprofloxacina", presentation: "Comprimidos", category: "Antibiótico" },
-    { name: "Omeprazol 20mg", genericName: "Omeprazol", presentation: "Cápsulas", category: "Protector gástrico" },
-    { name: "Pantoprazol 40mg", genericName: "Pantoprazol", presentation: "Comprimidos", category: "Protector gástrico" },
-    { name: "Ranitidina 150mg", genericName: "Ranitidina", presentation: "Comprimidos", category: "Protector gástrico" },
-    { name: "Loratadina 10mg", genericName: "Loratadina", presentation: "Comprimidos", category: "Antihistamínico" },
-    { name: "Cetirizina 10mg", genericName: "Cetirizina", presentation: "Comprimidos", category: "Antihistamínico" },
-    { name: "Diclofenac 75mg", genericName: "Diclofenac", presentation: "Comprimidos", category: "Antiinflamatorio" },
-    { name: "Dexametasona 4mg", genericName: "Dexametasona", presentation: "Comprimidos", category: "Corticoide" },
-    { name: "Prednisona 20mg", genericName: "Prednisona", presentation: "Comprimidos", category: "Corticoide" },
-    { name: "Metformina 850mg", genericName: "Metformina", presentation: "Comprimidos", category: "Antidiabético" },
-    { name: "Enalapril 10mg", genericName: "Enalapril", presentation: "Comprimidos", category: "Antihipertensivo" },
-    { name: "Losartán 50mg", genericName: "Losartán", presentation: "Comprimidos", category: "Antihipertensivo" },
-    { name: "Atenolol 50mg", genericName: "Atenolol", presentation: "Comprimidos", category: "Betabloqueante" },
-    { name: "Amlodipina 5mg", genericName: "Amlodipina", presentation: "Comprimidos", category: "Antihipertensivo" },
-    { name: "Atorvastatina 20mg", genericName: "Atorvastatina", presentation: "Comprimidos", category: "Hipolipemiante" },
-    { name: "Aspirina 100mg", genericName: "Ácido acetilsalicílico", presentation: "Comprimidos", category: "Antiagregante" },
-    { name: "Clonazepam 0.5mg", genericName: "Clonazepam", presentation: "Comprimidos", category: "Ansiolítico" },
-    { name: "Alprazolam 0.5mg", genericName: "Alprazolam", presentation: "Comprimidos", category: "Ansiolítico" },
-    { name: "Levotiroxina 50mcg", genericName: "Levotiroxina", presentation: "Comprimidos", category: "Hormona tiroidea" },
-    { name: "Metoclopramida 10mg", genericName: "Metoclopramida", presentation: "Comprimidos", category: "Antiemético" },
-    { name: "Buscapina 10mg", genericName: "Hioscina", presentation: "Comprimidos", category: "Antiespasmódico" },
-    { name: "Salbutamol 100mcg", genericName: "Salbutamol", presentation: "Aerosol", category: "Broncodilatador" },
-    { name: "Fluticasona 250mcg", genericName: "Fluticasona", presentation: "Aerosol", category: "Corticoide inhalado" },
-    { name: "Hierro polimaltosato", genericName: "Hierro", presentation: "Comprimidos masticables", category: "Suplemento" },
-    { name: "Ácido fólico 5mg", genericName: "Ácido fólico", presentation: "Comprimidos", category: "Vitamina" },
-    { name: "Complejo vitamínico B", genericName: "Vitaminas B1, B6, B12", presentation: "Comprimidos", category: "Vitamina" },
-    { name: "Vitamina D3 1000 UI", genericName: "Colecalciferol", presentation: "Gotas", category: "Vitamina" },
-    { name: "Clotrimazol crema 1%", genericName: "Clotrimazol", presentation: "Crema", category: "Antimicótico tópico" },
-    { name: "Mupirocina crema 2%", genericName: "Mupirocina", presentation: "Crema", category: "Antibiótico tópico" },
-    { name: "Betametasona crema 0.05%", genericName: "Betametasona", presentation: "Crema", category: "Corticoide tópico" },
-    { name: "Tramadol 50mg", genericName: "Tramadol", presentation: "Cápsulas", category: "Analgésico opioide" },
-    { name: "Gabapentina 300mg", genericName: "Gabapentina", presentation: "Cápsulas", category: "Anticonvulsivante/Neuropático" },
-  ];
-
-  for (const med of medications) {
-    await prisma.medication.upsert({
-      where: { name: med.name },
-      update: {},
-      create: med,
-    });
-  }
-  console.log(`✅ ${medications.length} medications created`);
-
-  // ─── Consultation Types ────────────────────────────────────────────────────
-  const consultationTypesData = [
-    { name: "Primera vez", durationMinutes: 40, color: "#8B5CF6", isDefault: true },
-    { name: "Control", durationMinutes: 20, color: "#06B6D4", isDefault: false },
-    { name: "Urgencia", durationMinutes: 15, color: "#EF4444", isDefault: false },
-    { name: "Seguimiento", durationMinutes: 30, color: "#F59E0B", isDefault: false },
-  ];
-
-  for (const ct of consultationTypesData) {
-    await prisma.consultationType.upsert({
-      where: { name: ct.name },
-      update: {},
-      create: ct,
-    });
-  }
-  console.log("✅ Consultation types created");
 
   console.log("\n🎉 Seed completed successfully!");
   console.log("\n📋 Test credentials:");
