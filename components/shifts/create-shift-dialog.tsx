@@ -38,6 +38,14 @@ import {
 } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { format, parse } from "date-fns";
+import { es } from "date-fns/locale";
 import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repeat, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Patient, Medic, UserPreference, BlockDay, ConsultationType, HealthInsurance } from "@/types";
@@ -622,16 +630,43 @@ export function CreateShiftDialog({
 
           {/* Date */}
           <div className="space-y-2">
-            <Label htmlFor="date">Fecha</Label>
-            <div className="relative">
-              <CalendarIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="date"
-                type="date"
-                className="pl-10"
-                {...register("date")}
-              />
-            </div>
+            <Label>Fecha</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !watch("date") && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {watch("date")
+                    ? format(
+                        parse(watch("date"), "yyyy-MM-dd", new Date()),
+                        "EEEE, d 'de' MMMM yyyy",
+                        { locale: es }
+                      )
+                    : "Seleccionar fecha"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={
+                    watch("date")
+                      ? parse(watch("date"), "yyyy-MM-dd", new Date())
+                      : undefined
+                  }
+                  onSelect={(date) =>
+                    setValue("date", date ? format(date, "yyyy-MM-dd") : "")
+                  }
+                  locale={es}
+                  disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                />
+              </PopoverContent>
+            </Popover>
             {errors.date && (
               <p className="text-sm text-destructive">{errors.date.message}</p>
             )}
@@ -674,11 +709,6 @@ export function CreateShiftDialog({
             <Label className="flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5" />
               Horario
-              {selectedStartTime && (
-                <Badge variant="secondary" className="ml-2 text-xs font-normal">
-                  {watch("startTime")} - {watch("endTime")}
-                </Badge>
-              )}
             </Label>
 
             {/* Slot grid when medic is selected */}
@@ -736,11 +766,16 @@ export function CreateShiftDialog({
           {/* Recurring toggle */}
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Repeat className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-sm font-medium cursor-pointer">
-                  Repetir turno
-                </Label>
+              <div>
+                <div className="flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-sm font-medium cursor-pointer">
+                    Repetir turno
+                  </Label>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5 pl-6">
+                  Programa varios turnos automaticamente con la misma frecuencia
+                </p>
               </div>
               <Switch
                 checked={isRecurring}
