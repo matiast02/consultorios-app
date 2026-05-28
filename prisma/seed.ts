@@ -1713,6 +1713,11 @@ async function main() {
   console.log(`   • 8 huecos disponibles distribuidos`);
   console.log(`   • ${createdTomorrowShifts.length} turnos mañana con ${reminderConfig.length} reminders`);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADMIN DASHBOARD — Historical audit log demo data
+  // ═══════════════════════════════════════════════════════════════════════════
+  await seedAdminAuditLogs(prisma);
+
   console.log("\n🎉 Seed completed successfully!");
   console.log("\n📋 Test credentials:");
   console.log("  Dr. Gervilla:  dr.gervilla@consultorio.com / password123");
@@ -1720,6 +1725,226 @@ async function main() {
   console.log("  Secretaria:    maria@consultorio.com / password123");
   console.log("  Admin:         admin@consultorio.com / password123");
   console.log("  Otros médicos: {apellido}@consultorio.local / password123");
+}
+
+// ─── Admin dashboard demo: historical AuditLog ────────────────────────────────
+// Generates ~250 events across the last 30 days so the admin dashboard
+// surfaces realistic KPIs and an interesting activity feed.
+// Idempotent: if there are already > 100 audit logs, this is a no-op.
+async function seedAdminAuditLogs(prisma: PrismaClient) {
+  console.log("\n🛡  Seeding admin dashboard audit log history...\n");
+
+  const existing = await prisma.auditLog.count();
+  if (existing > 100) {
+    console.log(`✅ Audit logs ya existentes (${existing}) — skip reseed.`);
+    return;
+  }
+
+  const activeUsers = await prisma.user.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { id: true },
+  });
+  if (activeUsers.length === 0) {
+    console.log("⚠️  No hay usuarios activos — skip audit log seed.");
+    return;
+  }
+  const userIds = activeUsers.map((u) => u.id);
+
+  const now = new Date();
+  const day = 24 * 60 * 60 * 1000;
+  const rand = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  const randInt = (min: number, max: number): number =>
+    Math.floor(Math.random() * (max - min + 1)) + min;
+  const randomIp = (): string => `192.168.1.${randInt(2, 254)}`;
+  const USER_AGENT =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36";
+
+  // randomDate within last N days (excluding future)
+  const randomDateInLastDays = (days: number, minDaysAgo = 0): Date => {
+    const minAgo = minDaysAgo * day;
+    const maxAgo = days * day;
+    const offset = randInt(minAgo, maxAgo);
+    return new Date(now.getTime() - offset);
+  };
+
+  // Recent patient names for DELETE details
+  const recentPatients = await prisma.patient.findMany({
+    take: 20,
+    select: { id: true, firstName: true, lastName: true },
+  });
+
+  type LogPlan = {
+    userId: string;
+    action: string;
+    resource: string;
+    resourceId: string;
+    details?: string | null;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+    createdAt: Date;
+  };
+  const logs: LogPlan[] = [];
+
+  const pushLog = (
+    action: string,
+    resource: string,
+    resourceId: string,
+    createdAt: Date,
+    extra: Partial<LogPlan> = {},
+  ) => {
+    logs.push({
+      userId: rand(userIds),
+      action,
+      resource,
+      resourceId,
+      createdAt,
+      ipAddress: extra.ipAddress ?? randomIp(),
+      userAgent: extra.userAgent ?? USER_AGENT,
+      details: extra.details ?? null,
+      ...extra,
+    });
+  };
+
+  // ─── 80 LOGIN_SUCCESS over last 30 days ───────────────────────────────────
+  for (let i = 0; i < 80; i++) {
+    const u = rand(userIds);
+    logs.push({
+      userId: u,
+      action: "LOGIN_SUCCESS",
+      resource: "auth",
+      resourceId: u,
+      createdAt: randomDateInLastDays(30),
+      ipAddress: randomIp(),
+      userAgent: USER_AGENT,
+      details: null,
+    });
+  }
+
+  // ─── 25 LOGIN_FAILED total: 6 in the last 24h, 19 spread over the last 7d ──
+  for (let i = 0; i < 6; i++) {
+    const offsetH = randInt(0, 23);
+    const created = new Date(now.getTime() - offsetH * 60 * 60 * 1000);
+    pushLog("LOGIN_FAILED", "auth", "unknown", created, {
+      details: JSON.stringify({ reason: "invalid_credentials" }),
+    });
+  }
+  for (let i = 0; i < 19; i++) {
+    // Spread across the past 7 days but skip the last 24h
+    const offsetH = randInt(24, 7 * 24);
+    const created = new Date(now.getTime() - offsetH * 60 * 60 * 1000);
+    pushLog("LOGIN_FAILED", "auth", "unknown", created, {
+      details: JSON.stringify({ reason: "invalid_credentials" }),
+    });
+  }
+
+  // ─── 3 LOGIN_BLOCKED in the last 48h ──────────────────────────────────────
+  for (let i = 0; i < 3; i++) {
+    const offsetH = randInt(0, 47);
+    const created = new Date(now.getTime() - offsetH * 60 * 60 * 1000);
+    pushLog("LOGIN_BLOCKED", "auth", "unknown", created, {
+      details: JSON.stringify({ reason: "rate_limit_exceeded" }),
+    });
+  }
+
+  // ─── 5 LOGOUT ─────────────────────────────────────────────────────────────
+  for (let i = 0; i < 5; i++) {
+    const u = rand(userIds);
+    logs.push({
+      userId: u,
+      action: "LOGOUT",
+      resource: "auth",
+      resourceId: u,
+      createdAt: randomDateInLastDays(15),
+      ipAddress: randomIp(),
+      userAgent: USER_AGENT,
+      details: null,
+    });
+  }
+
+  // ─── 2 PASSWORD_CHANGED ───────────────────────────────────────────────────
+  for (let i = 0; i < 2; i++) {
+    const u = rand(userIds);
+    logs.push({
+      userId: u,
+      action: "PASSWORD_CHANGED",
+      resource: "user",
+      resourceId: u,
+      createdAt: randomDateInLastDays(20),
+      ipAddress: randomIp(),
+      userAgent: USER_AGENT,
+      details: null,
+    });
+  }
+
+  // ─── 40 VIEW_SENSITIVE on clinical_record + 15 on prescription ────────────
+  for (let i = 0; i < 40; i++) {
+    pushLog(
+      "VIEW_SENSITIVE",
+      "clinical_record",
+      `cr_${randInt(1000, 9999)}`,
+      randomDateInLastDays(30),
+    );
+  }
+  for (let i = 0; i < 15; i++) {
+    pushLog(
+      "VIEW_SENSITIVE",
+      "prescription",
+      `presc_${randInt(1000, 9999)}`,
+      randomDateInLastDays(30),
+    );
+  }
+
+  // ─── 30 CREATE/UPDATE/DELETE on patient/shift/evolution/prescription ──────
+  const mutationActions = ["CREATE", "UPDATE", "DELETE"];
+  const mutationResources = ["patient", "shift", "evolution", "prescription"];
+  for (let i = 0; i < 30; i++) {
+    const action = rand(mutationActions);
+    const resource = rand(mutationResources);
+    pushLog(
+      action,
+      resource,
+      `${resource}_${randInt(1000, 9999)}`,
+      randomDateInLastDays(30),
+    );
+  }
+
+  // ─── 5 DELETE on patient in the last 7 days (critical badge in feed) ──────
+  for (let i = 0; i < 5; i++) {
+    const p = recentPatients.length > 0 ? rand(recentPatients) : null;
+    const resourceId = p?.id ?? `patient_${randInt(1000, 9999)}`;
+    const patientName = p ? `${p.firstName} ${p.lastName}` : "Paciente desconocido";
+    pushLog(
+      "DELETE",
+      "patient",
+      resourceId,
+      randomDateInLastDays(7),
+      { details: JSON.stringify({ patientName, reason: "duplicate" }) },
+    );
+  }
+
+  // ─── 10 CREATE on user / role / module / specialization in last 14d ───────
+  const adminResources = ["user", "role", "module", "specialization"];
+  for (let i = 0; i < 10; i++) {
+    const resource = rand(adminResources);
+    pushLog(
+      "CREATE",
+      resource,
+      `${resource}_${randInt(1000, 9999)}`,
+      randomDateInLastDays(14),
+    );
+  }
+
+  // ─── Bulk insert in chunks ────────────────────────────────────────────────
+  const CHUNK = 50;
+  let inserted = 0;
+  for (let i = 0; i < logs.length; i += CHUNK) {
+    const slice = logs.slice(i, i + CHUNK);
+    const result = await prisma.auditLog.createMany({ data: slice });
+    inserted += result.count;
+  }
+  console.log(
+    `✅ ${inserted} audit log events seeded for admin dashboard (last 30d)`,
+  );
 }
 
 main()

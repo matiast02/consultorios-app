@@ -1,0 +1,294 @@
+openapi: 3.0.3
+info:
+  title: Admin Dashboard API
+  version: 1.0.0
+  description: |
+    Aggregated read-model for the administrator dashboard.
+
+    Exposes a single GET endpoint with the data needed for the four KPIs,
+    the recent-activity feed (sourced from AuditLog), the catalog-health
+    panel, the monthly trends and the users breakdown.
+
+    A secondary endpoint (/api/audit/recent) paginates/filter the activity feed.
+
+    Access control: only users with role `admin` can call these endpoints.
+
+paths:
+  /api/dashboard/admin:
+    get:
+      summary: Aggregated admin dashboard payload
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    $ref: "#/components/schemas/AdminDashboardData"
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden — only admins }
+
+  /api/audit/recent:
+    get:
+      summary: Recent audit events (paginated, filterable)
+      description: |
+        Returns up to `limit` audit events ordered by createdAt desc.
+        Use `before` for cursor-based pagination (createdAt < before).
+      parameters:
+        - in: query
+          name: action
+          description: Comma-separated audit actions. Example `LOGIN_FAILED,LOGIN_BLOCKED`.
+          schema: { type: string }
+        - in: query
+          name: resource
+          description: Comma-separated resources. Example `patient,shift`.
+          schema: { type: string }
+        - in: query
+          name: userId
+          description: Filter to a single user.
+          schema: { type: string }
+        - in: query
+          name: before
+          description: ISO timestamp cursor; returns events strictly before this instant.
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/AuditEvent" }
+                      nextCursor:
+                        type: string
+                        nullable: true
+                        description: createdAt of the last item, or null if no more.
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+
+components:
+  schemas:
+    AdminDashboardData:
+      type: object
+      required: [header, stats, activityFeed, catalogHealth, trends, users]
+      properties:
+        header:
+          $ref: "#/components/schemas/AdminHeader"
+        stats:
+          $ref: "#/components/schemas/AdminStats"
+        activityFeed:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEvent" }
+          description: Last 20 audit events.
+        catalogHealth:
+          $ref: "#/components/schemas/CatalogHealth"
+        trends:
+          $ref: "#/components/schemas/AdminTrends"
+        users:
+          $ref: "#/components/schemas/UsersBreakdown"
+
+    AdminHeader:
+      type: object
+      required: [adminName, now, totalUsers, totalPatients]
+      properties:
+        adminName: { type: string }
+        now: { type: string, format: date-time }
+        totalUsers: { type: integer }
+        totalPatients: { type: integer }
+
+    AdminStats:
+      type: object
+      required: [todayShifts, occupancyToday, failedLogins24h, noShowRateMonth]
+      properties:
+        todayShifts:
+          type: object
+          properties:
+            value: { type: integer }
+            deltaPctVsYesterday: { type: number, nullable: true }
+        occupancyToday:
+          type: object
+          properties:
+            used: { type: integer }
+            total: { type: integer }
+            pct: { type: number }
+        failedLogins24h:
+          type: object
+          properties:
+            value: { type: integer }
+            blockedCount: { type: integer }
+            deltaPctVs7dAvg: { type: number, nullable: true }
+        noShowRateMonth:
+          type: object
+          properties:
+            month: { type: string, description: "YYYY-MM" }
+            pct: { type: number }
+            absent: { type: integer }
+            total: { type: integer }
+            deltaPctVsPrevMonth: { type: number, nullable: true }
+
+    AuditEvent:
+      type: object
+      required: [id, createdAt, action, resource, resourceId, severity]
+      properties:
+        id: { type: string }
+        createdAt: { type: string, format: date-time }
+        userId: { type: string, nullable: true }
+        userName: { type: string, nullable: true }
+        userRole: { type: string, nullable: true }
+        action:
+          type: string
+          enum:
+            - CREATE
+            - UPDATE
+            - DELETE
+            - VIEW_SENSITIVE
+            - LOGIN_SUCCESS
+            - LOGIN_FAILED
+            - LOGIN_BLOCKED
+            - LOGOUT
+            - PASSWORD_CHANGED
+        resource: { type: string }
+        resourceId: { type: string }
+        ipAddress: { type: string, nullable: true }
+        userAgent: { type: string, nullable: true }
+        details: { type: string, nullable: true }
+        severity:
+          type: string
+          enum: [info, warn, critical]
+          description: |
+            Derived classification for the UI.
+            - critical: LOGIN_BLOCKED, DELETE on patient/clinical_record/evolution
+            - warn: LOGIN_FAILED, VIEW_SENSITIVE
+            - info: everything else
+
+    CatalogHealth:
+      type: object
+      properties:
+        patientsIncomplete:
+          type: object
+          properties:
+            missingDni: { type: integer }
+            missingPhone: { type: integer }
+            missingHealthInsurance: { type: integer }
+            total: { type: integer, description: Distinct patients with at least one missing field }
+        medicsWithoutPreferences:
+          type: object
+          properties:
+            count: { type: integer }
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  name: { type: string }
+        healthInsurancesUnused90d:
+          type: object
+          properties:
+            count: { type: integer }
+        specializationsWithoutColor:
+          type: object
+          properties:
+            count: { type: integer }
+        modules:
+          type: array
+          items:
+            type: object
+            properties:
+              module: { type: string }
+              name: { type: string }
+              enabled: { type: boolean }
+
+    AdminTrends:
+      type: object
+      properties:
+        shiftsByWeek:
+          type: array
+          description: Last 8 weeks (oldest first).
+          items:
+            type: object
+            properties:
+              weekStart: { type: string, format: date }
+              label: { type: string, description: e.g. "11 Feb" }
+              count: { type: integer }
+        cancellationByMonth:
+          type: array
+          description: Last 6 months (oldest first).
+          items:
+            type: object
+            properties:
+              month: { type: string, description: "YYYY-MM" }
+              label: { type: string, description: e.g. "Mar 26" }
+              total: { type: integer }
+              cancelled: { type: integer }
+              absent: { type: integer }
+              noShowPct: { type: number }
+        topSpecialties:
+          type: array
+          description: Top 5 specialties by shift count last 30 days.
+          items:
+            type: object
+            properties:
+              id: { type: string, nullable: true }
+              name: { type: string }
+              color: { type: string, nullable: true }
+              count: { type: integer }
+        topHealthInsurances:
+          type: array
+          description: Top 5 health insurances by patient count last 30 days.
+          items:
+            type: object
+            properties:
+              id: { type: string, nullable: true }
+              name: { type: string }
+              count: { type: integer }
+
+    UsersBreakdown:
+      type: object
+      properties:
+        activeByRole:
+          type: object
+          properties:
+            medic: { type: integer }
+            secretary: { type: integer }
+            admin: { type: integer }
+            inactive: { type: integer }
+        recentLogins:
+          type: array
+          description: Last 5 successful logins.
+          items:
+            type: object
+            properties:
+              userId: { type: string }
+              name: { type: string }
+              role: { type: string, nullable: true }
+              loggedAt: { type: string, format: date-time }
+              ipAddress: { type: string, nullable: true }
+        inactiveUsers30d:
+          type: object
+          properties:
+            count: { type: integer }
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  name: { type: string }
+                  lastLoginAt:
+                    type: string
+                    format: date-time
+                    nullable: true

@@ -687,3 +687,184 @@ export interface ShiftReminder {
   channel: string;
   sentAt?: string | null;
 }
+
+// ─── Admin Dashboard ────────────────────────────────────────────────────────
+
+export type AuditAction =
+  | "CREATE"
+  | "UPDATE"
+  | "DELETE"
+  | "VIEW_SENSITIVE"
+  | "LOGIN_SUCCESS"
+  | "LOGIN_FAILED"
+  | "LOGIN_BLOCKED"
+  | "LOGOUT"
+  | "PASSWORD_CHANGED";
+
+export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
+  CREATE: "Creación",
+  UPDATE: "Edición",
+  DELETE: "Eliminación",
+  VIEW_SENSITIVE: "Acceso a datos sensibles",
+  LOGIN_SUCCESS: "Login",
+  LOGIN_FAILED: "Login fallido",
+  LOGIN_BLOCKED: "Login bloqueado",
+  LOGOUT: "Cierre de sesión",
+  PASSWORD_CHANGED: "Cambio de contraseña",
+};
+
+export type AuditSeverity = "info" | "warn" | "critical";
+
+export interface AuditEvent {
+  id: string;
+  createdAt: string;
+  userId?: string | null;
+  userName?: string | null;
+  userRole?: string | null;
+  action: AuditAction;
+  resource: string;
+  resourceId: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  details?: string | null;
+  severity: AuditSeverity;
+}
+
+export interface AdminHeader {
+  adminName: string;
+  now: string;
+  totalUsers: number;
+  totalPatients: number;
+}
+
+export interface AdminStatTodayShifts {
+  value: number;
+  deltaPctVsYesterday: number | null;
+}
+
+export interface AdminStatOccupancy {
+  used: number;
+  total: number;
+  pct: number;
+}
+
+export interface AdminStatFailedLogins {
+  value: number;
+  blockedCount: number;
+  deltaPctVs7dAvg: number | null;
+}
+
+export interface AdminStatNoShow {
+  month: string; // YYYY-MM
+  pct: number;
+  absent: number;
+  total: number;
+  deltaPctVsPrevMonth: number | null;
+}
+
+export interface AdminStats {
+  todayShifts: AdminStatTodayShifts;
+  occupancyToday: AdminStatOccupancy;
+  failedLogins24h: AdminStatFailedLogins;
+  noShowRateMonth: AdminStatNoShow;
+}
+
+export interface CatalogPatientsIncomplete {
+  missingDni: number;
+  missingPhone: number;
+  missingHealthInsurance: number;
+  total: number;
+}
+
+export interface CatalogMedicWithoutPreferences {
+  id: string;
+  name: string;
+}
+
+export interface CatalogHealth {
+  patientsIncomplete: CatalogPatientsIncomplete;
+  medicsWithoutPreferences: {
+    count: number;
+    items: CatalogMedicWithoutPreferences[];
+  };
+  healthInsurancesUnused90d: { count: number };
+  specializationsWithoutColor: { count: number };
+  modules: { module: string; name: string; enabled: boolean }[];
+}
+
+export interface TrendWeekPoint {
+  weekStart: string;
+  label: string;
+  count: number;
+}
+
+export interface TrendMonthPoint {
+  month: string;
+  label: string;
+  total: number;
+  cancelled: number;
+  absent: number;
+  noShowPct: number;
+}
+
+export interface TrendTopSpecialty {
+  id: string | null;
+  name: string;
+  color: string | null;
+  count: number;
+}
+
+export interface TrendTopInsurance {
+  id: string | null;
+  name: string;
+  count: number;
+}
+
+export interface AdminTrends {
+  shiftsByWeek: TrendWeekPoint[];
+  cancellationByMonth: TrendMonthPoint[];
+  topSpecialties: TrendTopSpecialty[];
+  topHealthInsurances: TrendTopInsurance[];
+}
+
+export interface RecentLoginItem {
+  userId: string;
+  name: string;
+  role: string | null;
+  loggedAt: string;
+  ipAddress: string | null;
+}
+
+export interface InactiveUserItem {
+  id: string;
+  name: string;
+  lastLoginAt: string | null;
+}
+
+export interface UsersBreakdown {
+  activeByRole: {
+    medic: number;
+    secretary: number;
+    admin: number;
+    inactive: number;
+  };
+  recentLogins: RecentLoginItem[];
+  inactiveUsers30d: {
+    count: number;
+    items: InactiveUserItem[];
+  };
+}
+
+export interface AdminDashboardData {
+  header: AdminHeader;
+  stats: AdminStats;
+  activityFeed: AuditEvent[];
+  catalogHealth: CatalogHealth;
+  trends: AdminTrends;
+  users: UsersBreakdown;
+}
+
+export interface AuditRecentResponse {
+  items: AuditEvent[];
+  nextCursor: string | null;
+}
