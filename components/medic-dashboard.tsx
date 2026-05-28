@@ -11,6 +11,7 @@ import { QuickAttendDialog } from "@/components/shifts/quick-attend-dialog";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { RescheduledBanner } from "@/components/dashboard/rescheduled-banner";
+import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
 
 import { DashboardHeader } from "@/components/dashboard/medic/dashboard-header";
 import { NextShiftCard } from "@/components/dashboard/medic/next-shift-card";
@@ -71,6 +72,7 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
   const [dismissedRescheduled, setDismissedRescheduled] = useState(false);
 
   const [attendShift, setAttendShift] = useState<Shift | null>(null);
+  const [detailShiftId, setDetailShiftId] = useState<string | null>(null);
   const [createShiftOpen, setCreateShiftOpen] = useState(false);
   const [createPatientOpen, setCreatePatientOpen] = useState(false);
 
@@ -226,6 +228,7 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           onAttend={handleAttend}
           onViewPatient={goToPatient}
           onEditObs={handleEditObs}
+          onSelectShift={(s) => setDetailShiftId(s.id)}
         />
 
         <div className="space-y-4">
@@ -288,6 +291,32 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           }}
         />
       )}
+
+      <ShiftQuickDialogLoader
+        shiftId={detailShiftId}
+        onOpenChange={(open) => {
+          if (!open) setDetailShiftId(null);
+        }}
+        onUpdated={() => {
+          fetchDashboard();
+        }}
+        onReschedule={(s) => {
+          setDetailShiftId(null);
+          router.push(`/dashboard/calendario?shift=${s.id}`);
+        }}
+        onViewPatient={(patientId) => {
+          setDetailShiftId(null);
+          goToPatient(patientId);
+        }}
+        primaryAction={{
+          label: "Atender",
+          onClick: (s) => {
+            setDetailShiftId(null);
+            setAttendShift(s);
+          },
+          disabled: false,
+        }}
+      />
     </div>
   );
 }

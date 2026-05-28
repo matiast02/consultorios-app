@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
+import { isSecretary } from "@/lib/auth-utils";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -9,10 +10,18 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    // Secretaries cannot read prescriptions.
+    if (await isSecretary(session.user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Sin acceso a recetas" },
+        { status: 403 }
       );
     }
 
@@ -47,14 +56,21 @@ export async function GET(_req: NextRequest, context: RouteContext) {
   }
 }
 
-// DELETE /api/prescriptions/[id] — Delete a prescription (creator only)
+// DELETE /api/prescriptions/[id] — Delete a prescription (creator only, no secretaries)
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    if (await isSecretary(session.user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Sin permisos para esta operación" },
+        { status: 403 }
       );
     }
 

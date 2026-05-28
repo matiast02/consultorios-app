@@ -81,41 +81,50 @@ export async function seedBase(prisma: PrismaClient) {
   console.log("✅ Profession configs created");
 
   // ─── Specializations ──────────────────────────────────────────────────────
-  const specializations = [
-    "Medicina General",
-    "Pediatría",
-    "Cardiología",
-    "Dermatología",
-    "Ginecología",
-    "Traumatología",
-    "Oftalmología",
-    "Neurología",
-    "Psiquiatría",
-    "Nutrición",
+  // Color palette aligned with the secretaria/medico dashboard mockups.
+  // Each color is a Tailwind 500-tone hex so the medic-dot stays vivid on
+  // light surfaces and readable on the dark sidebar.
+  const specializationsData: { name: string; color: string }[] = [
+    { name: "Medicina General",      color: "#0EA5E9" }, // sky-500
+    { name: "Pediatría",             color: "#A855F7" }, // purple-500
+    { name: "Cardiología",           color: "#EF4444" }, // red-500
+    { name: "Endocrinología",        color: "#10B981" }, // emerald-500
+    { name: "Oftalmología",          color: "#F97316" }, // orange-500
+    { name: "Urología",              color: "#06B6D4" }, // cyan-500 (avoids clash con Medicina General sky-500)
+    { name: "Traumatología",         color: "#F59E0B" }, // amber-500
+    { name: "Ginecología",           color: "#EC4899" }, // pink-500
+    { name: "Neurología",            color: "#8B5CF6" }, // violet-500
+    { name: "Otorrinolaringología",  color: "#14B8A6" }, // teal-500
+    { name: "Dermatología",          color: "#22C55E" }, // green-500
+    { name: "Nutrición",             color: "#84CC16" }, // lime-500
+    { name: "Psiquiatría",           color: "#6366F1" }, // indigo-500 (no en lista pero ya estaba sembrada)
   ];
 
   const specProfessionMap: Record<string, string> = {
     "Medicina General": medicConfig.id,
     "Pediatría": medicConfig.id,
     "Cardiología": medicConfig.id,
-    "Dermatología": medicConfig.id,
-    "Ginecología": medicConfig.id,
-    "Traumatología": medicConfig.id,
+    "Endocrinología": medicConfig.id,
     "Oftalmología": medicConfig.id,
+    "Urología": medicConfig.id,
+    "Traumatología": medicConfig.id,
+    "Ginecología": medicConfig.id,
     "Neurología": medicConfig.id,
+    "Otorrinolaringología": medicConfig.id,
+    "Dermatología": medicConfig.id,
     "Psiquiatría": psychologistConfig.id,
     "Nutrición": medicConfig.id,
   };
 
-  for (const name of specializations) {
-    const profConfigId = specProfessionMap[name] ?? null;
+  for (const spec of specializationsData) {
+    const profConfigId = specProfessionMap[spec.name] ?? null;
     await prisma.specialization.upsert({
-      where: { name },
-      update: { professionConfigId: profConfigId },
-      create: { name, professionConfigId: profConfigId },
+      where: { name: spec.name },
+      update: { professionConfigId: profConfigId, color: spec.color },
+      create: { name: spec.name, professionConfigId: profConfigId, color: spec.color },
     });
   }
-  console.log("✅ Specializations created");
+  console.log(`✅ ${specializationsData.length} specializations created (with colors)`);
 
   // ─── Health Insurance (Obras Sociales) ────────────────────────────────────
   const osData = [

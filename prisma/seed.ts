@@ -1068,12 +1068,658 @@ async function main() {
     console.log(`✅ ${prescriptions.length} prescriptions for Pedro Álvarez`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RECEPCIÓN / SECRETARIA DASHBOARD — escenario completo
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Reproduce el mockup del dashboard de recepción:
+  //   • 12 médicos activos hoy con consultorio asignado (defaultRoom C1..C12)
+  //   • UserPreferences cubriendo mañana/tarde según el chip "08-13" / "14-18"
+  //   • ~25-30 turnos hoy distribuidos entre los médicos
+  //   • Sala de espera con 6 pacientes "esperando" (arrivedAt seteado)
+  //   • 2 turnos "en consulta" (consultationStartedAt seteado)
+  //   • 1 walk-in (Antonia Díaz)
+  //   • 8 huecos disponibles distribuidos
+  //   • 6 recordatorios para los turnos de mañana
+  console.log("\n📞 Seeding RECEPCIÓN dashboard scenario...\n");
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+  const addMinutes = (d: Date, m: number) => new Date(d.getTime() + m * 60_000);
+  const setHM = (base: Date, h: number, m: number): Date => {
+    const d = new Date(base);
+    d.setHours(h, m, 0, 0);
+    return d;
+  };
+  const startOfDay = (d: Date) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+  const addDays = (d: Date, days: number) => {
+    const x = new Date(d);
+    x.setDate(x.getDate() + days);
+    return x;
+  };
+
+  const todayRecep = startOfDay(new Date());
+  const tomorrowRecep = addDays(todayRecep, 1);
+  const dayAfterTomorrow = addDays(todayRecep, 2);
+  const nowRecep = new Date();
+  const dayOfWeekToday = todayRecep.getDay(); // 0=Sun..6=Sat
+  const dayOfWeekTomorrow = tomorrowRecep.getDay();
+
+  // ─── Specializations lookup ────────────────────────────────────────────────
+  const [
+    specMedGenRec,
+    specPediatriaRec,
+    specCardiologia,
+    specEndocrinologia,
+    specOftalmologia,
+    specUrologia,
+    specTraumatologia,
+    specGinecologia,
+    specNeurologia,
+    specOtorrino,
+    specDermatologia,
+  ] = await Promise.all([
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Medicina General" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Pediatría" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Cardiología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Endocrinología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Oftalmología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Urología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Traumatología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Ginecología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Neurología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Otorrinolaringología" } }),
+    prisma.specialization.findUniqueOrThrow({ where: { name: "Dermatología" } }),
+  ]);
+
+  // ─── 12 médicos activos hoy ────────────────────────────────────────────────
+  // Dr. Gervilla ya existe; el resto los creamos idempotentes.
+  type MedicSpec = {
+    key: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    specId: string;
+    defaultRoom: string;
+    schedule: "AM" | "PM" | "FULL";
+  };
+
+  const medicosRecep: MedicSpec[] = [
+    { key: "gervilla", firstName: "Martín",    lastName: "Gervilla", email: "dr.gervilla@consultorio.com", specId: specMedGenRec.id,       defaultRoom: "C1",  schedule: "FULL" },
+    { key: "lopez",    firstName: "Carolina",  lastName: "López",    email: "dra.lopez@consultorio.com",   specId: specPediatriaRec.id,    defaultRoom: "C2",  schedule: "FULL" },
+    { key: "romero",   firstName: "Esteban",   lastName: "Romero",   email: "romero@consultorio.local",    specId: specCardiologia.id,     defaultRoom: "C3",  schedule: "AM"   },
+    { key: "mendez",   firstName: "Hernán",    lastName: "Méndez",   email: "mendez@consultorio.local",    specId: specEndocrinologia.id,  defaultRoom: "C4",  schedule: "AM"   },
+    { key: "rivas",    firstName: "Patricia",  lastName: "Rivas",    email: "rivas@consultorio.local",     specId: specOftalmologia.id,    defaultRoom: "C5",  schedule: "AM"   },
+    { key: "acosta",   firstName: "Diego",     lastName: "Acosta",   email: "acosta@consultorio.local",    specId: specUrologia.id,        defaultRoom: "C6",  schedule: "AM"   },
+    { key: "suarez",   firstName: "Mariana",   lastName: "Suárez",   email: "suarez@consultorio.local",    specId: specTraumatologia.id,   defaultRoom: "C7",  schedule: "PM"   },
+    { key: "aguirre",  firstName: "Carla",     lastName: "Aguirre",  email: "aguirre@consultorio.local",   specId: specGinecologia.id,     defaultRoom: "C8",  schedule: "PM"   },
+    { key: "castro",   firstName: "Federico",  lastName: "Castro",   email: "castro@consultorio.local",    specId: specNeurologia.id,      defaultRoom: "C9",  schedule: "PM"   },
+    { key: "paz",      firstName: "Sergio",    lastName: "Paz",      email: "paz@consultorio.local",       specId: specOtorrino.id,        defaultRoom: "C10", schedule: "FULL" },
+    { key: "vega",     firstName: "Romina",    lastName: "Vega",     email: "vega@consultorio.local",      specId: specDermatologia.id,    defaultRoom: "C11", schedule: "FULL" },
+    { key: "nunez",    firstName: "Lucía",     lastName: "Núñez",    email: "nunez@consultorio.local",     specId: specPediatriaRec.id,    defaultRoom: "C12", schedule: "FULL" },
+  ];
+
+  const medicById: Record<string, { id: string; defaultRoom: string | null; schedule: "AM" | "PM" | "FULL"; lastName: string }> = {};
+  for (const m of medicosRecep) {
+    const u = await prisma.user.upsert({
+      where: { email: m.email },
+      update: {
+        firstName: m.firstName,
+        lastName: m.lastName,
+        name: `${m.firstName} ${m.lastName}`,
+        specializationId: m.specId,
+        defaultRoom: m.defaultRoom,
+        isActive: true,
+      },
+      create: {
+        email: m.email,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        name: `${m.firstName} ${m.lastName}`,
+        password: hashedPassword,
+        specializationId: m.specId,
+        defaultRoom: m.defaultRoom,
+        isActive: true,
+      },
+    });
+    // Asignar role medic idempotente
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: u.id, roleId: medicRole.id } },
+      update: {},
+      create: { userId: u.id, roleId: medicRole.id },
+    });
+    medicById[m.key] = { id: u.id, defaultRoom: u.defaultRoom ?? m.defaultRoom, schedule: m.schedule, lastName: m.lastName };
+  }
+  console.log(`✅ ${medicosRecep.length} médicos activos asegurados (con defaultRoom + role)`);
+
+  // ─── UserPreferences para HOY ──────────────────────────────────────────────
+  // Idempotente via upsert por (userId, day).
+  type PrefRec = { from?: string; to?: string; fromPm?: string; toPm?: string };
+  const prefForSchedule = (s: "AM" | "PM" | "FULL"): PrefRec => {
+    if (s === "AM")  return { from: "08:00", to: "13:00" };
+    if (s === "PM")  return { fromPm: "14:00", toPm: "18:00" };
+    return { from: "08:00", to: "13:00", fromPm: "14:00", toPm: "18:00" };
+  };
+
+  for (const m of medicosRecep) {
+    const p = prefForSchedule(m.schedule);
+    await prisma.userPreference.upsert({
+      where: { userId_day: { userId: medicById[m.key].id, day: dayOfWeekToday } },
+      update: {
+        fromHourAM: p.from ?? null,
+        toHourAM:   p.to   ?? null,
+        fromHourPM: p.fromPm ?? null,
+        toHourPM:   p.toPm   ?? null,
+      },
+      create: {
+        userId: medicById[m.key].id,
+        day: dayOfWeekToday,
+        fromHourAM: p.from ?? null,
+        toHourAM:   p.to   ?? null,
+        fromHourPM: p.fromPm ?? null,
+        toHourPM:   p.toPm   ?? null,
+      },
+    });
+  }
+  console.log(`✅ UserPreferences seteadas para hoy (day=${dayOfWeekToday})`);
+
+  // ─── Pacientes de recepción (idempotente por DNI o por nombre) ────────────
+  type PatientRec = { firstName: string; lastName: string; dni: string; telephone?: string; osKey?: string; birthDate: Date };
+  const receptionPatientsData: PatientRec[] = [
+    { firstName: "Joaquín",    lastName: "Álvarez",   dni: "29111222", telephone: "1145001111", osKey: "OSDE",          birthDate: new Date("1984-03-12") },
+    { firstName: "Camila",     lastName: "González",  dni: "39456789", telephone: "1155667788", osKey: "Medifé",        birthDate: new Date("1996-07-21") },
+    { firstName: "Antonia",    lastName: "Díaz",      dni: "26223344", telephone: "+54 11 5573-4488", osKey: "Particular", birthDate: new Date("1978-04-09") },
+    { firstName: "Sofía",      lastName: "López",     dni: "45112233", telephone: "1100887766", osKey: "OSDE",          birthDate: new Date("2017-09-04") },
+    { firstName: "Felipe",     lastName: "Moreno",    dni: "29345678", telephone: "1188990011", osKey: "IOMA",          birthDate: new Date("1983-09-14") },
+    { firstName: "Mateo",      lastName: "Romero",    dni: "32567890", telephone: "1166778899", osKey: "IOMA",          birthDate: new Date("1986-11-30") },
+    { firstName: "María",      lastName: "García",    dni: "33456123", telephone: "1156789012", osKey: "IOMA",          birthDate: new Date("1990-07-22") },
+    { firstName: "Lucas",      lastName: "Rodríguez", dni: "33891234", telephone: "1100112233", osKey: "OSDE",          birthDate: new Date("1988-12-03") },
+    { firstName: "Tomás",      lastName: "Sánchez",   dni: "37334455", telephone: "1144889977", osKey: "Galeno",        birthDate: new Date("1992-06-18") },
+    { firstName: "Bruno",      lastName: "Ruiz",      dni: "31998877", telephone: "1133225544", osKey: "Swiss Medical", birthDate: new Date("1985-10-27") },
+    { firstName: "Valentina",  lastName: "Martínez",  dni: "31876543", telephone: "1144556677", osKey: "Particular",    birthDate: new Date("1989-04-12") },
+    { firstName: "Florencia",  lastName: "Torres",    dni: "34678901", telephone: "1177889900", osKey: "Swiss Medical", birthDate: new Date("1990-02-08") },
+  ];
+
+  const insurancesRecep: Record<string, { id: string }> = {};
+  for (const n of ["OSDE", "Swiss Medical", "Galeno", "Medifé", "IOMA", "PAMI", "Particular", "Unión Personal"]) {
+    const ins = await prisma.healthInsurance.findFirst({ where: { name: n } });
+    if (ins) insurancesRecep[n] = ins;
+  }
+
+  const receptionPatients: Record<string, { id: string }> = {};
+  for (const p of receptionPatientsData) {
+    const data = {
+      firstName: p.firstName,
+      lastName: p.lastName,
+      dni: p.dni,
+      telephone: p.telephone,
+      birthDate: p.birthDate,
+      osId: p.osKey ? insurancesRecep[p.osKey]?.id : undefined,
+    };
+    const created = await prisma.patient.upsert({
+      where: { dni: p.dni },
+      update: data,
+      create: data,
+    });
+    receptionPatients[`${p.firstName} ${p.lastName}`] = created;
+  }
+  console.log(`✅ ${receptionPatientsData.length} pacientes de recepción asegurados`);
+
+  const ppid = (key: string): string => {
+    const p = receptionPatients[key];
+    if (!p) throw new Error(`Missing reception patient: ${key}`);
+    return p.id;
+  };
+
+  // ─── Consultation types lookup local ───────────────────────────────────────
+  const ctCtrl = ct.control;
+  const ctPrim = ct.primera;
+  const ctSeg  = ct.seguimiento;
+  const ctRec  = ct.receta;
+  const ctEst  = ct.estudio;
+  const ctUrg  = ct.urgencia;
+
+  // ─── Limpieza idempotente: turnos de HOY para los médicos de recepción ─────
+  // (excepto Gervilla, cuya jornada-tipo ya la siembra el bloque de médico).
+  const allMedicIds = medicosRecep.map((m) => medicById[m.key].id);
+  const medicIdsExcludingGervilla = medicosRecep
+    .filter((m) => m.key !== "gervilla")
+    .map((m) => medicById[m.key].id);
+
+  await prisma.shift.deleteMany({
+    where: {
+      userId: { in: medicIdsExcludingGervilla },
+      start: { gte: todayRecep, lt: tomorrowRecep },
+    },
+  });
+
+  // También limpiamos los walk-ins de hoy para que cada run quede limpio
+  await prisma.walkInArrival.deleteMany({
+    where: { arrivedAt: { gte: todayRecep, lt: tomorrowRecep } },
+  });
+
+  // ─── Turnos de HOY: definición del escenario ───────────────────────────────
+  // Estructura: lista plana con todos los turnos. Notas sobre estados:
+  //   • arrivedAt seteado y consultationStartedAt null → "En sala de espera"
+  //   • consultationStartedAt seteado → "En consulta"
+  //   • FINISHED → "Atendido"
+  //   • ABSENT → "Ausente"
+  type ShiftPlan = {
+    medicKey: string;
+    patientKey: string;
+    h: number;
+    m: number;
+    durMin: number;
+    status: ShiftStatus;
+    ctId: string | null;
+    obs?: string;
+    arrivedMinutesAgo?: number; // null = no llegó
+    consultationStartedMinutesAgo?: number; // null = no pasó a consulta
+  };
+
+  const shiftPlans: ShiftPlan[] = [
+    // ════════════════════════════════════════════════════════════════════════
+    // SALA DE ESPERA (en sala, sin pasar a consulta)
+    // ════════════════════════════════════════════════════════════════════════
+    {
+      medicKey: "romero", patientKey: "Joaquín Álvarez",
+      h: 10, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctEst, obs: "Holter de 24 hs",
+      arrivedMinutesAgo: 25,
+    },
+    {
+      medicKey: "gervilla", patientKey: "Camila González",
+      h: 10, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctPrim, obs: "Primera consulta — control general",
+      arrivedMinutesAgo: 18,
+    },
+    {
+      medicKey: "lopez", patientKey: "Sofía López",
+      h: 10, m: 45, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctCtrl, obs: "Control crecimiento",
+      arrivedMinutesAgo: 8,
+    },
+    {
+      medicKey: "mendez", patientKey: "Felipe Moreno",
+      h: 10, m: 45, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctSeg, obs: "Seguimiento",
+      arrivedMinutesAgo: 6,
+    },
+    {
+      medicKey: "rivas", patientKey: "Mateo Romero",
+      h: 11, m: 0, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctCtrl, obs: "Control",
+      arrivedMinutesAgo: 0,
+    },
+    {
+      medicKey: "vega", patientKey: "María García",
+      h: 11, m: 0, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctCtrl, obs: "Control",
+      arrivedMinutesAgo: 0,
+    },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // EN CONSULTA (consultationStartedAt seteado hace 5-15 min)
+    // ════════════════════════════════════════════════════════════════════════
+    {
+      medicKey: "lopez", patientKey: "Tomás Sánchez",
+      h: 10, m: 15, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctCtrl, obs: "Control pediátrico",
+      arrivedMinutesAgo: 20, consultationStartedMinutesAgo: 10,
+    },
+    {
+      medicKey: "paz", patientKey: "Bruno Ruiz",
+      h: 10, m: 15, durMin: 30, status: ShiftStatus.CONFIRMED,
+      ctId: ctSeg, obs: "Control post otitis",
+      arrivedMinutesAgo: 22, consultationStartedMinutesAgo: 12,
+    },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // GERVILLA — Agenda del día (mix con FINISHED, ABSENT, PENDING)
+    // Skip 12:00 (hueco). Mañana + tarde.
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "gervilla", patientKey: "Lucas Rodríguez",  h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED,  ctId: ctCtrl, obs: "Control" },
+    { medicKey: "gervilla", patientKey: "Tomás Sánchez",    h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED,  ctId: ctSeg,  obs: "Seguimiento" },
+    { medicKey: "gervilla", patientKey: "Valentina Martínez", h: 9, m: 0,  durMin: 30, status: ShiftStatus.FINISHED,  ctId: ctCtrl, obs: "Control" },
+    { medicKey: "gervilla", patientKey: "Florencia Torres", h: 9,  m: 30, durMin: 30, status: ShiftStatus.ABSENT,    ctId: ctCtrl },
+    { medicKey: "gervilla", patientKey: "Bruno Ruiz",       h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl, obs: "Control" },
+    // 12:00 ← HUECO
+    { medicKey: "gervilla", patientKey: "Felipe Moreno",    h: 14, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctSeg,  obs: "Seguimiento" },
+    { medicKey: "gervilla", patientKey: "María García",     h: 15, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl, obs: "Control HTA" },
+    { medicKey: "gervilla", patientKey: "Antonia Díaz",     h: 15, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctRec,  obs: "Receta crónica" },
+    { medicKey: "gervilla", patientKey: "Mateo Romero",     h: 16, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl, obs: "Control" },
+    { medicKey: "gervilla", patientKey: "Joaquín Álvarez",  h: 17, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctSeg },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // LÓPEZ — Pediatría — FULL
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "lopez", patientKey: "Sofía López",     h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl, obs: "Control" },
+    { medicKey: "lopez", patientKey: "Mateo Romero",    h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctPrim },
+    { medicKey: "lopez", patientKey: "Bruno Ruiz",      h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "lopez", patientKey: "Camila González", h: 9,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "lopez", patientKey: "Valentina Martínez", h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING, ctId: ctCtrl },
+    { medicKey: "lopez", patientKey: "Lucas Rodríguez", h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "lopez", patientKey: "Florencia Torres", h: 14, m: 30, durMin: 30, status: ShiftStatus.PENDING, ctId: ctCtrl },
+    { medicKey: "lopez", patientKey: "Felipe Moreno",   h: 15, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "lopez", patientKey: "María García",    h: 16, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "lopez", patientKey: "Antonia Díaz",    h: 17, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctRec },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // ROMERO — Cardiología — AM
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "romero", patientKey: "Mateo Romero",    h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "romero", patientKey: "Camila González", h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctEst, obs: "Ecodoppler" },
+    { medicKey: "romero", patientKey: "Felipe Moreno",   h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctSeg },
+    { medicKey: "romero", patientKey: "María García",    h: 9,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "romero", patientKey: "Lucas Rodríguez", h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "romero", patientKey: "Bruno Ruiz",      h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctEst },
+    { medicKey: "romero", patientKey: "Valentina Martínez", h: 12, m: 30, durMin: 30, status: ShiftStatus.PENDING, ctId: ctCtrl },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MÉNDEZ — Endocrinología — AM (skip 12:30 = hueco)
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "mendez", patientKey: "Florencia Torres", h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "mendez", patientKey: "Camila González",  h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctPrim },
+    { medicKey: "mendez", patientKey: "Bruno Ruiz",       h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "mendez", patientKey: "Antonia Díaz",     h: 9,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctSeg },
+    { medicKey: "mendez", patientKey: "Tomás Sánchez",    h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "mendez", patientKey: "María García",     h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    // 12:30 ← HUECO
+
+    // ════════════════════════════════════════════════════════════════════════
+    // RIVAS — Oftalmología — AM
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "rivas", patientKey: "Lucas Rodríguez", h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "rivas", patientKey: "Florencia Torres", h: 8, m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctPrim },
+    { medicKey: "rivas", patientKey: "Bruno Ruiz",      h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "rivas", patientKey: "María García",    h: 9,  m: 30, durMin: 30, status: ShiftStatus.ABSENT,   ctId: ctCtrl },
+    { medicKey: "rivas", patientKey: "Antonia Díaz",    h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "rivas", patientKey: "Felipe Moreno",   h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "rivas", patientKey: "Camila González", h: 12, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctEst },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // ACOSTA — Urología — AM
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "acosta", patientKey: "Joaquín Álvarez", h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "acosta", patientKey: "Felipe Moreno",   h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctPrim },
+    { medicKey: "acosta", patientKey: "Lucas Rodríguez", h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "acosta", patientKey: "Bruno Ruiz",      h: 9,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctSeg },
+    { medicKey: "acosta", patientKey: "Mateo Romero",    h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "acosta", patientKey: "Tomás Sánchez",   h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // SUÁREZ — Traumatología — PM (skip 15:00 = hueco)
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "suarez", patientKey: "Joaquín Álvarez", h: 14, m: 0,  durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ctCtrl },
+    { medicKey: "suarez", patientKey: "Lucas Rodríguez", h: 14, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ctPrim },
+    // 15:00 ← HUECO
+    { medicKey: "suarez", patientKey: "Felipe Moreno",   h: 15, m: 45, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctSeg },
+    { medicKey: "suarez", patientKey: "Mateo Romero",    h: 16, m: 15, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl },
+    { medicKey: "suarez", patientKey: "Bruno Ruiz",      h: 16, m: 45, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctEst },
+    { medicKey: "suarez", patientKey: "Tomás Sánchez",   h: 17, m: 15, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl },
+    { medicKey: "suarez", patientKey: "Valentina Martínez", h: 17, m: 45, durMin: 15, status: ShiftStatus.PENDING, ctId: ctRec },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // AGUIRRE — Ginecología — PM (skip 15:30 = hueco)
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "aguirre", patientKey: "María García",       h: 14, m: 0,  durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ctCtrl },
+    { medicKey: "aguirre", patientKey: "Camila González",    h: 14, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ctPrim },
+    { medicKey: "aguirre", patientKey: "Antonia Díaz",       h: 15, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl },
+    // 15:30 ← HUECO
+    { medicKey: "aguirre", patientKey: "Valentina Martínez", h: 16, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctSeg },
+    { medicKey: "aguirre", patientKey: "Florencia Torres",   h: 16, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl },
+    { medicKey: "aguirre", patientKey: "Sofía López",        h: 17, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // CASTRO — Neurología — PM (skip 16:00 = hueco)
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "castro", patientKey: "Felipe Moreno",   h: 14, m: 0,  durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ctCtrl },
+    { medicKey: "castro", patientKey: "Bruno Ruiz",      h: 14, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ctSeg },
+    { medicKey: "castro", patientKey: "Lucas Rodríguez", h: 15, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctPrim },
+    { medicKey: "castro", patientKey: "Mateo Romero",    h: 15, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl },
+    // 16:00 ← HUECO
+    { medicKey: "castro", patientKey: "Valentina Martínez", h: 16, m: 30, durMin: 30, status: ShiftStatus.PENDING, ctId: ctSeg },
+    { medicKey: "castro", patientKey: "Antonia Díaz",    h: 17, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ctCtrl },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // PAZ — Otorrinolaringología — FULL (skip 16:30 = hueco)
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "paz", patientKey: "Joaquín Álvarez",  h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "paz", patientKey: "Florencia Torres", h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctPrim },
+    { medicKey: "paz", patientKey: "Mateo Romero",     h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "paz", patientKey: "Sofía López",      h: 9,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "paz", patientKey: "Camila González",  h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "paz", patientKey: "Felipe Moreno",    h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "paz", patientKey: "Valentina Martínez", h: 14, m: 30, durMin: 30, status: ShiftStatus.PENDING, ctId: ctCtrl },
+    { medicKey: "paz", patientKey: "Antonia Díaz",     h: 15, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctRec },
+    { medicKey: "paz", patientKey: "Lucas Rodríguez",  h: 15, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "paz", patientKey: "María García",     h: 16, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    // 16:30 ← HUECO
+
+    // ════════════════════════════════════════════════════════════════════════
+    // VEGA — Dermatología — FULL (skip 11:30 = hueco)
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "vega", patientKey: "Camila González",    h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "vega", patientKey: "Valentina Martínez", h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctPrim },
+    { medicKey: "vega", patientKey: "Bruno Ruiz",         h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctSeg },
+    { medicKey: "vega", patientKey: "Florencia Torres",   h: 9,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    // 11:30 ← HUECO
+    { medicKey: "vega", patientKey: "Joaquín Álvarez",    h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "vega", patientKey: "Sofía López",        h: 12, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "vega", patientKey: "Lucas Rodríguez",    h: 14, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctPrim },
+    { medicKey: "vega", patientKey: "Tomás Sánchez",      h: 15, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "vega", patientKey: "Antonia Díaz",       h: 15, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctRec },
+    { medicKey: "vega", patientKey: "Felipe Moreno",      h: 16, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "vega", patientKey: "Mateo Romero",       h: 16, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "vega", patientKey: "María García",       h: 17, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // NÚÑEZ — Pediatría — FULL (skip 17:00 = hueco)
+    // ════════════════════════════════════════════════════════════════════════
+    { medicKey: "nunez", patientKey: "Sofía López",       h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "nunez", patientKey: "Mateo Romero",      h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctSeg },
+    { medicKey: "nunez", patientKey: "Camila González",   h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "nunez", patientKey: "Bruno Ruiz",        h: 9,  m: 30, durMin: 30, status: ShiftStatus.FINISHED, ctId: ctCtrl },
+    { medicKey: "nunez", patientKey: "Felipe Moreno",     h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctSeg },
+    { medicKey: "nunez", patientKey: "María García",      h: 12, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "nunez", patientKey: "Lucas Rodríguez",   h: 14, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctPrim },
+    { medicKey: "nunez", patientKey: "Antonia Díaz",      h: 15, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctRec },
+    { medicKey: "nunez", patientKey: "Florencia Torres",  h: 15, m: 30, durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "nunez", patientKey: "Tomás Sánchez",     h: 16, m: 0,  durMin: 30, status: ShiftStatus.PENDING,  ctId: ctCtrl },
+    { medicKey: "nunez", patientKey: "Valentina Martínez", h: 16, m: 30, durMin: 30, status: ShiftStatus.PENDING, ctId: ctSeg },
+    // 17:00 ← HUECO
+  ];
+
+  // ─── Crear todos los turnos de hoy ────────────────────────────────────────
+  // NOTA: filtramos Gervilla porque su jornada-tipo ya la siembra el bloque
+  // del médico arriba (designedShifts). Pero igualmente sembramos las 2 nuevas
+  // entries de Gervilla del escenario de recepción (Camila González 10:30 en
+  // sala, etc.) → primero borramos las Gervilla-de-hoy que se solapan.
+  const gervillaTodayShiftsToReplace = shiftPlans.filter((p) => p.medicKey === "gervilla");
+  // Eliminamos los turnos de Gervilla que pisamos con el escenario de recepción
+  for (const p of gervillaTodayShiftsToReplace) {
+    const start = setHM(todayRecep, p.h, p.m);
+    const end = addMinutes(start, p.durMin);
+    await prisma.shift.deleteMany({
+      where: {
+        userId: medicById.gervilla.id,
+        start: { gte: start, lt: end },
+      },
+    });
+  }
+
+  let createdRecepShifts = 0;
+  for (const p of shiftPlans) {
+    const start = setHM(todayRecep, p.h, p.m);
+    const end = addMinutes(start, p.durMin);
+    const userId = medicById[p.medicKey].id;
+    const arrivedAt = p.arrivedMinutesAgo !== undefined
+      ? new Date(nowRecep.getTime() - p.arrivedMinutesAgo * 60_000)
+      : null;
+    const consultationStartedAt = p.consultationStartedMinutesAgo !== undefined
+      ? new Date(nowRecep.getTime() - p.consultationStartedMinutesAgo * 60_000)
+      : null;
+    await prisma.shift.create({
+      data: {
+        userId,
+        patientId: ppid(p.patientKey),
+        start,
+        end,
+        status: p.status,
+        observations: p.obs ?? null,
+        consultationTypeId: p.ctId ?? null,
+        arrivedAt,
+        consultationStartedAt,
+      },
+    });
+    createdRecepShifts++;
+  }
+  console.log(`✅ ${createdRecepShifts} turnos de HOY creados para recepción`);
+
+  // ─── Walk-In: Antonia Díaz ─────────────────────────────────────────────────
+  await prisma.walkInArrival.create({
+    data: {
+      patientId: ppid("Antonia Díaz"),
+      firstName: "Antonia",
+      lastName: "Díaz",
+      telephone: "+54 11 5573-4488",
+      note: "Pide renovación de receta crónica. Últ. visita 02/02.",
+      arrivedAt: new Date(nowRecep.getTime() - 12 * 60_000),
+    },
+  });
+  console.log(`✅ 1 walk-in arrival creado (Antonia Díaz)`);
+
+  // ─── Turnos de MAÑANA + UserPreferences de mañana ──────────────────────────
+  // Necesitamos 6 turnos mañana con sus 6 reminders.
+  // Médicos involucrados: Gervilla, López, Romero, Suárez, Vega, Méndez.
+  const tomorrowMedicMap: { key: string; schedule: "AM" | "PM" | "FULL" }[] = [
+    { key: "gervilla", schedule: "FULL" },
+    { key: "lopez",    schedule: "FULL" },
+    { key: "romero",   schedule: "AM"   },
+    { key: "mendez",   schedule: "AM"   },
+    { key: "suarez",   schedule: "PM"   },
+    { key: "vega",     schedule: "FULL" },
+  ];
+
+  for (const tm of tomorrowMedicMap) {
+    const p = prefForSchedule(tm.schedule);
+    await prisma.userPreference.upsert({
+      where: { userId_day: { userId: medicById[tm.key].id, day: dayOfWeekTomorrow } },
+      update: {
+        fromHourAM: p.from ?? null,
+        toHourAM:   p.to   ?? null,
+        fromHourPM: p.fromPm ?? null,
+        toHourPM:   p.toPm   ?? null,
+      },
+      create: {
+        userId: medicById[tm.key].id,
+        day: dayOfWeekTomorrow,
+        fromHourAM: p.from ?? null,
+        toHourAM:   p.to   ?? null,
+        fromHourPM: p.fromPm ?? null,
+        toHourPM:   p.toPm   ?? null,
+      },
+    });
+  }
+
+  // Limpiamos los turnos de mañana de esos 6 médicos para idempotencia.
+  const tomorrowMedicIds = tomorrowMedicMap.map((m) => medicById[m.key].id);
+  await prisma.shift.deleteMany({
+    where: {
+      userId: { in: tomorrowMedicIds },
+      start: { gte: tomorrowRecep, lt: dayAfterTomorrow },
+    },
+  });
+
+  type TomorrowShift = { medicKey: string; patientKey: string; h: number; m: number; ctId: string | null; obs?: string };
+  const tomorrowShifts: TomorrowShift[] = [
+    { medicKey: "gervilla", patientKey: "Lucas Rodríguez", h: 8,  m: 0,  ctId: ctCtrl, obs: "Control HTA" },
+    { medicKey: "lopez",    patientKey: "Tomás Sánchez",   h: 8,  m: 30, ctId: ctCtrl, obs: "Control pediátrico" },
+    { medicKey: "romero",   patientKey: "Joaquín Álvarez", h: 9,  m: 0,  ctId: ctEst,  obs: "Holter 24 hs" },
+    { medicKey: "suarez",   patientKey: "Felipe Moreno",   h: 10, m: 0,  ctId: ctCtrl, obs: "Control post-yeso" },
+    { medicKey: "vega",     patientKey: "Sofía López",     h: 10, m: 30, ctId: ctPrim, obs: "Primera consulta" },
+    { medicKey: "mendez",   patientKey: "Bruno Ruiz",      h: 11, m: 0,  ctId: ctSeg,  obs: "Seguimiento tiroides" },
+  ];
+
+  // Creamos los turnos y guardamos los IDs en orden para mapear a reminders.
+  const createdTomorrowShifts: { id: string; hh: number; mm: number }[] = [];
+  for (const t of tomorrowShifts) {
+    const start = setHM(tomorrowRecep, t.h, t.m);
+    const end = addMinutes(start, 30);
+    const created = await prisma.shift.create({
+      data: {
+        userId: medicById[t.medicKey].id,
+        patientId: ppid(t.patientKey),
+        start,
+        end,
+        status: ShiftStatus.CONFIRMED,
+        observations: t.obs ?? null,
+        consultationTypeId: t.ctId ?? null,
+      },
+    });
+    createdTomorrowShifts.push({ id: created.id, hh: t.h, mm: t.m });
+  }
+  console.log(`✅ ${createdTomorrowShifts.length} turnos creados para MAÑANA`);
+
+  // ─── ShiftReminders para los turnos de mañana ──────────────────────────────
+  // Idempotencia: borrar reminders cuyo scheduledFor cae en mañana.
+  await prisma.shiftReminder.deleteMany({
+    where: { scheduledFor: { gte: tomorrowRecep, lt: dayAfterTomorrow } },
+  });
+
+  // Mapeo statuses según specs:
+  //   08:00 — Rodríguez → Gervilla   (PENDING)
+  //   08:30 — Sánchez   → López      (SENT, sentAt = hace 30 min)
+  //   09:00 — Álvarez   → Romero     (PENDING)
+  //   10:00 — Moreno    → Suárez     (PENDING)
+  //   10:30 — López     → Vega       (PENDING)
+  //   11:00 — Ruiz      → Méndez     (PENDING)
+  const remindersScheduledAt = setHM(tomorrowRecep, 8, 0);
+  const sentAtForLopez = new Date(nowRecep.getTime() - 30 * 60_000);
+
+  const reminderConfig: { hh: number; mm: number; status: "PENDING" | "SENT"; sentAt?: Date }[] = [
+    { hh: 8,  mm: 0,  status: "PENDING" },
+    { hh: 8,  mm: 30, status: "SENT", sentAt: sentAtForLopez },
+    { hh: 9,  mm: 0,  status: "PENDING" },
+    { hh: 10, mm: 0,  status: "PENDING" },
+    { hh: 10, mm: 30, status: "PENDING" },
+    { hh: 11, mm: 0,  status: "PENDING" },
+  ];
+
+  for (const cfg of reminderConfig) {
+    const shift = createdTomorrowShifts.find((s) => s.hh === cfg.hh && s.mm === cfg.mm);
+    if (!shift) {
+      console.warn(`⚠️  No se encontró turno mañana ${cfg.hh}:${cfg.mm} para crear reminder`);
+      continue;
+    }
+    await prisma.shiftReminder.create({
+      data: {
+        shiftId: shift.id,
+        scheduledFor: remindersScheduledAt,
+        status: cfg.status,
+        channel: "email",
+        sentAt: cfg.sentAt ?? null,
+      },
+    });
+  }
+  console.log(`✅ ${reminderConfig.length} ShiftReminders creados para mañana`);
+
+  console.log("\n📊 RECEPCIÓN summary:");
+  console.log(`   • ${medicosRecep.length} médicos activos (C1..C12)`);
+  console.log(`   • ${createdRecepShifts} turnos hoy (6 en sala, 2 en consulta, mix FINISHED/ABSENT/PENDING)`);
+  console.log(`   • 1 walk-in (Antonia Díaz)`);
+  console.log(`   • 8 huecos disponibles distribuidos`);
+  console.log(`   • ${createdTomorrowShifts.length} turnos mañana con ${reminderConfig.length} reminders`);
+
   console.log("\n🎉 Seed completed successfully!");
   console.log("\n📋 Test credentials:");
   console.log("  Dr. Gervilla:  dr.gervilla@consultorio.com / password123");
   console.log("  Dra. López:    dra.lopez@consultorio.com / password123");
   console.log("  Secretaria:    maria@consultorio.com / password123");
   console.log("  Admin:         admin@consultorio.com / password123");
+  console.log("  Otros médicos: {apellido}@consultorio.local / password123");
 }
 
 main()

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateClinicalRecordSchema } from "@/lib/validations";
-import { isMedic } from "@/lib/auth-utils";
+import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
@@ -19,6 +19,40 @@ export async function GET(req: NextRequest, context: RouteContext) {
     }
 
     const { id } = await context.params;
+
+    // Secretaries get a redacted view: ONLY structured allergies (safety info),
+    // no diagnoses, no medication, no evolutions.
+    if (await isSecretary(session.user.id)) {
+      const patient = await prisma.patient.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!patient) {
+        return NextResponse.json(
+          { success: false, error: "Paciente no encontrado" },
+          { status: 404 }
+        );
+      }
+      const rec = await prisma.clinicalRecord.findUnique({
+        where: { patientId: id },
+        select: { id: true, patientId: true, structuredAllergies: true, createdAt: true, updatedAt: true },
+      });
+      return NextResponse.json({
+        success: true,
+        data: rec
+          ? {
+              ...rec,
+              bloodType: null,
+              allergies: null,
+              personalHistory: null,
+              familyHistory: null,
+              currentMedication: null,
+              notes: null,
+              evolutions: [],
+            }
+          : null,
+      });
+    }
 
     // Verify patient exists
     const patient = await prisma.patient.findFirst({
@@ -115,10 +149,18 @@ export async function GET(req: NextRequest, context: RouteContext) {
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    // Secretaries cannot edit the clinical record.
+    if (await isSecretary(session.user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Sin permisos para editar historia clínica" },
+        { status: 403 }
       );
     }
 

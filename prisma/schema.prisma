@@ -10,21 +10,22 @@ datasource db {
 // ─── Auth.js Required Models ──────────────────────────────────────────────────
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?   @db.Text
+  id               String    @id @default(cuid())
+  name             String?
+  email            String?   @unique
+  emailVerified    DateTime?
+  image            String?
+  password         String?   @db.Text
   firstName        String?
   lastName         String?
-  licenseNumber    String?          // Matricula profesional
+  licenseNumber    String? // Matricula profesional
   specializationId String?
+  defaultRoom      String? // Consultorio asignado por defecto (ej: "C1", "Sala A")
 
   // Contact + professional bio
-  phone            String?
-  officeAddress    String?
-  bio              String?  @db.Text   // max 280 chars (validar en zod)
+  phone         String?
+  officeAddress String?
+  bio           String? @db.Text // max 280 chars (validar en zod)
 
   // Scheduling config
   slotDurationMinutes Int @default(30)
@@ -34,30 +35,30 @@ model User {
   // Regional prefs
   language  String @default("es-AR")
   timezone  String @default("America/Argentina/Buenos_Aires")
-  weekStart Int    @default(1)        // 0=Sunday, 1=Monday
+  weekStart Int    @default(1) // 0=Sunday, 1=Monday
 
   // Notification toggles
-  notifyReminder24h    Boolean @default(true)
-  notifyReminder2h     Boolean @default(true)
-  notifyNewShift       Boolean @default(true)
-  notifyCancellation   Boolean @default(true)
-  notifyWeeklySummary  Boolean @default(false)
-  notifySmsFallback    Boolean @default(true)
+  notifyReminder24h   Boolean @default(true)
+  notifyReminder2h    Boolean @default(true)
+  notifyNewShift      Boolean @default(true)
+  notifyCancellation  Boolean @default(true)
+  notifyWeeklySummary Boolean @default(false)
+  notifySmsFallback   Boolean @default(true)
 
-  specialization Specialization? @relation(fields: [specializationId], references: [id])
-  accounts       Account[]
-  sessions   Session[]
-  roles      UserRole[]
-  shifts     Shift[]
-  preferences UserPreference[]
-  blockDays  BlockDay[]
-  evolutions      Evolution[]
-  auditLogs       AuditLog[]
-  prescriptions   Prescription[]
-  studyOrders     StudyOrder[]
-  mealPlans       MealPlan[]
-  notifications   Notification[]
-  moduleAccess    UserModuleAccess[]
+  specialization     Specialization?    @relation(fields: [specializationId], references: [id])
+  accounts           Account[]
+  sessions           Session[]
+  roles              UserRole[]
+  shifts             Shift[]
+  preferences        UserPreference[]
+  blockDays          BlockDay[]
+  evolutions         Evolution[]
+  auditLogs          AuditLog[]
+  prescriptions      Prescription[]
+  studyOrders        StudyOrder[]
+  mealPlans          MealPlan[]
+  notifications      Notification[]
+  moduleAccess       UserModuleAccess[]
   acceptedInsurances UserInsurance[]
 
   isActive  Boolean   @default(true)
@@ -118,15 +119,15 @@ model VerificationToken {
 
 model ProfessionConfig {
   id                  String @id @default(cuid())
-  code                String @unique    // "medic", "psychologist", "dentist"
-  name                String            // "Médico", "Psicólogo", "Dentista"
-  professionalLabel   String            // "Dr/a.", "Lic.", "Od."
+  code                String @unique // "medic", "psychologist", "dentist"
+  name                String // "Médico", "Psicólogo", "Dentista"
+  professionalLabel   String // "Dr/a.", "Lic.", "Od."
   patientLabel        String @default("Paciente")
-  prescriptionLabel   String            // "Receta", "Indicación", "Plan de tratamiento"
-  evolutionLabel      String            // "Evolución", "Nota de sesión", "Registro odontológico"
-  clinicalRecordLabel String            // "Historia Clínica", "Ficha Psicológica", "Ficha Dental"
-  enabledModules      String @db.Text   // JSON: ["prescriptions","study_orders"]
-  clinicalFields      String @db.Text   // JSON: campos del template de HC
+  prescriptionLabel   String // "Receta", "Indicación", "Plan de tratamiento"
+  evolutionLabel      String // "Evolución", "Nota de sesión", "Registro odontológico"
+  clinicalRecordLabel String // "Historia Clínica", "Ficha Psicológica", "Ficha Dental"
+  enabledModules      String @db.Text // JSON: ["prescriptions","study_orders"]
+  clinicalFields      String @db.Text // JSON: campos del template de HC
 
   specializations Specialization[]
 
@@ -137,8 +138,9 @@ model ProfessionConfig {
 // ─── Specializations ─────────────────────────────────────────────────────────
 
 model Specialization {
-  id                 String @id @default(cuid())
-  name               String @unique
+  id                 String  @id @default(cuid())
+  name               String  @unique
+  color              String? // Hex color for medic dot (e.g. "#0EA5E9")
   professionConfigId String?
 
   professionConfig ProfessionConfig? @relation(fields: [professionConfigId], references: [id])
@@ -155,8 +157,8 @@ model Specialization {
 model ConsultationType {
   id              String  @id @default(cuid())
   name            String  @unique // "Primera vez", "Control", "Urgencia"
-  durationMinutes Int              // 40, 20, 15
-  color           String?          // Color hex opcional
+  durationMinutes Int // 40, 20, 15
+  color           String? // Color hex opcional
   isDefault       Boolean @default(false)
 
   shifts Shift[]
@@ -193,12 +195,12 @@ model UserRole {
 // ─── Patients ─────────────────────────────────────────────────────────────────
 
 model Patient {
-  id        String  @id @default(cuid())
+  id        String    @id @default(cuid())
   firstName String
   lastName  String
   birthDate DateTime?
-  sex       String?           // "M", "F", "X"
-  dni       String?  @unique
+  sex       String? // "M", "F", "X"
+  dni       String?   @unique
   email     String?
   telephone String?
   address   String?
@@ -211,13 +213,14 @@ model Patient {
   emergencyContactName  String?
   emergencyContactPhone String?
 
-  os             HealthInsurance? @relation(fields: [osId], references: [id])
+  os             HealthInsurance?   @relation(fields: [osId], references: [id])
   shifts         Shift[]
   clinicalRecord ClinicalRecord?
   prescriptions  Prescription[]
   studyOrders    StudyOrder[]
   mealPlans      MealPlan[]
   insurances     PatientInsurance[]
+  walkInArrivals WalkInArrival[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -244,13 +247,13 @@ model HealthInsurance {
 
 // Paciente puede tener multiples obras sociales
 model PatientInsurance {
-  id               String @id @default(cuid())
-  patientId        String
+  id                String  @id @default(cuid())
+  patientId         String
   healthInsuranceId String
-  affiliateNumber  String?  // Numero de afiliado
+  affiliateNumber   String? // Numero de afiliado
 
-  patient          Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  healthInsurance  HealthInsurance   @relation(fields: [healthInsuranceId], references: [id], onDelete: Cascade)
+  patient         Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  healthInsurance HealthInsurance @relation(fields: [healthInsuranceId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -261,13 +264,13 @@ model PatientInsurance {
 
 // Profesional acepta ciertas obras sociales
 model UserInsurance {
-  id               String @id @default(cuid())
-  userId           String
+  id                String @id @default(cuid())
+  userId            String
   healthInsuranceId String
-  copago           Int    @default(0)  // pesos
+  copago            Int    @default(0) // pesos
 
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  healthInsurance  HealthInsurance   @relation(fields: [healthInsuranceId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  healthInsurance HealthInsurance @relation(fields: [healthInsuranceId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -288,26 +291,32 @@ enum ShiftStatus {
 }
 
 model Shift {
-  id              String      @id @default(cuid())
-  userId          String
-  patientId       String
-  start           DateTime
-  end             DateTime
-  observations    String?     @db.Text
-  status          ShiftStatus @default(PENDING)
+  id                 String      @id @default(cuid())
+  userId             String
+  patientId          String
+  start              DateTime
+  end                DateTime
+  observations       String?     @db.Text
+  status             ShiftStatus @default(PENDING)
   isOverbook         Boolean     @default(false) // Sobreturno
   consultationTypeId String?
-  recurrenceGroupId  String?     // Shared ID for recurring shift series
-  rescheduledFrom    DateTime?   // Original date before auto-reschedule
-  rescheduledAt      DateTime?   // When the auto-reschedule happened
+  recurrenceGroupId  String? // Shared ID for recurring shift series
+  rescheduledFrom    DateTime? // Original date before auto-reschedule
+  rescheduledAt      DateTime? // When the auto-reschedule happened
+
+  // Reception / waiting-room state
+  arrivedAt             DateTime? // Paciente llegó al consultorio (en sala de espera)
+  consultationStartedAt DateTime? // Pasó a consulta
 
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   consultationType ConsultationType? @relation(fields: [consultationTypeId], references: [id], onDelete: SetNull)
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  evolution     Evolution?
-  prescriptions Prescription[]
-  studyOrders   StudyOrder[]
-  mealPlans     MealPlan[]
+  patient          Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  evolution        Evolution?
+  prescriptions    Prescription[]
+  studyOrders      StudyOrder[]
+  mealPlans        MealPlan[]
+  reminders        ShiftReminder[]
+  walkInArrivals   WalkInArrival[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -315,14 +324,15 @@ model Shift {
   @@index([userId])
   @@index([patientId])
   @@index([start])
+  @@index([arrivedAt])
 }
 
 // ─── User Preferences ────────────────────────────────────────────────────────
 
 model UserPreference {
-  id        String @id @default(cuid())
-  userId    String
-  day       Int    // 0=Sunday, 1=Monday, ..., 6=Saturday
+  id         String  @id @default(cuid())
+  userId     String
+  day        Int // 0=Sunday, 1=Monday, ..., 6=Saturday
   fromHourAM String?
   toHourAM   String?
   fromHourPM String?
@@ -364,11 +374,11 @@ model BlockDay {
 // ─── Password Reset Tokens ───────────────────────────────────────────────────
 
 model ResetToken {
-  id         String   @id @default(cuid())
-  email      String
-  token      String   @unique
-  expires    DateTime
-  used       Boolean  @default(false)
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+  used    Boolean  @default(false)
 
   createdAt DateTime @default(now())
 
@@ -379,25 +389,25 @@ model ResetToken {
 // ─── Clinical History (Historia Clínica) ─────────────────────────────────────
 
 model ClinicalRecord {
-  id            String   @id @default(cuid())
-  patientId     String   @unique
-  bloodType     String?  // A+, A-, B+, B-, AB+, AB-, O+, O-
-  allergies     String?  @db.Text
-  personalHistory String? @db.Text  // antecedentes personales
-  familyHistory   String? @db.Text  // antecedentes familiares
+  id                String  @id @default(cuid())
+  patientId         String  @unique
+  bloodType         String? // A+, A-, B+, B-, AB+, AB-, O+, O-
+  allergies         String? @db.Text
+  personalHistory   String? @db.Text // antecedentes personales
+  familyHistory     String? @db.Text // antecedentes familiares
   currentMedication String? @db.Text // medicación habitual
-  notes         String?  @db.Text
-  customFields  String?  @db.Text   // JSON: campos custom por profesión
+  notes             String? @db.Text
+  customFields      String? @db.Text // JSON: campos custom por profesión
 
   // Anthropometry (Paciente redesign)
-  heightCm      Int?
-  weightKg      Decimal? @db.Decimal(5, 2)
+  heightCm Int?
+  weightKg Decimal? @db.Decimal(5, 2)
 
   // Structured habits
-  habitsTobacco   String? @db.Text
-  habitsAlcohol   String? @db.Text
-  habitsActivity  String? @db.Text
-  habitsDiet      String? @db.Text
+  habitsTobacco  String? @db.Text
+  habitsAlcohol  String? @db.Text
+  habitsActivity String? @db.Text
+  habitsDiet     String? @db.Text
 
   // Structured allergies (JSON: { nombre, severidad: alta|media|baja, nota? }[])
   structuredAllergies String? @db.Text
@@ -412,18 +422,18 @@ model ClinicalRecord {
 }
 
 model Evolution {
-  id              String  @id @default(cuid())
+  id               String  @id @default(cuid())
   clinicalRecordId String
-  shiftId         String? @unique
-  userId          String  // medic who wrote it
+  shiftId          String? @unique
+  userId           String // medic who wrote it
 
-  reason          String?  @db.Text  // motivo de consulta
-  physicalExam    String?  @db.Text  // examen físico
-  diagnosis       String?  @db.Text  // diagnóstico
-  diagnosisCode   String?            // CIE-10 code
-  treatment       String?  @db.Text  // plan/tratamiento
-  indications     String?  @db.Text  // indicaciones
-  notes           String?  @db.Text
+  reason        String? @db.Text // motivo de consulta
+  physicalExam  String? @db.Text // examen físico
+  diagnosis     String? @db.Text // diagnóstico
+  diagnosisCode String? // CIE-10 code
+  treatment     String? @db.Text // plan/tratamiento
+  indications   String? @db.Text // indicaciones
+  notes         String? @db.Text
 
   clinicalRecord ClinicalRecord @relation(fields: [clinicalRecordId], references: [id], onDelete: Cascade)
   shift          Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
@@ -442,8 +452,8 @@ model Evolution {
 model AuditLog {
   id         String  @id @default(cuid())
   userId     String
-  action     String  // CREATE, UPDATE, DELETE, VIEW_SENSITIVE
-  resource   String  // patient, shift, evolution, clinical_record, etc.
+  action     String // CREATE, UPDATE, DELETE, VIEW_SENSITIVE
+  resource   String // patient, shift, evolution, clinical_record, etc.
   resourceId String
   details    String? @db.Text // JSON con cambios o contexto
   ipAddress  String?
@@ -464,7 +474,7 @@ model AuditLog {
 model ModuleConfig {
   id      String  @id @default(cuid())
   module  String  @unique // "prescriptions", "lab_orders", etc.
-  name    String  // Display name
+  name    String // Display name
   enabled Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -486,16 +496,16 @@ model UserModuleAccess {
 // ─── Prescriptions (Recetas) ─────────────────────────────────────────────────
 
 model Prescription {
-  id          String  @id @default(cuid())
-  patientId   String
-  userId      String  // médico que receta
-  shiftId     String? // turno asociado
-  items       String  @db.Text // JSON array of PrescriptionItem
-  diagnosis   String?
-  notes       String? @db.Text
+  id        String  @id @default(cuid())
+  patientId String
+  userId    String // médico que receta
+  shiftId   String? // turno asociado
+  items     String  @db.Text // JSON array of PrescriptionItem
+  diagnosis String?
+  notes     String? @db.Text
 
   // Days of validity from createdAt; UI computes vigente|vencida
-  durationDays Int    @default(90)
+  durationDays Int @default(90)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
@@ -512,20 +522,20 @@ model Prescription {
 // ─── Meal Plans (Planes Alimentarios) ────────────────────────────────────────
 
 model MealPlan {
-  id              String  @id @default(cuid())
-  userId          String                     // Nutricionista
-  patientId       String
-  shiftId         String?
-  title           String                     // "Plan hipocalorico", "Plan normocalorico"
-  targetCalories  Int?                       // kcal/dia
-  proteinPct      Int?                       // % proteinas
-  carbsPct        Int?                       // % carbohidratos
-  fatPct          Int?                       // % grasas
-  hydration       String?                    // "2 litros de agua"
-  meals           String  @db.Text           // JSON: MealSection[]
-  avoidFoods      String? @db.Text           // Alimentos a evitar
-  supplements     String? @db.Text           // Suplementos
-  notes           String? @db.Text           // Observaciones generales
+  id             String  @id @default(cuid())
+  userId         String // Nutricionista
+  patientId      String
+  shiftId        String?
+  title          String // "Plan hipocalorico", "Plan normocalorico"
+  targetCalories Int? // kcal/dia
+  proteinPct     Int? // % proteinas
+  carbsPct       Int? // % carbohidratos
+  fatPct         Int? // % grasas
+  hydration      String? // "2 litros de agua"
+  meals          String  @db.Text // JSON: MealSection[]
+  avoidFoods     String? @db.Text // Alimentos a evitar
+  supplements    String? @db.Text // Suplementos
+  notes          String? @db.Text // Observaciones generales
 
   user    User    @relation(fields: [userId], references: [id])
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -560,12 +570,12 @@ enum StudyOrderStatus {
 
 model StudyOrder {
   id          String           @id @default(cuid())
-  userId      String                          // Medico que ordena
+  userId      String // Medico que ordena
   patientId   String
-  shiftId     String?                         // Turno asociado
-  items       String           @db.Text       // JSON array of StudyOrderItem
+  shiftId     String? // Turno asociado
+  items       String           @db.Text // JSON array of StudyOrderItem
   status      StudyOrderStatus @default(PENDING)
-  resultNotes String?          @db.Text       // Notas de resultados
+  resultNotes String?          @db.Text // Notas de resultados
 
   user    User    @relation(fields: [userId], references: [id])
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -584,11 +594,11 @@ model StudyOrder {
 
 model Notification {
   id         String  @id @default(cuid())
-  userId     String                 // Destinatario
-  type       String                 // "pending_studies", "inactive_patient", "rescheduled"
+  userId     String // Destinatario
+  type       String // "pending_studies", "inactive_patient", "rescheduled"
   title      String
   message    String  @db.Text
-  resourceId String?                // ID del recurso relacionado
+  resourceId String? // ID del recurso relacionado
   read       Boolean @default(false)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -597,4 +607,55 @@ model Notification {
 
   @@index([userId, read])
   @@index([userId, createdAt])
+}
+
+// ─── Shift Reminders (Recordatorios) ─────────────────────────────────────────
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model ShiftReminder {
+  id           String         @id @default(cuid())
+  shiftId      String
+  scheduledFor DateTime // Cuándo debe enviarse el recordatorio
+  status       ReminderStatus @default(PENDING)
+  channel      String         @default("email") // "email" | "sms" | "whatsapp"
+  sentAt       DateTime?
+  errorMessage String?        @db.Text
+
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shiftId])
+  @@index([status, scheduledFor])
+  @@index([scheduledFor])
+}
+
+// ─── Walk-In Arrivals (Pacientes sin turno previo) ──────────────────────────
+
+model WalkInArrival {
+  id              String    @id @default(cuid())
+  patientId       String? // Si está cargado en el sistema
+  firstName       String
+  lastName        String
+  telephone       String?
+  note            String?   @db.Text // Motivo de la consulta walk-in
+  arrivedAt       DateTime  @default(now())
+  leftAt          DateTime?
+  assignedShiftId String? // Si se le asignó un turno en el momento
+
+  patient       Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  assignedShift Shift?   @relation(fields: [assignedShiftId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([assignedShiftId])
+  @@index([arrivedAt])
 }

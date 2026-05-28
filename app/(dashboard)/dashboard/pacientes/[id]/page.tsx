@@ -62,11 +62,21 @@ export default function PacienteDetailPage() {
   const { data: session } = useSession();
   const patientId = params.id as string;
   const sessionUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
+  const userRole = (session?.user as { role?: string } | undefined)?.role ?? null;
+  const isClinical = userRole !== "secretary"; // medics + admins can see clinical data
 
-  const initialTab = (searchParams.get("tab") as TabId | null) ?? "resumen";
-  const [tab, setTab] = useState<TabId>(
-    VALID_TABS.includes(initialTab) ? initialTab : "resumen",
-  );
+  // Secretaries can't access clinical tabs even via URL.
+  // Resumen is hidden too because its sections are clinical-centric.
+  const allowedTabs: readonly TabId[] = isClinical
+    ? VALID_TABS
+    : (["datos", "turnos"] as const);
+  // Default tab depends on role: medics/admins land on Resumen (clinical-first),
+  // secretaries land on Datos (administrative-first).
+  const defaultTab: TabId = isClinical ? "resumen" : "datos";
+  const tabParam = searchParams.get("tab") as TabId | null;
+  const safeInitialTab: TabId =
+    tabParam && allowedTabs.includes(tabParam) ? tabParam : defaultTab;
+  const [tab, setTab] = useState<TabId>(safeInitialTab);
 
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -85,45 +95,57 @@ export default function PacienteDetailPage() {
   const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
-      const [pRes, sRes, rRes, eRes, mRes] = await Promise.all([
-        fetch(`/api/patients/${patientId}`),
-        fetch(`/api/shifts?patientId=${patientId}`),
-        fetch(`/api/patients/${patientId}/clinical-record`),
-        fetch(`/api/patients/${patientId}/evolutions`),
-        fetch(`/api/modules`),
-      ]);
-
+      // Common (all roles): patient + shifts
+      const pRes = await fetch(`/api/patients/${patientId}`);
       if (!pRes.ok) throw new Error("Paciente no encontrado");
       const pJson = await pRes.json();
       setPatient(pJson.data ?? pJson);
 
+      const sRes = await fetch(`/api/shifts?patientId=${patientId}`);
       if (sRes.ok) {
         const sJson = await sRes.json();
         setShifts(Array.isArray(sJson.data) ? sJson.data : []);
       }
 
+      // Clinical record: medics + admins get the full record; secretaries
+      // get a redacted view from the backend (only structured allergies for
+      // the safety alert), so we fetch it for everyone.
+      const rRes = await fetch(`/api/patients/${patientId}/clinical-record`);
       if (rRes.ok) {
         const rJson = await rRes.json();
         setRecord(rJson.data ?? null);
       }
 
-      if (eRes.ok) {
-        const eJson = await eRes.json();
-        setEvolutions(Array.isArray(eJson.data) ? eJson.data : []);
-      }
+      // Evolutions, prescriptions and modules are clinical-only.
+      if (isClinical) {
+        const [eRes, mRes] = await Promise.all([
+          fetch(`/api/patients/${patientId}/evolutions`),
+          fetch(`/api/modules`),
+        ]);
 
-      if (mRes.ok) {
-        const mJson = await mRes.json();
-        const modules: ModuleConfig[] = mJson.data ?? [];
-        const presc = modules.find((m) => m.module === "prescriptions");
-        if (presc?.enabled) {
-          setPrescriptionsEnabled(true);
-          const prRes = await fetch(`/api/prescriptions?patientId=${patientId}`);
-          if (prRes.ok) {
-            const prJson = await prRes.json();
-            setPrescriptions(prJson.data ?? []);
+        if (eRes.ok) {
+          const eJson = await eRes.json();
+          setEvolutions(Array.isArray(eJson.data) ? eJson.data : []);
+        }
+
+        if (mRes.ok) {
+          const mJson = await mRes.json();
+          const modules: ModuleConfig[] = mJson.data ?? [];
+          const presc = modules.find((m) => m.module === "prescriptions");
+          if (presc?.enabled) {
+            setPrescriptionsEnabled(true);
+            const prRes = await fetch(`/api/prescriptions?patientId=${patientId}`);
+            if (prRes.ok) {
+              const prJson = await prRes.json();
+              setPrescriptions(prJson.data ?? []);
+            }
           }
         }
+      } else {
+        // Reset clinical state for secretaries
+        setEvolutions([]);
+        setPrescriptions([]);
+        setPrescriptionsEnabled(false);
       }
     } catch {
       toast.error("Error al cargar el paciente");
@@ -131,7 +153,7 @@ export default function PacienteDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [patientId, router]);
+  }, [patientId, router, isClinical]);
 
   useEffect(() => {
     fetchAll();
@@ -140,9 +162,11 @@ export default function PacienteDetailPage() {
   // Sync tab param to URL
   function changeTab(next: string) {
     if (!VALID_TABS.includes(next as TabId)) return;
+    if (!allowedTabs.includes(next as TabId)) return;
     setTab(next as TabId);
     const sp = new URLSearchParams(searchParams.toString());
-    if (next === "resumen") sp.delete("tab");
+    // Drop ?tab=... when it equals the role's default to keep URLs clean
+    if (next === defaultTab) sp.delete("tab");
     else sp.set("tab", next);
     const qs = sp.toString();
     router.replace(`/dashboard/pacientes/${patientId}${qs ? `?${qs}` : ""}`, {
@@ -209,11 +233,22 @@ export default function PacienteDetailPage() {
 
   // Tabs config ──────────────────────────────────────────────────────────
   const tabs: { id: TabId; label: string; icon: typeof UserIcon; count?: number }[] = [
-    { id: "resumen", label: "Resumen", icon: HeartPulse },
+    ...(isClinical
+      ? [{ id: "resumen" as TabId, label: "Resumen", icon: HeartPulse }]
+      : []),
     { id: "datos", label: "Datos", icon: UserIcon },
-    { id: "historia", label: "Historia clínica", icon: Stethoscope },
-    { id: "evoluciones", label: "Evoluciones", icon: Calendar, count: evolutions.length },
-    ...(prescriptionsEnabled
+    ...(isClinical
+      ? [
+          { id: "historia" as TabId, label: "Historia clínica", icon: Stethoscope },
+          {
+            id: "evoluciones" as TabId,
+            label: "Evoluciones",
+            icon: Calendar,
+            count: evolutions.length,
+          },
+        ]
+      : []),
+    ...(isClinical && prescriptionsEnabled
       ? [
           {
             id: "recetas" as TabId,
@@ -282,49 +317,56 @@ export default function PacienteDetailPage() {
           ))}
         </TabsList>
 
-        <TabsContent value="resumen" className="mt-5">
-          <ResumenTab
-            record={record}
-            evolutions={evolutions}
-            nextShift={nextShift}
-            chronicMedications={chronicMedications}
-            structuredAllergies={structuredAllergies}
-            onNewEvolution={() => setEvolutionOpen(true)}
-            onNewPrescription={() => setPrescriptionOpen(true)}
-            onNewShift={() =>
-              router.push(`/dashboard/turnos?patientId=${patientId}`)
-            }
-            onGoToEvolutions={() => changeTab("evoluciones")}
-          />
-        </TabsContent>
+        {isClinical && (
+          <TabsContent value="resumen" className="mt-5">
+            <ResumenTab
+              canManageClinical={isClinical}
+              record={record}
+              evolutions={evolutions}
+              nextShift={nextShift}
+              chronicMedications={chronicMedications}
+              structuredAllergies={structuredAllergies}
+              onNewEvolution={() => setEvolutionOpen(true)}
+              onNewPrescription={() => setPrescriptionOpen(true)}
+              onNewShift={() =>
+                router.push(`/dashboard/turnos?patientId=${patientId}`)
+              }
+              onGoToEvolutions={() => changeTab("evoluciones")}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="datos" className="mt-5">
           <DatosTab patient={patient} onEdit={() => setEditOpen(true)} />
         </TabsContent>
 
-        <TabsContent value="historia" className="mt-5">
-          <HistoriaTab
-            patientId={patientId}
-            record={record}
-            onSaved={(next) => setRecord(next)}
-          />
-        </TabsContent>
+        {isClinical && (
+          <>
+            <TabsContent value="historia" className="mt-5">
+              <HistoriaTab
+                patientId={patientId}
+                record={record}
+                onSaved={(next) => setRecord(next)}
+              />
+            </TabsContent>
 
-        <TabsContent value="evoluciones" className="mt-5">
-          <EvolucionesTab
-            evolutions={evolutions}
-            onNew={() => setEvolutionOpen(true)}
-          />
-        </TabsContent>
+            <TabsContent value="evoluciones" className="mt-5">
+              <EvolucionesTab
+                evolutions={evolutions}
+                onNew={() => setEvolutionOpen(true)}
+              />
+            </TabsContent>
 
-        {prescriptionsEnabled && (
-          <TabsContent value="recetas" className="mt-5">
-            <RecetasTab
-              prescriptions={prescriptions}
-              onNew={() => setPrescriptionOpen(true)}
-              onView={(p) => setViewingPrescription(p)}
-            />
-          </TabsContent>
+            {prescriptionsEnabled && (
+              <TabsContent value="recetas" className="mt-5">
+                <RecetasTab
+                  prescriptions={prescriptions}
+                  onNew={() => setPrescriptionOpen(true)}
+                  onView={(p) => setViewingPrescription(p)}
+                />
+              </TabsContent>
+            )}
+          </>
         )}
 
         <TabsContent value="turnos" className="mt-5">
@@ -348,17 +390,19 @@ export default function PacienteDetailPage() {
         }}
       />
 
-      <EvolutionFormDialog
-        open={evolutionOpen}
-        onOpenChange={setEvolutionOpen}
-        patientId={patientId}
-        onCreated={() => {
-          setEvolutionOpen(false);
-          fetchAll();
-        }}
-      />
+      {isClinical && (
+        <EvolutionFormDialog
+          open={evolutionOpen}
+          onOpenChange={setEvolutionOpen}
+          patientId={patientId}
+          onCreated={() => {
+            setEvolutionOpen(false);
+            fetchAll();
+          }}
+        />
+      )}
 
-      {prescriptionsEnabled && (
+      {isClinical && prescriptionsEnabled && (
         <>
           <CreatePrescriptionDialog
             open={prescriptionOpen}

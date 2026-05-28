@@ -86,6 +86,9 @@ export interface Shift {
   };
   rescheduledFrom?: string | null;
   rescheduledAt?: string | null;
+  // Reception flow (secretary dashboard)
+  arrivedAt?: string | null;
+  consultationStartedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -538,4 +541,149 @@ export interface MedicDashboardData {
   week: DashboardWeekData;
   pendientes: DashboardPendientes;
   recentPatients: DashboardRecentPatient[];
+}
+
+// ─── Secretary Dashboard ────────────────────────────────────────────────────
+
+export type ReminderStatus = "PENDING" | "SENT" | "FAILED";
+
+export interface SecretaryHeaderData {
+  secretaryName: string;
+  now: string; // ISO timestamp
+  activeProfessionalsCount: number;
+}
+
+export interface SecretaryStatsData {
+  enSalaDeEspera: number;
+  enConsulta: number;
+  esperandoMas15: number;
+  huecosHoy: number;
+}
+
+export interface WaitingRoomItemPatient {
+  id: string | null;
+  firstName: string;
+  lastName: string;
+  telephone?: string | null;
+  osShort?: string | null;
+}
+
+export interface WaitingRoomItemShift {
+  id: string;
+  start: string;
+  durationMinutes: number;
+  medicId: string;
+  medicShortName: string;
+  medicColor?: string | null;
+  consultationTypeName?: string | null;
+}
+
+export interface WaitingRoomItem {
+  id: string;
+  kind: "scheduled" | "walkin";
+  arrivedAt: string;
+  minutesWaiting: number;
+  isNext: boolean;
+  note?: string | null;
+  patient: WaitingRoomItemPatient;
+  shift?: WaitingRoomItemShift | null;
+}
+
+export interface NextToCallData {
+  waitingRoomId: string;
+  kind: "scheduled" | "walkin";
+  patient: { firstName: string; lastName: string };
+  medicShortName: string;
+  medicColor?: string | null;
+  room?: string | null;
+  shiftStart?: string | null;
+  minutesWaiting: number;
+}
+
+export interface ReminderItem {
+  id: string;
+  shiftId: string;
+  time: string; // HH:mm
+  patientShortName: string;
+  medicShortName: string;
+  medicColor?: string | null;
+  status: ReminderStatus;
+}
+
+export interface SecretaryRemindersData {
+  context: "today" | "tomorrow";
+  total: number;
+  pending: number;
+  sent: number;
+  items: ReminderItem[];
+}
+
+export interface MedicSlotsGroup {
+  medicId: string;
+  medicShortName: string;
+  dotColor?: string | null;
+  count: number;
+  slots: Array<{ time: string; durationMinutes: number }>;
+}
+
+export type AgendaAutoMode = "columns-detailed" | "columns-compact" | "rails";
+
+export interface AgendaShiftMini {
+  id: string;
+  start: string;
+  end: string;
+  status: ShiftStatus;
+  patientShortName: string;
+  consultationTypeName?: string | null;
+  isWalkIn?: boolean;
+}
+
+export interface AgendaProfessional {
+  id: string;
+  shortName: string;
+  especialidad?: string | null;
+  room?: string | null;
+  dotColor?: string | null;
+  isPinned: boolean;
+  turnSegments: Array<"AM" | "PM">;
+  hasWaitingPatients?: boolean;
+  hasFreeSlots?: boolean;
+  shifts: AgendaShiftMini[];
+}
+
+export interface SecretaryAgendaData {
+  autoMode: AgendaAutoMode;
+  profesionales: AgendaProfessional[];
+  totalShifts: number;
+}
+
+export interface SecretaryDashboardData {
+  header: SecretaryHeaderData;
+  stats: SecretaryStatsData;
+  salaDeEspera: WaitingRoomItem[];
+  proximoALlamar: NextToCallData | null;
+  recordatorios: SecretaryRemindersData;
+  huecosHoy: MedicSlotsGroup[];
+  agenda: SecretaryAgendaData;
+}
+
+export interface WalkInArrival {
+  id: string;
+  patientId?: string | null;
+  firstName: string;
+  lastName: string;
+  telephone?: string | null;
+  note?: string | null;
+  arrivedAt: string;
+  leftAt?: string | null;
+  assignedShiftId?: string | null;
+}
+
+export interface ShiftReminder {
+  id: string;
+  shiftId: string;
+  scheduledFor: string;
+  status: ReminderStatus;
+  channel: string;
+  sentAt?: string | null;
 }

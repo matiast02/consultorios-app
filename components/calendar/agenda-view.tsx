@@ -1,6 +1,6 @@
 "use client";
 
-import { Mail, MoreHorizontal, Phone } from "lucide-react";
+import { Mail, MoreHorizontal, Phone, Stethoscope } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Shift } from "@/types";
 import {
@@ -18,6 +18,16 @@ interface AgendaViewProps {
   shifts: Shift[];
   today: Date;
   onSelectShift: (s: Shift) => void;
+}
+
+function medicLabel(u: Shift["user"] | undefined): { key: string; sortKey: string; label: string } {
+  if (!u) return { key: "__none__", sortKey: "zzzz", label: "Sin profesional" };
+  const fn = u.firstName ?? "";
+  const ln = u.lastName ?? "";
+  const honor = fn.toLowerCase().endsWith("a") ? "Dra." : "Dr.";
+  const label = ln ? `${honor} ${ln}` : (u.name ?? "Profesional");
+  const sortKey = (ln || u.name || "zzz").toLowerCase();
+  return { key: u.id ?? label, sortKey, label };
 }
 
 export function AgendaView({ shifts, today, onSelectShift }: AgendaViewProps) {
@@ -54,6 +64,33 @@ export function AgendaView({ shifts, today, onSelectShift }: AgendaViewProps) {
         const ausentes = g.items.filter((t) => shiftToState(t) === "ausente").length;
         const isToday = isSameDay(g.day, today);
 
+        // ─── Sub-group by medic within this day ─────────────────────────────
+        // For each day, build a list of medic-buckets sorted by medic last name,
+        // and inside each bucket sort shifts by start time. This makes large agendas
+        // (multiple medics on the same day) much easier to read.
+        const medicBuckets = new Map<
+          string,
+          { label: string; sortKey: string; items: Shift[] }
+        >();
+        for (const s of g.items) {
+          const meta = medicLabel(s.user);
+          const existing = medicBuckets.get(meta.key);
+          if (existing) existing.items.push(s);
+          else
+            medicBuckets.set(meta.key, {
+              label: meta.label,
+              sortKey: meta.sortKey,
+              items: [s],
+            });
+        }
+        const sortedBuckets = [...medicBuckets.values()].sort((a, b) =>
+          a.sortKey.localeCompare(b.sortKey),
+        );
+        for (const b of sortedBuckets) {
+          b.items.sort((a, c) => +new Date(a.start) - +new Date(c.start));
+        }
+        const hasMultipleMedics = sortedBuckets.length > 1;
+
         return (
           <section key={g.day.toISOString()} className="border-b last:border-b-0">
             <header className="sticky top-0 z-[2] flex items-baseline justify-between border-b bg-muted/50 px-5 py-3 backdrop-blur">
@@ -70,93 +107,110 @@ export function AgendaView({ shifts, today, onSelectShift }: AgendaViewProps) {
                 {" · "}
                 {finalizados} finalizados · {proximos} próximos
                 {ausentes > 0 ? ` · ${ausentes} ausentes` : ""}
+                {hasMultipleMedics ? ` · ${sortedBuckets.length} prof.` : ""}
               </div>
             </header>
-            <table className="w-full border-collapse">
-              <tbody>
-                {g.items.map((s) => {
-                  const startDate = new Date(s.start);
-                  const endDate = new Date(s.end);
-                  const durationMin = Math.round(
-                    (endDate.getTime() - startDate.getTime()) / 60000
-                  );
-                  const state = shiftToState(s);
-                  return (
-                    <tr
-                      key={s.id}
-                      onClick={() => onSelectShift(s)}
-                      className="cursor-pointer transition-colors hover:bg-muted/30"
-                    >
-                      <td className="w-[120px] whitespace-nowrap border-b px-3.5 py-2.5 text-[12.5px] align-middle">
-                        <span className="font-semibold tabular-nums text-foreground">
-                          {formatTime(startDate)} – {formatTime(endDate)}
-                        </span>
-                        <span className="ml-1.5 text-[11.5px] font-medium text-muted-foreground">
-                          {durationMin}&apos;
-                        </span>
-                      </td>
-                      <td className="w-[120px] border-b px-3.5 py-2.5 align-middle">
-                        <Badge
-                          variant="outline"
-                          className={`gap-1 border px-1.5 py-0 text-[10.5px] font-semibold ${STATE_BADGE_CLASS[state]}`}
+
+            {sortedBuckets.map((bucket) => (
+              <div key={bucket.label}>
+                {hasMultipleMedics && (
+                  <div className="flex items-center justify-between border-b bg-muted/20 px-5 py-1.5 text-[11.5px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Stethoscope className="h-3 w-3" />
+                      {bucket.label}
+                    </span>
+                    <span className="text-[11px] tabular-nums">
+                      {bucket.items.length} turno{bucket.items.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                )}
+                <table className="w-full border-collapse">
+                  <tbody>
+                    {bucket.items.map((s) => {
+                      const startDate = new Date(s.start);
+                      const endDate = new Date(s.end);
+                      const durationMin = Math.round(
+                        (endDate.getTime() - startDate.getTime()) / 60000
+                      );
+                      const state = shiftToState(s);
+                      return (
+                        <tr
+                          key={s.id}
+                          onClick={() => onSelectShift(s)}
+                          className="cursor-pointer transition-colors hover:bg-muted/30"
                         >
-                          <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT_CLASS[state]}`} />
-                          {STATE_LABEL[state]}
-                        </Badge>
-                      </td>
-                      <td className="border-b px-3.5 py-2.5 text-[12.5px] align-middle">
-                        <span className="font-semibold text-foreground">
-                          {s.patient
-                            ? `${s.patient.lastName}, ${s.patient.firstName}`
-                            : "Paciente"}
-                        </span>
-                        {(s.patient?.os?.name || s.consultationType?.name) && (
-                          <span className="ml-2 text-[12px] font-medium text-muted-foreground">
-                            {s.patient?.os?.name}
-                            {s.patient?.os?.name && s.consultationType?.name ? " · " : ""}
-                            {s.consultationType?.name}
-                          </span>
-                        )}
-                      </td>
-                      <td className="border-b px-3.5 py-2.5 text-[12.5px] text-foreground/80 align-middle">
-                        {s.observations || (
-                          <span className="text-muted-foreground/70">—</span>
-                        )}
-                      </td>
-                      <td
-                        className="w-[100px] border-b px-3.5 py-2.5 text-right align-middle"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ActionBtn
-                          title="Llamar"
-                          disabled={!s.patient?.telephone}
-                          onClick={() =>
-                            s.patient?.telephone &&
-                            window.open(`tel:${s.patient.telephone}`)
-                          }
-                        >
-                          <Phone className="h-3.5 w-3.5" />
-                        </ActionBtn>
-                        <ActionBtn
-                          title="WhatsApp"
-                          disabled={!s.patient?.telephone}
-                          onClick={() => {
-                            if (!s.patient?.telephone) return;
-                            const phone = s.patient.telephone.replace(/[^\d+]/g, "");
-                            window.open(`https://wa.me/${phone.replace(/^\+/, "")}`);
-                          }}
-                        >
-                          <Mail className="h-3.5 w-3.5" />
-                        </ActionBtn>
-                        <ActionBtn title="Más acciones" onClick={() => onSelectShift(s)}>
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </ActionBtn>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <td className="w-[120px] whitespace-nowrap border-b px-3.5 py-2.5 text-[12.5px] align-middle">
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {formatTime(startDate)} – {formatTime(endDate)}
+                            </span>
+                            <span className="ml-1.5 text-[11.5px] font-medium text-muted-foreground">
+                              {durationMin}&apos;
+                            </span>
+                          </td>
+                          <td className="w-[120px] border-b px-3.5 py-2.5 align-middle">
+                            <Badge
+                              variant="outline"
+                              className={`gap-1 border px-1.5 py-0 text-[10.5px] font-semibold ${STATE_BADGE_CLASS[state]}`}
+                            >
+                              <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT_CLASS[state]}`} />
+                              {STATE_LABEL[state]}
+                            </Badge>
+                          </td>
+                          <td className="border-b px-3.5 py-2.5 text-[12.5px] align-middle">
+                            <span className="font-semibold text-foreground">
+                              {s.patient
+                                ? `${s.patient.lastName}, ${s.patient.firstName}`
+                                : "Paciente"}
+                            </span>
+                            {(s.patient?.os?.name || s.consultationType?.name) && (
+                              <span className="ml-2 text-[12px] font-medium text-muted-foreground">
+                                {s.patient?.os?.name}
+                                {s.patient?.os?.name && s.consultationType?.name ? " · " : ""}
+                                {s.consultationType?.name}
+                              </span>
+                            )}
+                          </td>
+                          <td className="border-b px-3.5 py-2.5 text-[12.5px] text-foreground/80 align-middle">
+                            {s.observations || (
+                              <span className="text-muted-foreground/70">—</span>
+                            )}
+                          </td>
+                          <td
+                            className="w-[100px] border-b px-3.5 py-2.5 text-right align-middle"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <ActionBtn
+                              title="Llamar"
+                              disabled={!s.patient?.telephone}
+                              onClick={() =>
+                                s.patient?.telephone &&
+                                window.open(`tel:${s.patient.telephone}`)
+                              }
+                            >
+                              <Phone className="h-3.5 w-3.5" />
+                            </ActionBtn>
+                            <ActionBtn
+                              title="WhatsApp"
+                              disabled={!s.patient?.telephone}
+                              onClick={() => {
+                                if (!s.patient?.telephone) return;
+                                const phone = s.patient.telephone.replace(/[^\d+]/g, "");
+                                window.open(`https://wa.me/${phone.replace(/^\+/, "")}`);
+                              }}
+                            >
+                              <Mail className="h-3.5 w-3.5" />
+                            </ActionBtn>
+                            <ActionBtn title="Más acciones" onClick={() => onSelectShift(s)}>
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </ActionBtn>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </section>
         );
       })}

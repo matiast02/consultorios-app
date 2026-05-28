@@ -12,6 +12,8 @@ interface TodayShiftsCardProps {
   onAttend: (shift: DashboardShift) => void;
   onViewPatient: (patientId: string) => void;
   onEditObs: (shift: DashboardShift) => void;
+  /** Click on a shift row (anywhere outside the quick-action buttons). */
+  onSelectShift?: (shift: DashboardShift) => void;
 }
 
 type TabKey = "todos" | "porAtender" | "atendidos" | "ausentes";
@@ -60,6 +62,7 @@ export function TodayShiftsCard({
   onAttend,
   onViewPatient,
   onEditObs,
+  onSelectShift,
 }: TodayShiftsCardProps) {
   const [tab, setTab] = useState<TabKey>("todos");
 
@@ -163,7 +166,10 @@ export function TodayShiftsCard({
             return (
               <li
                 key={s.id}
-                className={`relative px-5 py-3 transition-colors ${isNext ? "bg-primary/5" : "hover:bg-muted/30"}`}
+                onClick={() => onSelectShift?.(s)}
+                className={`relative px-5 py-3 transition-colors ${
+                  onSelectShift ? "cursor-pointer" : ""
+                } ${isNext ? "bg-primary/5" : "hover:bg-muted/30"}`}
               >
                 {isNext && (
                   <span
@@ -214,7 +220,10 @@ export function TodayShiftsCard({
                   </div>
 
                   {/* Status + actions */}
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div
+                    className="flex items-center gap-2 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <StatusBadge status={s.status} />
                     {isNext && (
                       <div className="flex items-center gap-0.5 ml-1">

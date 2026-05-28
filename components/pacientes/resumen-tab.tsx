@@ -29,6 +29,12 @@ import {
 import { cn } from "@/lib/utils";
 
 interface ResumenTabProps {
+  /**
+   * Whether the current user can see/manage clinical information. Set to false
+   * for non-clinical roles (e.g. secretaries) — the tab will hide the last
+   * evolution and the "Nueva evolución / Nueva receta / Enviar resumen" actions.
+   */
+  canManageClinical: boolean;
   record: ClinicalRecord | null;
   evolutions: Evolution[];
   nextShift?: Shift | null;
@@ -56,6 +62,7 @@ function getDocName(evo: Evolution): string {
 }
 
 export function ResumenTab({
+  canManageClinical,
   record,
   evolutions,
   nextShift,
@@ -72,8 +79,8 @@ export function ResumenTab({
     <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-[2fr_1fr]">
       {/* LEFT column */}
       <div className="flex flex-col gap-[18px]">
-        {/* Last evolution */}
-        {lastEvo ? (
+        {/* Last evolution — hidden for non-clinical roles (e.g. secretary) */}
+        {!canManageClinical ? null : lastEvo ? (
           <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
             <SectionHead
               icon={Calendar}
@@ -137,7 +144,8 @@ export function ResumenTab({
           </Card>
         )}
 
-        {/* Chronic meds */}
+        {/* Chronic meds — clinical only */}
+        {canManageClinical && (
         <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
           <SectionHead
             icon={Pill}
@@ -161,13 +169,15 @@ export function ResumenTab({
                   <div className="min-w-0 flex-1 text-[13.5px] font-semibold">
                     {med}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground"
-                  >
-                    <Edit className="h-3.5 w-3.5" />
-                  </Button>
+                  {canManageClinical && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground"
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               ))
             ) : (
@@ -177,6 +187,7 @@ export function ResumenTab({
             )}
           </div>
         </Card>
+        )}
       </div>
 
       {/* RIGHT column */}
@@ -185,14 +196,20 @@ export function ResumenTab({
         <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
           <SectionHead title="Acciones rápidas" />
           <div className="space-y-1.5 px-6 pt-4">
-            <QuickAction icon={Plus} label="Nueva evolución" onClick={onNewEvolution} />
-            <QuickAction icon={Edit} label="Nueva receta" onClick={onNewPrescription} />
+            {canManageClinical && (
+              <>
+                <QuickAction icon={Plus} label="Nueva evolución" onClick={onNewEvolution} />
+                <QuickAction icon={Edit} label="Nueva receta" onClick={onNewPrescription} />
+              </>
+            )}
             <QuickAction
               icon={Calendar}
               label="Agendar próximo turno"
               onClick={onNewShift}
             />
-            <QuickAction icon={Mail} label="Enviar resumen por mail" />
+            {canManageClinical && (
+              <QuickAction icon={Mail} label="Enviar resumen por mail" />
+            )}
           </div>
         </Card>
 

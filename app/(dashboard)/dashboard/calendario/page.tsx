@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
-import { ShiftDetailDialog } from "@/components/shifts/shift-detail-dialog";
+import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
 
 import { CalendarToolbar, type ViewMode, type StateFilter } from "@/components/calendar/toolbar";
 import { MonthView } from "@/components/calendar/month-view";
@@ -595,29 +595,26 @@ export default function CalendarioPage() {
         }}
       />
 
-      {selectedShift && (
-        <ShiftDetailDialog
-          open={detailOpen}
-          onOpenChange={setDetailOpen}
-          shift={selectedShift}
-          onUpdated={() => {
-            fetchShifts();
+      <ShiftQuickDialogLoader
+        shiftId={detailOpen ? selectedShift?.id ?? null : null}
+        onOpenChange={(open) => {
+          if (!open) {
             setDetailOpen(false);
             setSelectedShift(null);
-          }}
-          onScheduleNext={(patientId, medicId) => {
-            setDetailOpen(false);
-            setSelectedShift(null);
-            setScheduleNextPatient({ patientId, medicId });
-          }}
-          onReschedule={(patientId, medicId) => {
-            setDetailOpen(false);
-            setSelectedShift(null);
-            fetchShifts();
-            setScheduleNextPatient({ patientId, medicId });
-          }}
-        />
-      )}
+          }
+        }}
+        onUpdated={() => {
+          fetchShifts();
+        }}
+        onReschedule={(s) => {
+          setDetailOpen(false);
+          setSelectedShift(null);
+          setScheduleNextPatient({ patientId: s.patientId, medicId: s.userId });
+        }}
+        onViewPatient={(patientId) => {
+          window.location.href = `/dashboard/pacientes/${patientId}`;
+        }}
+      />
 
       {scheduleNextPatient && !createOpen && (
         <CreateShiftDialog
