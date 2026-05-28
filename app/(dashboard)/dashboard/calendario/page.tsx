@@ -12,10 +12,8 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import { Lock, Plus, Stethoscope, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
-import { ShiftDetailDialog } from "@/components/shifts/shift-detail-dialog";
 import {
   Select,
   SelectContent,
@@ -23,50 +21,50 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-  Loader2,
-  Stethoscope,
-} from "lucide-react";
-import type { Shift, ShiftStatus, UserPreference, BlockDay, Medic } from "@/types";
-import {
-  SHIFT_STATUS_DOT_COLORS,
-  SHIFT_STATUS_LABELS,
-  SHIFT_STATUS_COLORS,
-  MONTH_NAMES,
-} from "@/types";
+import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
+import { ShiftDetailDialog } from "@/components/shifts/shift-detail-dialog";
 
+import { CalendarToolbar, type ViewMode, type StateFilter } from "@/components/calendar/toolbar";
 import { MonthView } from "@/components/calendar/month-view";
 import { WeekView } from "@/components/calendar/week-view";
 import { DayView } from "@/components/calendar/day-view";
-import { SidePanel } from "@/components/calendar/side-panel";
+import { AgendaView } from "@/components/calendar/agenda-view";
+import { Rail } from "@/components/calendar/rail";
 import {
-  pad,
-  formatTime,
-  isSameDay,
+  AGENDA_DAYS,
+  addDays,
+  capacityFromPreference,
+  capitalize,
   dateToYMD,
-  getMonday,
-  HOURS_START,
-  HOURS_END,
+  fmtDayLong,
+  fmtMonthYear,
+  getSunday,
+  isSameDay,
+  pad,
+  shiftToState,
 } from "@/components/calendar/calendar-helpers";
 
-type ViewMode = "month" | "week" | "day";
+import type { Shift, UserPreference, BlockDay, Medic } from "@/types";
 
 export default function CalendarioPage() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
-  const [currentDate, setCurrentDate] = useState(new Date());
+
+  // ─── State ──────────────────────────────────────────────────────────────────
+  const [view, setView] = useState<ViewMode>("mes");
+  const [anchor, setAnchor] = useState<Date>(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), 1);
+  });
+  const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [preferences, setPreferences] = useState<UserPreference[]>([]);
   const [blockDays, setBlockDays] = useState<BlockDay[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("month");
+  const [createOpen, setCreateOpen] = useState(false);
   const [createDefaultTime, setCreateDefaultTime] = useState<{
     start: string;
     end: string;
@@ -76,48 +74,52 @@ export default function CalendarioPage() {
     medicId: string;
   } | null>(null);
 
-  // Medic filter (for secretary/admin)
+  // Toolbar filters
+  const [stateFilter, setStateFilter] = useState<StateFilter>("todos");
+  const [query, setQuery] = useState("");
+
+  // Medic filter (staff)
   const [medics, setMedics] = useState<Medic[]>([]);
   const [selectedMedicId, setSelectedMedicId] = useState<string | null>(null);
 
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
   const userRole = (session?.user as { role?: string } | undefined)?.role;
   const isStaff = userRole === "secretary" || userRole === "admin";
+  const availabilityUserId = isStaff ? selectedMedicId : userId;
 
-  // Init medic filter from URL param
+  const today = useMemo(() => new Date(), []);
+
+  // ─── URL → state (medic) ────────────────────────────────────────────────────
   useEffect(() => {
     const medicoParam = searchParams.get("medico");
     if (medicoParam) setSelectedMedicId(medicoParam);
   }, [searchParams]);
 
-  // Fetch medics list for staff
   useEffect(() => {
     if (!isStaff) return;
-    async function loadMedics() {
+    async function load() {
       try {
         const res = await fetch("/api/users/medics");
         if (res.ok) {
           const json = await res.json();
           setMedics(json.data ?? []);
         }
-      } catch { /* non-critical */ }
+      } catch {
+        /* non-critical */
+      }
     }
-    loadMedics();
+    load();
   }, [isStaff]);
 
+  // ─── Data fetching ──────────────────────────────────────────────────────────
   const fetchShifts = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams({
-        month: String(month + 1),
-        year: String(year),
+        month: String(anchor.getMonth() + 1),
+        year: String(anchor.getFullYear()),
       });
-      // Staff filtering by selected medic
-      if (isStaff && selectedMedicId) {
-        params.set("userId", selectedMedicId);
-      }
+      if (isStaff && selectedMedicId) params.set("userId", selectedMedicId);
       const res = await fetch(`/api/shifts?${params}`);
       if (!res.ok) throw new Error("Error al cargar turnos");
       const json = await res.json();
@@ -128,10 +130,7 @@ export default function CalendarioPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, month, isStaff, selectedMedicId]);
-
-  // Load availability for the relevant user (selected medic or self)
-  const availabilityUserId = isStaff ? selectedMedicId : userId;
+  }, [anchor, isStaff, selectedMedicId]);
 
   const fetchAvailability = useCallback(async () => {
     if (!availabilityUserId) {
@@ -141,178 +140,211 @@ export default function CalendarioPage() {
     }
     try {
       const params = new URLSearchParams({
-        month: String(month + 1),
-        year: String(year),
+        month: String(anchor.getMonth() + 1),
+        year: String(anchor.getFullYear()),
       });
-      const res = await fetch(`/api/users/${availabilityUserId}/availability?${params}`);
+      const res = await fetch(
+        `/api/users/${availabilityUserId}/availability?${params}`
+      );
       if (res.ok) {
         const json = await res.json();
         setPreferences(json.data?.preferences ?? []);
         setBlockDays(json.data?.blockDays ?? []);
       }
     } catch {
-      // Non-critical
+      /* non-critical */
     }
-  }, [availabilityUserId, year, month]);
+  }, [availabilityUserId, anchor]);
 
   useEffect(() => {
     fetchShifts();
     fetchAvailability();
   }, [fetchShifts, fetchAvailability]);
 
-  // Navigation
-  function navigate(direction: -1 | 1) {
-    const d = new Date(currentDate);
-    if (viewMode === "month") {
-      d.setMonth(d.getMonth() + direction);
-    } else if (viewMode === "week") {
-      d.setDate(d.getDate() + 7 * direction);
-    } else {
-      d.setDate(d.getDate() + direction);
-    }
-    setCurrentDate(d);
-    setSelectedDate(null);
-  }
-
-  function goToday() {
-    const today = new Date();
-    setCurrentDate(today);
-    setSelectedDate(today);
-  }
-
-  // Blocked day check
-  function isDayBlocked(date: Date): boolean {
-    const ymd = dateToYMD(date);
-    return blockDays.some((b) => {
-      const bDate = new Date(b.date);
-      return dateToYMD(bDate) === ymd;
+  // ─── Derived: filtered shifts ───────────────────────────────────────────────
+  const filteredShifts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return shifts.filter((s) => {
+      if (stateFilter !== "todos" && shiftToState(s) !== stateFilter) return false;
+      if (q) {
+        const name = `${s.patient?.lastName ?? ""} ${s.patient?.firstName ?? ""}`.toLowerCase();
+        const obs = (s.observations ?? "").toLowerCase();
+        const ct = (s.consultationType?.name ?? "").toLowerCase();
+        if (!name.includes(q) && !obs.includes(q) && !ct.includes(q)) return false;
+      }
+      return true;
     });
-  }
+  }, [shifts, stateFilter, query]);
 
-  // Get work hours for a day of week (0=Sun, 1=Mon, ... 6=Sat)
-  function getWorkHoursForDay(dayOfWeek: number): UserPreference | undefined {
-    return preferences.find((p) => p.day === dayOfWeek);
-  }
+  // ─── Derived: helpers ───────────────────────────────────────────────────────
+  const getShiftsForDay = useCallback(
+    (day: Date) =>
+      filteredShifts
+        .filter((s) => isSameDay(new Date(s.start), day))
+        .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+    [filteredShifts]
+  );
 
-  function isWithinWorkHours(dayOfWeek: number, hour: number): boolean {
-    const pref = getWorkHoursForDay(dayOfWeek);
-    if (!pref) return false;
+  const getPreference = useCallback(
+    (dayOfWeek: number) => preferences.find((p) => p.day === dayOfWeek),
+    [preferences]
+  );
 
-    let inAM = false;
-    let inPM = false;
+  const isDayBlocked = useCallback(
+    (day: Date) => {
+      const ymd = dateToYMD(day);
+      return blockDays.some((b) => dateToYMD(new Date(b.date)) === ymd);
+    },
+    [blockDays]
+  );
 
-    if (pref.fromHourAM && pref.toHourAM) {
-      const fromH = parseInt(pref.fromHourAM.split(":")[0], 10);
-      const toH = parseInt(pref.toHourAM.split(":")[0], 10);
-      if (hour >= fromH && hour < toH) inAM = true;
+  const blockedReason = useCallback(
+    (day: Date) => {
+      const ymd = dateToYMD(day);
+      const b = blockDays.find((b) => dateToYMD(new Date(b.date)) === ymd);
+      return b ? b.note ?? "Bloqueado" : null;
+    },
+    [blockDays]
+  );
+
+  // ─── Month cells ────────────────────────────────────────────────────────────
+  const monthCells = useMemo(() => {
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const firstDow = first.getDay(); // Sunday = 0
+    const daysInMonth = new Date(
+      anchor.getFullYear(),
+      anchor.getMonth() + 1,
+      0
+    ).getDate();
+    const out: {
+      date: Date;
+      otherMonth: boolean;
+      shifts: Shift[];
+      capacity: number;
+      blocked: boolean;
+      blockedReason?: string | null;
+    }[] = [];
+
+    const pushDay = (d: Date, otherMonth: boolean) => {
+      const cap = capacityFromPreference(getPreference(d.getDay()));
+      out.push({
+        date: d,
+        otherMonth,
+        shifts: getShiftsForDay(d),
+        capacity: cap,
+        blocked: isDayBlocked(d),
+        blockedReason: blockedReason(d),
+      });
+    };
+
+    for (let i = firstDow; i > 0; i--) {
+      pushDay(
+        new Date(anchor.getFullYear(), anchor.getMonth(), 1 - i),
+        true
+      );
     }
-    if (pref.fromHourPM && pref.toHourPM) {
-      const fromH = parseInt(pref.fromHourPM.split(":")[0], 10);
-      const toH = parseInt(pref.toHourPM.split(":")[0], 10);
-      if (hour >= fromH && hour < toH) inPM = true;
+    for (let d = 1; d <= daysInMonth; d++) {
+      pushDay(new Date(anchor.getFullYear(), anchor.getMonth(), d), false);
     }
-
-    return inAM || inPM;
-  }
-
-  function getWorkScheduleText(dayOfWeek: number): string {
-    const pref = getWorkHoursForDay(dayOfWeek);
-    if (!pref) return "Sin horario configurado";
-
-    const parts: string[] = [];
-    if (pref.fromHourAM && pref.toHourAM) {
-      parts.push(`Manana: ${pref.fromHourAM} - ${pref.toHourAM}`);
+    while (out.length % 7) {
+      const last = out[out.length - 1].date;
+      pushDay(new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), true);
     }
-    if (pref.fromHourPM && pref.toHourPM) {
-      parts.push(`Tarde: ${pref.fromHourPM} - ${pref.toHourPM}`);
+    while (out.length < 42) {
+      const last = out[out.length - 1].date;
+      pushDay(new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), true);
     }
-    return parts.length > 0 ? parts.join(" / ") : "Sin horario configurado";
+    return out;
+  }, [anchor, getShiftsForDay, getPreference, isDayBlocked, blockedReason]);
+
+  // ─── Week days (Sun..Sat anchored on selectedDay) ──────────────────────────
+  const weekDays = useMemo(() => {
+    const start = getSunday(selectedDay);
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }, [selectedDay]);
+
+  // ─── Agenda window ──────────────────────────────────────────────────────────
+  const agendaShifts = useMemo(() => {
+    const start = new Date(
+      selectedDay.getFullYear(),
+      selectedDay.getMonth(),
+      selectedDay.getDate()
+    );
+    const end = addDays(start, AGENDA_DAYS);
+    return filteredShifts
+      .filter((s) => {
+        const t = new Date(s.start).getTime();
+        return t >= start.getTime() && t < end.getTime();
+      })
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  }, [filteredShifts, selectedDay]);
+
+  // ─── Toolbar label ──────────────────────────────────────────────────────────
+  const label = useMemo(() => {
+    if (view === "mes") return fmtMonthYear(anchor);
+    if (view === "semana") {
+      const s = weekDays[0];
+      const e = weekDays[6];
+      const sMonth = capitalize(s.toLocaleDateString("es-AR", { month: "short" }));
+      const eMonth = capitalize(
+        e.toLocaleDateString("es-AR", { month: "short", year: "numeric" })
+      );
+      return `${s.getDate()} ${sMonth} – ${e.getDate()} ${eMonth}`;
+    }
+    if (view === "dia") return fmtDayLong(selectedDay);
+    return `Próximos ${AGENDA_DAYS} días`;
+  }, [view, anchor, weekDays, selectedDay]);
+
+  // ─── Navigation ─────────────────────────────────────────────────────────────
+  function navPrev() {
+    if (view === "mes")
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1));
+    else if (view === "semana") setSelectedDay((d) => addDays(d, -7));
+    else if (view === "dia") setSelectedDay((d) => addDays(d, -1));
+    else setSelectedDay((d) => addDays(d, -AGENDA_DAYS));
+  }
+  function navNext() {
+    if (view === "mes")
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1));
+    else if (view === "semana") setSelectedDay((d) => addDays(d, 7));
+    else if (view === "dia") setSelectedDay((d) => addDays(d, 1));
+    else setSelectedDay((d) => addDays(d, AGENDA_DAYS));
+  }
+  function goToday() {
+    const t = new Date();
+    setSelectedDay(t);
+    setAnchor(new Date(t.getFullYear(), t.getMonth(), 1));
   }
 
-  // Get shifts for a specific day
-  function getShiftsForDay(date: Date): Shift[] {
-    return shifts.filter((s) => isSameDay(new Date(s.start), date));
+  // Keep anchor in sync with selectedDay when the user clicks a date that's in
+  // another month from inside the month grid.
+  function handleSelectDay(d: Date) {
+    setSelectedDay(d);
+    if (d.getMonth() !== anchor.getMonth() || d.getFullYear() !== anchor.getFullYear()) {
+      setAnchor(new Date(d.getFullYear(), d.getMonth(), 1));
+    }
   }
 
-  function isToday(date: Date): boolean {
-    return isSameDay(date, new Date());
-  }
-
-  function isSelected(date: Date): boolean {
-    if (!selectedDate) return false;
-    return isSameDay(date, selectedDate);
-  }
-
-  // Create shift from slot
-  function handleSlotClick(date: Date, hour: number) {
-    setSelectedDate(date);
+  // ─── Create / detail dialogs ────────────────────────────────────────────────
+  function handleSlotClick(date: Date, hour: number, minute = 0) {
+    setSelectedDay(date);
     setCreateDefaultTime({
-      start: `${pad(hour)}:00`,
-      end: `${pad(hour)}:30`,
+      start: `${pad(hour)}:${pad(minute)}`,
+      end: `${pad(hour + (minute >= 30 ? 1 : 0))}:${pad((minute + 30) % 60)}`,
     });
     setCreateOpen(true);
   }
-
   function handleCreateOpen(date?: Date) {
-    if (date) setSelectedDate(date);
+    if (date) setSelectedDay(date);
     setCreateDefaultTime(null);
     setCreateOpen(true);
   }
-
-  // ─── Month View ───────────────────────────────────────────────────────
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  const calendarDays: (number | null)[] = useMemo(() => {
-    const days: (number | null)[] = [];
-    for (let i = 0; i < firstDayOfMonth; i++) days.push(null);
-    for (let d = 1; d <= daysInMonth; d++) days.push(d);
-    return days;
-  }, [firstDayOfMonth, daysInMonth]);
-
-  // ─── Week View ────────────────────────────────────────────────────────
-  const weekDays = useMemo(() => {
-    const monday = getMonday(currentDate);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday);
-      d.setDate(d.getDate() + i);
-      return d;
-    });
-  }, [currentDate]);
-
-  // Selected day data
-  const selectedDayShifts = selectedDate ? getShiftsForDay(selectedDate) : [];
-  const selectedDayBlocked = selectedDate ? isDayBlocked(selectedDate) : false;
-  const selectedDayStats = useMemo(() => {
-    const total = selectedDayShifts.length;
-    const pending = selectedDayShifts.filter(
-      (s) => s.status === "PENDING"
-    ).length;
-    const finished = selectedDayShifts.filter(
-      (s) => s.status === "FINISHED"
-    ).length;
-    return { total, pending, finished };
-  }, [selectedDayShifts]);
-
-  // Calculate shift position in week/day grid
-  function getShiftPosition(shift: Shift): {
-    top: number;
-    height: number;
-  } {
-    const start = new Date(shift.start);
-    const end = new Date(shift.end);
-    const startMinutes =
-      (start.getHours() - HOURS_START) * 60 + start.getMinutes();
-    const endMinutes =
-      (end.getHours() - HOURS_START) * 60 + end.getMinutes();
-    const totalMinutes = (HOURS_END - HOURS_START) * 60;
-    return {
-      top: (startMinutes / totalMinutes) * 100,
-      height: Math.max(((endMinutes - startMinutes) / totalMinutes) * 100, 1.5),
-    };
+  function handleSelectShift(s: Shift) {
+    setSelectedShift(s);
+    setDetailOpen(true);
   }
 
-  // ─── Drag & Drop ────────────────────────────────────────────────────
+  // ─── Drag & Drop ────────────────────────────────────────────────────────────
   const [draggingShift, setDraggingShift] = useState<Shift | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -323,22 +355,17 @@ export default function CalendarioPage() {
     const { active, over } = event;
     if (!over) return;
 
-    const shiftId = active.id as string;
-    const shift = shifts.find((s) => s.id === shiftId);
+    const shift = shifts.find((s) => s.id === active.id);
     if (!shift) return;
-
-    // Only allow dragging PENDING or CONFIRMED shifts
     if (shift.status !== "PENDING" && shift.status !== "CONFIRMED") return;
 
-    // Parse drop target: "slot-{dateISO}-{hour}"
     const dropId = over.id as string;
     if (!dropId.startsWith("slot-")) return;
 
     const parts = dropId.split("-");
-    const dropDateStr = parts.slice(1, 4).join("-"); // YYYY-MM-DD
+    const dropDateStr = parts.slice(1, 4).join("-");
     const dropHour = parseInt(parts[4], 10);
 
-    // Calculate new start/end preserving duration
     const oldStart = new Date(shift.start);
     const oldEnd = new Date(shift.end);
     const durationMs = oldEnd.getTime() - oldStart.getTime();
@@ -346,12 +373,10 @@ export default function CalendarioPage() {
     const newStart = new Date(dropDateStr + "T00:00:00");
     newStart.setHours(dropHour, 0, 0, 0);
     const newEnd = new Date(newStart.getTime() + durationMs);
-
-    // Skip if same time
     if (newStart.getTime() === oldStart.getTime()) return;
 
     try {
-      const res = await fetch(`/api/shifts/${shiftId}`, {
+      const res = await fetch(`/api/shifts/${shift.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -359,13 +384,11 @@ export default function CalendarioPage() {
           end: newEnd.toISOString(),
         }),
       });
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         toast.error(err.error ?? "No se pudo mover el turno");
         return;
       }
-
       toast.success(
         `Turno movido a ${pad(dropHour)}:00 del ${newStart.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}`
       );
@@ -375,35 +398,24 @@ export default function CalendarioPage() {
     }
   }
 
-  // Title for header
-  function getHeaderTitle(): string {
-    if (viewMode === "month") {
-      return `${MONTH_NAMES[month]} ${year}`;
-    }
-    if (viewMode === "week") {
-      const mon = weekDays[0];
-      const sun = weekDays[6];
-      if (mon.getMonth() === sun.getMonth()) {
-        return `${mon.getDate()} - ${sun.getDate()} de ${MONTH_NAMES[mon.getMonth()]} ${mon.getFullYear()}`;
-      }
-      return `${mon.getDate()} ${MONTH_NAMES[mon.getMonth()].substring(0, 3)} - ${sun.getDate()} ${MONTH_NAMES[sun.getMonth()].substring(0, 3)} ${sun.getFullYear()}`;
-    }
-    // day
-    return `${currentDate.getDate()} de ${MONTH_NAMES[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
-  }
+  // Selected-day shifts for the rail
+  const selectedDayShifts = useMemo(
+    () => getShiftsForDay(selectedDay),
+    [getShiftsForDay, selectedDay]
+  );
 
+  // ────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-4">
+      {/* Page head */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Calendario</h1>
-            <p className="text-muted-foreground">
-              Gestiona tus turnos y citas
+            <p className="text-sm text-muted-foreground">
+              Gestioná tus turnos, huecos libres y agenda diaria.
             </p>
           </div>
-          {/* Medic filter for staff */}
           {isStaff && medics.length > 0 && (
             <Select
               value={selectedMedicId ?? "__all__"}
@@ -424,12 +436,14 @@ export default function CalendarioPage() {
                     ? `${m.lastName}${m.firstName ? `, ${m.firstName}` : ""}`
                     : m.name ?? "Profesional";
                   const profName = m.specialization?.professionConfig?.name;
-                  const detail = profName && profName !== "Médico"
-                    ? profName // "Dentista", "Nutricionista"
-                    : m.specialization?.name ?? null; // "Medicina General"
+                  const detail =
+                    profName && profName !== "Médico"
+                      ? profName
+                      : m.specialization?.name ?? null;
                   return (
                     <SelectItem key={m.id} value={m.id}>
-                      {name}{detail ? ` — ${detail}` : ""}
+                      {name}
+                      {detail ? ` — ${detail}` : ""}
                     </SelectItem>
                   );
                 })}
@@ -438,182 +452,140 @@ export default function CalendarioPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* View mode toggle */}
-          <div className="flex rounded-md border">
-            {(["month", "week", "day"] as ViewMode[]).map((mode) => (
-              <Button
-                key={mode}
-                variant={viewMode === mode ? "default" : "ghost"}
-                size="sm"
-                className="rounded-none first:rounded-l-md last:rounded-r-md"
-                onClick={() => setViewMode(mode)}
-              >
-                {mode === "month" ? "Mes" : mode === "week" ? "Semana" : "Dia"}
-              </Button>
-            ))}
-          </div>
-          <Button onClick={() => handleCreateOpen()}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Turno
+          <Button variant="outline" size="sm">
+            <Lock className="mr-1.5 h-3.5 w-3.5" />
+            Bloquear horario
+          </Button>
+          <Button size="sm" onClick={() => handleCreateOpen()}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Nuevo turno
+            <kbd className="ml-2 inline-flex h-4 min-w-4 items-center justify-center rounded border border-white/30 bg-white/10 px-1 font-mono text-[10px] font-semibold leading-none text-white/80">
+              N
+            </kbd>
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_350px]">
-        {/* Main Calendar Area */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">{getHeaderTitle()}</CardTitle>
-                <Button variant="outline" size="sm" onClick={goToday}>
-                  Hoy
-                </Button>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => navigate(1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-20">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : viewMode === "month" ? (
-              <MonthView
-                calendarDays={calendarDays}
-                year={year}
-                month={month}
-                getShiftsForDay={(day) =>
-                  getShiftsForDay(new Date(year, month, day))
-                }
-                isDayBlocked={(day) => isDayBlocked(new Date(year, month, day))}
-                isToday={(day) => isToday(new Date(year, month, day))}
-                isSelected={(day) => isSelected(new Date(year, month, day))}
-                onSelectDay={(day) =>
-                  setSelectedDate(new Date(year, month, day))
-                }
-                showMedicInitials={!selectedMedicId}
-              />
-            ) : viewMode === "week" ? (
-              <DndContext
-                sensors={sensors}
-                onDragStart={(e) => {
-                  const s = shifts.find((sh) => sh.id === e.active.id);
-                  if (s) setDraggingShift(s);
-                }}
-                onDragEnd={handleDragEnd}
-              >
-                <WeekView
-                  weekDays={weekDays}
-                  getShiftsForDay={getShiftsForDay}
-                  isDayBlocked={isDayBlocked}
-                  isToday={isToday}
-                  isSelected={isSelected}
-                  isWithinWorkHours={isWithinWorkHours}
-                  getShiftPosition={getShiftPosition}
-                  onSelectDay={setSelectedDate}
-                  onSlotClick={handleSlotClick}
-                  onShiftClick={(shift) => {
-                    setSelectedShift(shift);
-                    setDetailOpen(true);
-                  }}
-                />
-                <DragOverlay>
-                  {draggingShift && (
-                    <div className={`rounded border px-2 py-1 text-[10px] shadow-lg ${SHIFT_STATUS_COLORS[draggingShift.status]}`}>
-                      {draggingShift.patient
-                        ? `${draggingShift.patient.lastName}`
-                        : "Turno"}
-                    </div>
-                  )}
-                </DragOverlay>
-              </DndContext>
-            ) : (
-              <DndContext
-                sensors={sensors}
-                onDragStart={(e) => {
-                  const s = shifts.find((sh) => sh.id === e.active.id);
-                  if (s) setDraggingShift(s);
-                }}
-                onDragEnd={handleDragEnd}
-              >
-                <DayView
-                  date={currentDate}
-                  shifts={getShiftsForDay(currentDate)}
-                  isBlocked={isDayBlocked(currentDate)}
-                  isWithinWorkHours={(hour) =>
-                    isWithinWorkHours(currentDate.getDay(), hour)
-                  }
-                  getShiftPosition={getShiftPosition}
-                  onSlotClick={(hour) => handleSlotClick(currentDate, hour)}
-                  onShiftClick={(shift) => {
-                    setSelectedShift(shift);
-                    setDetailOpen(true);
-                  }}
-                />
-                <DragOverlay>
-                  {draggingShift && (
-                    <div className={`rounded border px-2 py-1 text-xs shadow-lg ${SHIFT_STATUS_COLORS[draggingShift.status]}`}>
-                      {draggingShift.patient
-                        ? `${draggingShift.patient.lastName}, ${draggingShift.patient.firstName}`
-                        : "Turno"}
-                    </div>
-                  )}
-                </DragOverlay>
-              </DndContext>
-            )}
-          </CardContent>
-        </Card>
+      {/* Toolbar */}
+      <CalendarToolbar
+        view={view}
+        onViewChange={setView}
+        label={label}
+        onToday={goToday}
+        onPrev={navPrev}
+        onNext={navNext}
+        query={query}
+        onQueryChange={setQuery}
+        stateFilter={stateFilter}
+        onStateFilterChange={setStateFilter}
+      />
 
-        {/* Side Panel */}
-        <SidePanel
-          selectedDate={selectedDate}
+      {/* Body */}
+      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+        <div>
+          {loading ? (
+            <div className="flex h-72 items-center justify-center rounded-[10px] border bg-card shadow-xs">
+              <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+            </div>
+          ) : view === "mes" ? (
+            <MonthView
+              anchor={anchor}
+              selectedDay={selectedDay}
+              today={today}
+              cells={monthCells}
+              onSelectDay={handleSelectDay}
+              onSelectShift={handleSelectShift}
+            />
+          ) : view === "semana" ? (
+            <DndContext
+              sensors={sensors}
+              onDragStart={(e) => {
+                const s = shifts.find((sh) => sh.id === e.active.id);
+                if (s) setDraggingShift(s);
+              }}
+              onDragEnd={handleDragEnd}
+            >
+              <WeekView
+                weekDays={weekDays}
+                today={today}
+                getPreference={getPreference}
+                isDayBlocked={isDayBlocked}
+                getShiftsForDay={getShiftsForDay}
+                selectedShiftId={selectedShift?.id}
+                onSelectDay={handleSelectDay}
+                onSlotClick={(d, hour) => handleSlotClick(d, hour)}
+                onSelectShift={handleSelectShift}
+              />
+              <DragOverlay>
+                {draggingShift && (
+                  <div className="rounded-md border border-primary/40 bg-card px-2 py-1 text-[11px] font-semibold text-foreground shadow-md">
+                    {draggingShift.patient
+                      ? `${draggingShift.patient.lastName}, ${draggingShift.patient.firstName?.[0] ?? ""}.`
+                      : "Turno"}
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          ) : view === "dia" ? (
+            <DndContext
+              sensors={sensors}
+              onDragStart={(e) => {
+                const s = shifts.find((sh) => sh.id === e.active.id);
+                if (s) setDraggingShift(s);
+              }}
+              onDragEnd={handleDragEnd}
+            >
+              <DayView
+                date={selectedDay}
+                today={today}
+                preference={getPreference(selectedDay.getDay())}
+                shifts={selectedDayShifts}
+                isBlocked={isDayBlocked(selectedDay)}
+                selectedShiftId={selectedShift?.id}
+                onSlotClick={(hour, minute) => handleSlotClick(selectedDay, hour, minute)}
+                onSelectShift={handleSelectShift}
+              />
+              <DragOverlay>
+                {draggingShift && (
+                  <div className="rounded-md border border-primary/40 bg-card px-2 py-1 text-xs font-semibold text-foreground shadow-md">
+                    {draggingShift.patient
+                      ? `${draggingShift.patient.lastName}, ${draggingShift.patient.firstName}`
+                      : "Turno"}
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          ) : (
+            <AgendaView
+              shifts={agendaShifts}
+              today={today}
+              onSelectShift={handleSelectShift}
+            />
+          )}
+        </div>
+
+        {/* Right rail */}
+        <Rail
+          anchor={anchor}
+          selectedDay={selectedDay}
+          today={today}
+          allMonthShifts={shifts}
           selectedDayShifts={selectedDayShifts}
-          selectedDayBlocked={selectedDayBlocked}
-          selectedDayStats={selectedDayStats}
-          availabilityUserId={availabilityUserId}
+          selectedShiftId={selectedShift?.id}
           isStaff={isStaff}
-          selectedMedicId={selectedMedicId}
-          getWorkScheduleText={getWorkScheduleText}
-          onShiftClick={(shift) => {
-            setSelectedShift(shift);
-            setDetailOpen(true);
-          }}
-          onCreateOpen={handleCreateOpen}
+          hasSelectedMedic={!!availabilityUserId}
+          onSelectDay={handleSelectDay}
+          onMonthChange={setAnchor}
+          onSelectShift={handleSelectShift}
+          onCreateOpen={(d) => handleCreateOpen(d)}
         />
       </div>
 
-      {/* Status legend */}
-      <div className="flex flex-wrap gap-4">
-        {(Object.keys(SHIFT_STATUS_LABELS) as ShiftStatus[]).map((status) => (
-          <div key={status} className="flex items-center gap-2">
-            <div
-              className={`h-2.5 w-2.5 rounded-full ${SHIFT_STATUS_DOT_COLORS[status]}`}
-            />
-            <span className="text-xs text-muted-foreground">
-              {SHIFT_STATUS_LABELS[status]}
-            </span>
-          </div>
-        ))}
-        <div className="flex items-center gap-2">
-          <div className="h-2.5 w-2.5 rounded-full bg-red-300" />
-          <span className="text-xs text-muted-foreground">Bloqueado</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-amber-500">ST</span>
-          <span className="text-xs text-muted-foreground">Sobreturno</span>
-        </div>
-      </div>
-
+      {/* Dialogs */}
       <CreateShiftDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        defaultDate={selectedDate ?? undefined}
+        defaultDate={selectedDay}
         defaultStartTime={createDefaultTime?.start}
         defaultEndTime={createDefaultTime?.end}
         onCreated={() => {
@@ -647,7 +619,6 @@ export default function CalendarioPage() {
         />
       )}
 
-      {/* Create shift dialog for scheduling next appointment */}
       {scheduleNextPatient && !createOpen && (
         <CreateShiftDialog
           open={!!scheduleNextPatient}

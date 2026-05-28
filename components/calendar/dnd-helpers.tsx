@@ -9,11 +9,13 @@ export function DroppableSlot({
   id,
   children,
   className,
+  style,
   onClick,
 }: {
   id: string;
   children?: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
   onClick?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
@@ -21,7 +23,8 @@ export function DroppableSlot({
     <div
       ref={setNodeRef}
       onClick={onClick}
-      className={`${className} ${isOver ? "!bg-primary/20 ring-1 ring-primary/40" : ""}`}
+      style={style}
+      className={`${className ?? ""} ${isOver ? "!bg-primary/20 ring-1 ring-primary/40" : ""}`}
     >
       {children}
     </div>

@@ -1,0 +1,181 @@
+openapi: 3.0.3
+info:
+  title: Calendario API contract
+  description: |
+    Endpoints used by the redesigned calendar page. The view supports four
+    layouts (mes/semana/dia/agenda) plus a right rail with mini-calendar,
+    day stats and next-appointment card.
+    The page is **month-scoped** for performance: it loads all shifts for the
+    active month and filters by state + free-text search **on the client**.
+  version: 1.0.0
+
+servers:
+  - url: /api
+
+paths:
+  /shifts:
+    get:
+      summary: List shifts for a month (and optionally a specific medic)
+      parameters:
+        - in: query
+          name: month
+          schema: { type: integer, minimum: 1, maximum: 12 }
+          required: true
+        - in: query
+          name: year
+          schema: { type: integer, minimum: 2020, maximum: 2100 }
+          required: true
+        - in: query
+          name: userId
+          description: When omitted, defaults to the logged-in medic. Secretarías/admin pueden filtrar por médico.
+          schema: { type: string }
+        - in: query
+          name: status
+          description: Optional server-side state filter (the calendar usually filters client-side).
+          schema:
+            type: string
+            enum: [PENDING, CONFIRMED, ABSENT, FINISHED, CANCELLED]
+        - in: query
+          name: patientId
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of shifts in the requested month, with patient + user + consultationType joined.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Shift" }
+
+  /users/{id}/availability:
+    get:
+      summary: Get availability (preferences + blocked days) for a medic in a given month
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: month
+          schema: { type: integer }
+        - in: query
+          name: year
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Preferences (work hours per weekday) and block days for the month.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      preferences:
+                        type: array
+                        items: { $ref: "#/components/schemas/UserPreference" }
+                      blockDays:
+                        type: array
+                        items: { $ref: "#/components/schemas/BlockDay" }
+
+  /shifts/{id}:
+    put:
+      summary: Update a shift (status / observations / start / end)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [PENDING, CONFIRMED, ABSENT, FINISHED, CANCELLED]
+                observations: { type: string }
+                start: { type: string, format: date-time }
+                end:   { type: string, format: date-time }
+      responses:
+        "200": { description: Updated shift }
+
+components:
+  schemas:
+    Shift:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        patientId: { type: string }
+        start: { type: string, format: date-time }
+        end:   { type: string, format: date-time }
+        observations: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, ABSENT, FINISHED, CANCELLED]
+        isOverbook: { type: boolean }
+        recurrenceGroupId: { type: string, nullable: true }
+        consultationType:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string }
+            durationMinutes: { type: integer }
+            color: { type: string, nullable: true }
+        patient:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            firstName: { type: string }
+            lastName:  { type: string }
+            dni: { type: string, nullable: true }
+            telephone: { type: string, nullable: true }
+            os:
+              type: object
+              nullable: true
+              properties:
+                id: { type: string }
+                name: { type: string }
+                code: { type: string, nullable: true }
+            osNumber: { type: string, nullable: true }
+        user:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string, nullable: true }
+            firstName: { type: string, nullable: true }
+            lastName:  { type: string, nullable: true }
+
+    UserPreference:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        day: { type: integer, minimum: 0, maximum: 6 }
+        fromHourAM: { type: string, nullable: true, example: "08:00" }
+        toHourAM:   { type: string, nullable: true, example: "12:00" }
+        fromHourPM: { type: string, nullable: true, example: "14:00" }
+        toHourPM:   { type: string, nullable: true, example: "18:00" }
+
+    BlockDay:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        date: { type: string, format: date }
+        category:
+          type: string
+          enum: [VACATION, HOLIDAY, CONFERENCE, OTHER]
+        note: { type: string, nullable: true }

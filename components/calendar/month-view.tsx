@@ -1,120 +1,179 @@
 "use client";
 
+import { CalendarX } from "lucide-react";
 import type { Shift } from "@/types";
 import {
-  SHIFT_STATUS_DOT_COLORS,
-  SHIFT_STATUS_COLORS,
-  SHIFT_STATUS_LABELS,
-  DAY_NAMES,
-} from "@/types";
-import { formatTime } from "./calendar-helpers";
+  STATE_PILL_CLASS,
+  formatTime,
+  isSameDay,
+  shiftToState,
+} from "./calendar-helpers";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-export interface MonthViewProps {
-  calendarDays: (number | null)[];
-  year: number;
-  month: number;
-  getShiftsForDay: (day: number) => Shift[];
-  isDayBlocked: (day: number) => boolean;
-  isToday: (day: number) => boolean;
-  isSelected: (day: number) => boolean;
-  onSelectDay: (day: number) => void;
-  showMedicInitials?: boolean;
+interface CellInfo {
+  date: Date;
+  otherMonth: boolean;
+  shifts: Shift[];
+  capacity: number;
+  blocked: boolean;
+  blockedReason?: string | null;
 }
+
+export interface MonthViewProps {
+  anchor: Date;
+  selectedDay: Date | null;
+  today: Date;
+  cells: CellInfo[];
+  onSelectDay: (d: Date) => void;
+  onSelectShift: (s: Shift) => void;
+}
+
+const DOWS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function MonthView({
-  calendarDays,
-  year,
-  month,
-  getShiftsForDay,
-  isDayBlocked,
-  isToday,
-  isSelected,
+  selectedDay,
+  today,
+  cells,
   onSelectDay,
-  showMedicInitials,
+  onSelectShift,
 }: MonthViewProps) {
   return (
-    <>
-      {/* Day headers */}
-      <div className="mb-1 grid grid-cols-7 gap-px">
-        {DAY_NAMES.map((dayName) => (
+    <div className="overflow-hidden rounded-[10px] border border-[#dfe9ec] bg-white shadow-xs">
+      {/* Header + cells share a 7-col grid with a 1px gap acting as borders. */}
+      <div className="grid grid-cols-7 gap-px bg-[#dfe9ec]">
+        {DOWS.map((d) => (
           <div
-            key={dayName}
-            className="py-2 text-center text-xs font-medium text-muted-foreground"
+            key={d}
+            className="bg-[#f8fbfb] px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.06em] text-[#6c8593]"
           >
-            {dayName.substring(0, 3)}
+            {d}
           </div>
         ))}
-      </div>
-      {/* Day cells */}
-      <div className="grid grid-cols-7 gap-px">
-        {calendarDays.map((day, idx) => {
-          if (day === null) {
-            return <div key={`empty-${idx}`} className="min-h-[80px]" />;
-          }
-          const dayShifts = getShiftsForDay(day);
-          const blocked = isDayBlocked(day);
+        {cells.map((c, i) => {
+          const day = c.date;
+          const dayShifts = c.shifts;
+          const cap = c.capacity;
+          const occ = dayShifts.length;
+          const isToday = isSameDay(day, today);
+          const isSelected = selectedDay && isSameDay(day, selectedDay);
+          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+          const blocked = c.blocked;
+          const visible = dayShifts.slice(0, 3);
+          const more = dayShifts.length - visible.length;
+          const pct = cap > 0 ? Math.min(100, (occ / cap) * 100) : 0;
+
+          const cellBase =
+            "relative flex min-h-[130px] cursor-pointer flex-col gap-1 p-2 transition-colors";
+          // Tones use the exact design tokens (--surface/-2, --bg-soft, etc.)
+          const cellTone = blocked
+            ? "bg-[repeating-linear-gradient(-45deg,#fbe7e3_0_6px,#fcedea_6px_12px)]"
+            : c.otherMonth
+              ? "bg-[#f5f8f9] text-[#94a8b3] hover:bg-[#f1f5f6]"
+              : isWeekend
+                ? "bg-[#f8fbfb] hover:bg-[#f1f5f6]"
+                : "bg-white hover:bg-[#fafdfd]";
+          const ring = isSelected ? "shadow-[inset_0_0_0_2px_var(--color-primary)] z-[1]" : "";
+
           return (
             <button
-              key={day}
+              key={i}
+              type="button"
               onClick={() => onSelectDay(day)}
-              className={`min-h-[80px] rounded-md border p-1 text-left transition-all duration-150 hover:bg-primary/5 ${
-                isSelected(day)
-                  ? "border-primary bg-primary/8"
-                  : "border-transparent"
-              } ${isToday(day) ? "bg-accent/60" : ""} ${
-                blocked ? "bg-amber-50 dark:bg-amber-950/20" : ""
-              }`}
+              className={`${cellBase} ${cellTone} ${ring} text-left`}
             >
-              <div className="flex items-center justify-between">
-                <span
-                  className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
-                    isToday(day)
-                      ? "bg-primary text-primary-foreground"
-                      : ""
-                  }`}
-                >
-                  {day}
+              {/* Day number + capacity */}
+              <div className="flex items-center justify-between gap-1.5">
+                {isToday ? (
+                  <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-primary text-[12px] font-bold text-primary-foreground">
+                    {day.getDate()}
+                  </span>
+                ) : (
+                  <span
+                    className={`text-[13px] font-semibold ${c.otherMonth ? "text-[#94a8b3]" : "text-[#1f3a4d]"}`}
+                  >
+                    {day.getDate()}
+                  </span>
+                )}
+                {cap > 0 && !blocked && !c.otherMonth && (
+                  <span className="text-[10.5px] font-medium tabular-nums text-[#94a8b3]">
+                    {occ}/{cap}
+                  </span>
+                )}
+              </div>
+
+              {/* Blocked tag */}
+              {blocked && c.blockedReason && (
+                <span className="inline-flex w-max items-center gap-1 rounded border border-rose-200 bg-card px-1.5 py-0.5 text-[10.5px] font-semibold text-rose-900">
+                  <CalendarX className="h-3 w-3" />
+                  {c.blockedReason}
                 </span>
-                {blocked && (
-                  <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 uppercase">
-                    Bloq.
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 space-y-0.5">
-                {dayShifts.slice(0, 3).map((s) => (
-                  <div key={s.id} className="flex items-center gap-1">
-                    <div
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${SHIFT_STATUS_DOT_COLORS[s.status]}`}
-                    />
-                    <span className="truncate text-[10px] text-muted-foreground">
-                      {s.recurrenceGroupId && (
-                        <span className="mr-0.5 text-blue-400">↻</span>
-                      )}
-                      {s.isOverbook && (
-                        <span className="mr-0.5 font-bold text-amber-500">ST</span>
-                      )}
-                      {showMedicInitials && s.user?.lastName
-                        ? `${s.user.lastName.substring(0, 3)}. `
-                        : ""}
-                      {formatTime(new Date(s.start))}
+              )}
+
+              {/* Events */}
+              <div className="flex min-h-0 flex-1 flex-col gap-[3px]">
+                {visible.map((s) => {
+                  const tDate = new Date(s.start);
+                  const state = shiftToState(s);
+                  const tone = STATE_PILL_CLASS[state];
+                  return (
+                    <span
+                      key={s.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectShift(s);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onSelectShift(s);
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 truncate rounded border-l-[3px] py-[2px] pl-1 pr-1.5 text-[11.5px] leading-[1.4] ${tone}`}
+                    >
+                      <span className="tabular-nums text-[#6c8593]">
+                        {formatTime(tDate)}
+                      </span>
+                      <span className="truncate font-semibold">
+                        {s.patient
+                          ? `${s.patient.lastName}, ${s.patient.firstName?.[0] ?? ""}.`
+                          : "Turno"}
+                      </span>
                     </span>
-                  </div>
-                ))}
-                {dayShifts.length > 3 && (
-                  <span className="text-[10px] text-muted-foreground">
-                    +{dayShifts.length - 3} mas
-                  </span>
+                  );
+                })}
+                {more > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectDay(day);
+                    }}
+                    className="rounded px-1 py-0.5 text-left text-[11px] font-semibold text-primary hover:bg-primary/10"
+                  >
+                    +{more} más
+                  </button>
                 )}
               </div>
+
+              {/* Capacity bar (under events) — matches `.cell-cap-bar` from design */}
+              {cap > 0 && !blocked && !c.otherMonth && (
+                <div className="mt-auto h-[3px] overflow-hidden rounded-[2px] bg-[#e6edef]">
+                  <div
+                    className={`h-full rounded-[2px] ${pct > 75 ? "bg-gradient-to-r from-[#d28b1c] to-[#c0392b]" : "bg-primary"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              )}
             </button>
           );
         })}
       </div>
-    </>
+    </div>
   );
 }

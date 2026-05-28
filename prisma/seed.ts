@@ -107,6 +107,20 @@ async function main() {
     if (ins) insurances[name] = ins;
   }
 
+  // ─── Consultation type references (created by seedBase) ──────────────────
+  const [ctControlRow, ctPrimeraRow, ctUrgenciaRow, ctSeguimientoRow] = await Promise.all([
+    prisma.consultationType.findUnique({ where: { name: "Control" } }),
+    prisma.consultationType.findUnique({ where: { name: "Primera vez" } }),
+    prisma.consultationType.findUnique({ where: { name: "Urgencia" } }),
+    prisma.consultationType.findUnique({ where: { name: "Seguimiento" } }),
+  ]);
+  const ct = {
+    control: ctControlRow?.id ?? null,
+    primera: ctPrimeraRow?.id ?? null,
+    urgencia: ctUrgenciaRow?.id ?? null,
+    seguimiento: ctSeguimientoRow?.id ?? null,
+  };
+
   // ─── Patients ─────────────────────────────────────────────────────────────
   const patientsData = [
     {
@@ -485,6 +499,115 @@ async function main() {
   console.log(
     `✅ shifts: ${createdShiftCount} created, ${shifts.length - createdShiftCount} already existed`,
   );
+
+  // ─── Calendar enrichment: assign consultation types ──────────────────────
+  // Heuristic-based backfill so the redesigned calendar surface (which renders
+  // `consultationType.name` in DayView / Rail / Agenda) shows meaningful data
+  // for all seeded shifts, including those originally created without a type.
+  const shiftsToType = await prisma.shift.findMany({
+    where: {
+      userId: { in: [drGervilla.id, draLopez.id] },
+      consultationTypeId: null,
+    },
+    select: { id: true, observations: true },
+  });
+  let typedCount = 0;
+  for (const s of shiftsToType) {
+    const obs = (s.observations ?? "").toLowerCase();
+    let typeId: string | null = ct.control;
+    if (obs.includes("dolor") || obs.includes("alergia") || obs.includes("primera"))
+      typeId = ct.primera;
+    else if (obs.includes("seguimiento") || obs.includes("laboratorio"))
+      typeId = ct.seguimiento;
+    if (typeId) {
+      await prisma.shift.update({ where: { id: s.id }, data: { consultationTypeId: typeId } });
+      typedCount++;
+    }
+  }
+  console.log(`✅ Consultation type assigned to ${typedCount} shifts`);
+
+  // ─── Calendar enrichment: today's shifts + sobreturno ────────────────────
+  // Idempotent: any prior seed-created "today" shifts are deleted first, then
+  // recreated relative to `new Date()` so the calendar's "Próximo turno" card
+  // and day stats always have something to show on the current date.
+  const todayMarker = "[seed-today]";
+  await prisma.shift.deleteMany({
+    where: { userId: drGervilla.id, observations: { startsWith: todayMarker } },
+  });
+
+  const setT = (base: Date, h: number, m: number): Date => {
+    const d = new Date(base);
+    d.setHours(h, m, 0, 0);
+    return d;
+  };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const todayShifts: Array<{
+    patientIdx: number;
+    h: number;
+    m: number;
+    durMin: number;
+    status: ShiftStatus;
+    ctId: string | null;
+    obs: string;
+    isOverbook?: boolean;
+  }> = [
+    { patientIdx: 0, h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED,  ctId: ct.control,    obs: `${todayMarker} Control matinal — todo en orden.` },
+    { patientIdx: 8, h: 10, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ct.control,    obs: `${todayMarker} Control trimestral HTA — Pedro Álvarez.` },
+    { patientIdx: 4, h: 14, m: 30, durMin: 40, status: ShiftStatus.PENDING,   ctId: ct.primera,    obs: `${todayMarker} Primera consulta — derivación clínica.` },
+    // Sobreturno (urgencia agregada fuera del slot regular)
+    { patientIdx: 2, h: 16, m: 0,  durMin: 15, status: ShiftStatus.PENDING,   ctId: ct.urgencia,   obs: `${todayMarker} Sobreturno — dolor torácico, urgencia.`, isOverbook: true },
+  ];
+
+  for (const t of todayShifts) {
+    const start = setT(today, t.h, t.m);
+    const end = new Date(start.getTime() + t.durMin * 60_000);
+    await prisma.shift.create({
+      data: {
+        userId: drGervilla.id,
+        patientId: patients[t.patientIdx].id,
+        start,
+        end,
+        status: t.status,
+        observations: t.obs,
+        consultationTypeId: t.ctId ?? null,
+        isOverbook: t.isOverbook ?? false,
+      },
+    });
+  }
+  console.log(`✅ ${todayShifts.length} shifts created for today (incl. 1 sobreturno)`);
+
+  // ─── Calendar enrichment: recurring series (3 weekly shifts) ─────────────
+  // Same recurrenceGroupId across the series lets the detail dialog show the
+  // "Recurrente" badge and allow series cancellation.
+  const recurId = `seed-recur-${drGervilla.id.slice(-8)}`;
+  await prisma.shift.deleteMany({ where: { recurrenceGroupId: recurId } });
+
+  // First occurrence: next Monday at 11:00.
+  const firstRecur = new Date(today);
+  const delta = (1 - firstRecur.getDay() + 7) % 7 || 7; // 1=Monday
+  firstRecur.setDate(firstRecur.getDate() + delta);
+  firstRecur.setHours(11, 0, 0, 0);
+
+  for (let i = 0; i < 3; i++) {
+    const start = new Date(firstRecur);
+    start.setDate(start.getDate() + i * 7);
+    const end = new Date(start.getTime() + 30 * 60_000);
+    await prisma.shift.create({
+      data: {
+        userId: drGervilla.id,
+        patientId: patients[7].id, // Diego Torres
+        start,
+        end,
+        status: ShiftStatus.PENDING,
+        observations: `Sesión ${i + 1}/3 — Seguimiento semanal post-internación.`,
+        consultationTypeId: ct.seguimiento ?? null,
+        recurrenceGroupId: recurId,
+      },
+    });
+  }
+  console.log(`✅ Recurring series created (3 weekly shifts, group=${recurId})`);
 
   // ─── User Preferences ─────────────────────────────────────────────────────
   const gervillaPrefs = [
