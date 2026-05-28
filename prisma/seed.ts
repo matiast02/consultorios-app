@@ -121,6 +121,8 @@ async function main() {
       province: "Buenos Aires",
       osId: insurances["OSDE"]?.id,
       osNumber: "12345678",
+      emergencyContactName: "Lucía Pérez (Esposa)",
+      emergencyContactPhone: "+54 11 4523-1100",
     },
     {
       firstName: "María",
@@ -173,6 +175,8 @@ async function main() {
       province: "Buenos Aires",
       osId: insurances["PAMI"]?.id,
       osNumber: "99001122",
+      emergencyContactName: "Norma Fernández (Esposa)",
+      emergencyContactPhone: "+54 11 3344-5577",
     },
     {
       firstName: "Laura",
@@ -216,15 +220,17 @@ async function main() {
     {
       firstName: "Pedro",
       lastName: "Álvarez",
-      birthDate: new Date("1965-08-14"),
+      birthDate: new Date("1965-08-13"),
       dni: "18901234",
       email: "pedro.alvarez@email.com",
-      telephone: "1123456789",
-      address: "Tucumán 321",
+      telephone: "+54 11 2345-6789",
+      address: "Tucumán 321, Piso 2 Dto B",
       country: "Argentina",
       province: "Tucumán",
       osId: insurances["PAMI"]?.id,
-      osNumber: "11002233",
+      osNumber: "11002233 / 02",
+      emergencyContactName: "María Álvarez (Esposa)",
+      emergencyContactPhone: "+54 11 4567-3322",
     },
     {
       firstName: "Valentina",
@@ -268,10 +274,24 @@ async function main() {
 
   const patients: Array<{ id: string }> = [];
   for (const data of patientsData) {
-    const patient = await prisma.patient.create({ data });
+    // Idempotent: upsert by unique DNI. If a patient with no DNI is added later,
+    // fall back to a find-by-name approach.
+    const patient = data.dni
+      ? await prisma.patient.upsert({
+          where: { dni: data.dni },
+          update: data,
+          create: data,
+        })
+      : await prisma.patient.create({ data });
     patients.push(patient);
   }
-  console.log(`✅ ${patients.length} patients created`);
+  console.log(`✅ ${patients.length} patients upserted`);
+
+  // ─── Pedro Álvarez index (used for clinical seed below) ──────────────────
+  const pedroIndex = patientsData.findIndex(
+    (p) => p.firstName === "Pedro" && p.lastName === "Álvarez",
+  );
+  const pedroId = pedroIndex >= 0 ? patients[pedroIndex].id : null;
 
   // ─── Shifts (Turnos) ──────────────────────────────────────────────────────
   const now = new Date();
@@ -450,10 +470,21 @@ async function main() {
     },
   ];
 
+  // Idempotent: skip shifts that already exist for (userId, start) — Shift has
+  // no unique constraint there, so we check before inserting.
+  let createdShiftCount = 0;
   for (const shift of shifts) {
+    const existing = await prisma.shift.findFirst({
+      where: { userId: shift.userId, start: shift.start },
+      select: { id: true },
+    });
+    if (existing) continue;
     await prisma.shift.create({ data: shift });
+    createdShiftCount++;
   }
-  console.log(`✅ ${shifts.length} shifts created`);
+  console.log(
+    `✅ shifts: ${createdShiftCount} created, ${shifts.length - createdShiftCount} already existed`,
+  );
 
   // ─── User Preferences ─────────────────────────────────────────────────────
   const gervillaPrefs = [
@@ -487,21 +518,186 @@ async function main() {
   }
   console.log("✅ User preferences created");
 
-  // ─── Block Days ───────────────────────────────────────────────────────────
-  const blockDays = [
-    new Date(currentYear, currentMonth + 1, 10),
-    new Date(currentYear, currentMonth + 1, 11),
-    new Date(currentYear, currentMonth + 1, 12),
+  // ─── Block Days (with categories + notes) ─────────────────────────────────
+  const blockDays: { date: Date; category: "VACATION" | "HOLIDAY" | "CONFERENCE" | "OTHER"; note: string | null }[] = [
+    // Vacaciones de 3 días el próximo mes
+    { date: new Date(currentYear, currentMonth + 1, 10), category: "VACATION", note: "Vacaciones de verano" },
+    { date: new Date(currentYear, currentMonth + 1, 11), category: "VACATION", note: "Vacaciones de verano" },
+    { date: new Date(currentYear, currentMonth + 1, 12), category: "VACATION", note: "Vacaciones de verano" },
+    // Congreso médico
+    { date: new Date(currentYear, currentMonth + 2, 5), category: "CONFERENCE", note: "Congreso de Cardiología 2026" },
+    { date: new Date(currentYear, currentMonth + 2, 6), category: "CONFERENCE", note: "Congreso de Cardiología 2026" },
+    // Feriado
+    { date: new Date(currentYear, currentMonth + 1, 25), category: "HOLIDAY", note: "Feriado nacional" },
   ];
 
-  for (const date of blockDays) {
+  for (const b of blockDays) {
     await prisma.blockDay.upsert({
-      where: { userId_date: { userId: drGervilla.id, date } },
-      update: {},
-      create: { userId: drGervilla.id, date },
+      where: { userId_date: { userId: drGervilla.id, date: b.date } },
+      update: { category: b.category, note: b.note },
+      create: { userId: drGervilla.id, date: b.date, category: b.category, note: b.note },
     });
   }
-  console.log("✅ Block days created");
+  console.log(`✅ ${blockDays.length} block days upserted`);
+
+  // ─── Clinical data for Pedro Álvarez (matches design handoff) ─────────────
+  if (pedroId) {
+    const structuredAllergies = [
+      { nombre: "Penicilina", severidad: "alta", nota: "Reacción anafiláctica 2012" },
+      { nombre: "Ibuprofeno", severidad: "media", nota: "Dispepsia" },
+    ];
+
+    const clinicalRecord = await prisma.clinicalRecord.upsert({
+      where: { patientId: pedroId },
+      update: {
+        bloodType: "A+",
+        heightCm: 172,
+        weightKg: "78.00",
+        personalHistory:
+          "Hipertensión arterial diagnosticada en 2015. Dislipemia 2018. Apendicectomía en 1992. Cólico renal 2019 (litiasis urinaria, tratamiento conservador).",
+        familyHistory:
+          "Padre: HTA y enfermedad coronaria (IAM a los 68). Madre: diabetes tipo 2.\nHermano: HTA. Hijos: sin antecedentes relevantes.",
+        currentMedication: "Enalapril 10mg · Atorvastatina 20mg · Aspirina 100mg",
+        habitsTobacco: "Ex-fumador (dejó en 2010)",
+        habitsAlcohol: "Ocasional (1–2 copas/sem)",
+        habitsActivity: "Caminata 30 min, 3 veces por semana",
+        habitsDiet: "Hiposódica",
+        notes:
+          "Paciente colaborador, asiste a controles trimestrales. Buena adherencia a tratamiento.",
+        structuredAllergies: JSON.stringify(structuredAllergies),
+      },
+      create: {
+        patientId: pedroId,
+        bloodType: "A+",
+        heightCm: 172,
+        weightKg: "78.00",
+        personalHistory:
+          "Hipertensión arterial diagnosticada en 2015. Dislipemia 2018. Apendicectomía en 1992. Cólico renal 2019 (litiasis urinaria, tratamiento conservador).",
+        familyHistory:
+          "Padre: HTA y enfermedad coronaria (IAM a los 68). Madre: diabetes tipo 2.\nHermano: HTA. Hijos: sin antecedentes relevantes.",
+        currentMedication: "Enalapril 10mg · Atorvastatina 20mg · Aspirina 100mg",
+        habitsTobacco: "Ex-fumador (dejó en 2010)",
+        habitsAlcohol: "Ocasional (1–2 copas/sem)",
+        habitsActivity: "Caminata 30 min, 3 veces por semana",
+        habitsDiet: "Hiposódica",
+        notes:
+          "Paciente colaborador, asiste a controles trimestrales. Buena adherencia a tratamiento.",
+        structuredAllergies: JSON.stringify(structuredAllergies),
+      },
+    });
+    console.log("✅ Clinical record for Pedro Álvarez upserted");
+
+    // Evolutions — replace existing to avoid duplicates (no natural unique key)
+    await prisma.evolution.deleteMany({
+      where: { clinicalRecordId: clinicalRecord.id, userId: drGervilla.id },
+    });
+
+    const evolutions = [
+      {
+        clinicalRecordId: clinicalRecord.id,
+        userId: drGervilla.id,
+        reason:
+          "Control trimestral de HTA. Refiere buen cumplimiento de tratamiento. Sin episodios de cefalea ni mareos.",
+        physicalExam:
+          "TA 130/80 mmHg. FC 72 lpm regular. Ruidos cardíacos normales. R1-R2 presentes, sin soplos. Pulsos periféricos conservados y simétricos.",
+        diagnosis: "Hipertensión esencial",
+        diagnosisCode: "I10",
+        treatment:
+          "Continuar enalapril 10 mg/día. Continuar atorvastatina 20 mg/día por la noche.",
+        indications:
+          "Continuar dieta hiposódica. Caminata diaria. MAPA en 6 meses. Próximo control en 3 meses.",
+        notes: "Solicitar laboratorio: lipidograma, función renal, ionograma.",
+        createdAt: new Date(currentYear, currentMonth - 1, 5, 10, 30),
+      },
+      {
+        clinicalRecordId: clinicalRecord.id,
+        userId: drGervilla.id,
+        reason:
+          "Control trimestral. Trae laboratorio de control: LDL 118, HDL 48, triglicéridos 142, creatinina 1.0, K+ 4.2.",
+        physicalExam: "TA 128/78 mmHg. FC 68 lpm. Sin hallazgos patológicos.",
+        diagnosis: "Hipertensión esencial",
+        diagnosisCode: "I10",
+        treatment: "Mantener esquema actual.",
+        indications: "Próximo control en 3 meses con nuevo laboratorio.",
+        createdAt: new Date(currentYear, currentMonth - 4, 15, 11, 0),
+      },
+      {
+        clinicalRecordId: clinicalRecord.id,
+        userId: drGervilla.id,
+        reason:
+          "Control. Paciente refiere ocasionales palpitaciones, sin disnea ni dolor torácico.",
+        physicalExam:
+          "TA 135/82 mmHg. FC 78 lpm regular. Resto del examen sin particularidades.",
+        diagnosis: "Hipertensión esencial",
+        diagnosisCode: "I10",
+        treatment: "Mantener esquema. Indico Holter 24h.",
+        indications:
+          "Solicitar Holter 24 hs. Repetir laboratorio. Control en 1 mes con resultados.",
+        createdAt: new Date(currentYear, currentMonth - 7, 8, 16, 30),
+      },
+      {
+        clinicalRecordId: clinicalRecord.id,
+        userId: drGervilla.id,
+        reason: "Control anual. Paciente asintomático.",
+        physicalExam: "Buen estado general. TA 125/80 mmHg. FC 70 lpm. IMC 26.4.",
+        diagnosis: "Examen médico general",
+        diagnosisCode: "Z00.0",
+        treatment: "Mantener tratamiento actual.",
+        indications: "Laboratorio anual. Ecodoppler cardíaco. ECG.",
+        notes: "Paciente con buena adherencia.",
+        createdAt: new Date(currentYear, currentMonth - 11, 12, 9, 30),
+      },
+    ];
+    for (const evo of evolutions) {
+      await prisma.evolution.create({ data: evo });
+    }
+    console.log(`✅ ${evolutions.length} evolutions for Pedro Álvarez`);
+
+    // Prescriptions — replace existing to avoid duplicates
+    await prisma.prescription.deleteMany({
+      where: { patientId: pedroId, userId: drGervilla.id },
+    });
+
+    const prescriptions = [
+      {
+        patientId: pedroId,
+        userId: drGervilla.id,
+        diagnosis: "Hipertensión esencial",
+        durationDays: 90,
+        items: JSON.stringify([
+          { medication: "Enalapril", dose: "10 mg", frequency: "1 vez al día", duration: "90 días", notes: "Por la mañana" },
+          { medication: "Atorvastatina", dose: "20 mg", frequency: "1 vez al día (noche)", duration: "90 días" },
+          { medication: "Aspirina Prevent", dose: "100 mg", frequency: "1 vez al día", duration: "90 días", notes: "Con desayuno" },
+        ]),
+        createdAt: new Date(currentYear, currentMonth - 1, 5),
+      },
+      {
+        patientId: pedroId,
+        userId: drGervilla.id,
+        diagnosis: "Hipertensión esencial",
+        durationDays: 90,
+        items: JSON.stringify([
+          { medication: "Enalapril", dose: "10 mg", frequency: "1 vez al día", duration: "90 días" },
+          { medication: "Atorvastatina", dose: "20 mg", frequency: "1 vez al día (noche)", duration: "90 días" },
+        ]),
+        createdAt: new Date(currentYear, currentMonth - 4, 15),
+      },
+      {
+        patientId: pedroId,
+        userId: drGervilla.id,
+        diagnosis: "Hipertensión esencial",
+        durationDays: 90,
+        items: JSON.stringify([
+          { medication: "Enalapril", dose: "10 mg", frequency: "1 vez al día", duration: "90 días" },
+        ]),
+        createdAt: new Date(currentYear, currentMonth - 7, 8),
+      },
+    ];
+    for (const presc of prescriptions) {
+      await prisma.prescription.create({ data: presc });
+    }
+    console.log(`✅ ${prescriptions.length} prescriptions for Pedro Álvarez`);
+  }
 
   console.log("\n🎉 Seed completed successfully!");
   console.log("\n📋 Test credentials:");

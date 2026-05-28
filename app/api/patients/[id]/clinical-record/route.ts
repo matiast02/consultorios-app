@@ -164,13 +164,30 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       }
     }
 
+    // Transform schema-level shapes into Prisma-compatible shapes
+    const { structuredAllergies, bloodType, ...rest } = parsed.data;
+    const dataForPrisma = {
+      ...rest,
+      ...(bloodType !== undefined
+        ? { bloodType: bloodType === "" ? null : bloodType }
+        : {}),
+      ...(structuredAllergies !== undefined
+        ? {
+            structuredAllergies:
+              structuredAllergies === null || structuredAllergies.length === 0
+                ? null
+                : JSON.stringify(structuredAllergies),
+          }
+        : {}),
+    };
+
     // Upsert the clinical record with provided data
     const clinicalRecord = await prisma.clinicalRecord.upsert({
       where: { patientId: id },
-      update: parsed.data,
+      update: dataForPrisma,
       create: {
         patientId: id,
-        ...parsed.data,
+        ...dataForPrisma,
       },
     });
 

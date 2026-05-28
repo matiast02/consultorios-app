@@ -207,6 +207,10 @@ model Patient {
   osId      String?
   osNumber  String?
 
+  // Emergency contact (Paciente redesign)
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
   os             HealthInsurance? @relation(fields: [osId], references: [id])
   shifts         Shift[]
   clinicalRecord ClinicalRecord?
@@ -385,6 +389,19 @@ model ClinicalRecord {
   notes         String?  @db.Text
   customFields  String?  @db.Text   // JSON: campos custom por profesión
 
+  // Anthropometry (Paciente redesign)
+  heightCm      Int?
+  weightKg      Decimal? @db.Decimal(5, 2)
+
+  // Structured habits
+  habitsTobacco   String? @db.Text
+  habitsAlcohol   String? @db.Text
+  habitsActivity  String? @db.Text
+  habitsDiet      String? @db.Text
+
+  // Structured allergies (JSON: { nombre, severidad: alta|media|baja, nota? }[])
+  structuredAllergies String? @db.Text
+
   patient    Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
   evolutions Evolution[]
 
@@ -476,6 +493,9 @@ model Prescription {
   items       String  @db.Text // JSON array of PrescriptionItem
   diagnosis   String?
   notes       String? @db.Text
+
+  // Days of validity from createdAt; UI computes vigente|vencida
+  durationDays Int    @default(90)
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])

@@ -15,6 +15,8 @@ export const createPatientSchema = z.object({
   province: z.string().max(100).nullable().optional(),
   osId: z.string().nullable().optional(),
   osNumber: z.string().max(50).nullable().optional(),
+  emergencyContactName: z.string().max(120).nullable().optional(),
+  emergencyContactPhone: z.string().max(40).nullable().optional(),
 });
 
 export const updatePatientSchema = createPatientSchema.partial();
@@ -99,14 +101,32 @@ export const removeBlockDaySchema = z.object({
 
 const bloodTypeEnum = z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]);
 
+export const allergySeverityEnum = z.enum(["alta", "media", "baja"]);
+
+export const structuredAllergySchema = z.object({
+  nombre: z.string().min(1).max(80),
+  severidad: allergySeverityEnum,
+  nota: z.string().max(240).nullable().optional(),
+});
+
 export const updateClinicalRecordSchema = z.object({
-  bloodType: bloodTypeEnum.nullable().optional(),
+  bloodType: bloodTypeEnum.or(z.literal("")).nullable().optional(),
   allergies: z.string().nullable().optional(),
   personalHistory: z.string().nullable().optional(),
   familyHistory: z.string().nullable().optional(),
   currentMedication: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   customFields: z.string().nullable().optional(), // JSON: profession-specific fields
+  // Anthropometry
+  heightCm: z.number().int().min(30).max(260).nullable().optional(),
+  weightKg: z.number().min(1).max(400).nullable().optional(),
+  // Habits
+  habitsTobacco: z.string().max(240).nullable().optional(),
+  habitsAlcohol: z.string().max(240).nullable().optional(),
+  habitsActivity: z.string().max(240).nullable().optional(),
+  habitsDiet: z.string().max(240).nullable().optional(),
+  // Structured allergies (array; serialized to JSON server-side)
+  structuredAllergies: z.array(structuredAllergySchema).nullable().optional(),
 });
 
 export const createEvolutionSchema = z.object({
@@ -276,6 +296,7 @@ export const createPrescriptionSchema = z.object({
   items: z.array(prescriptionItemSchema).min(1, "Agregar al menos un medicamento"),
   diagnosis: z.string().optional(),
   notes: z.string().optional(),
+  durationDays: z.number().int().min(1).max(365).optional(),
 });
 
 export const createMedicationSchema = z.object({

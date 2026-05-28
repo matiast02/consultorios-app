@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { patientId, shiftId, items, diagnosis, notes } = parsed.data;
+    const { patientId, shiftId, items, diagnosis, notes, durationDays } = parsed.data;
 
     const prescription = await prisma.prescription.create({
       data: {
@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
         items: JSON.stringify(items),
         diagnosis: diagnosis ?? null,
         notes: notes ?? null,
+        ...(durationDays !== undefined ? { durationDays } : {}),
       },
       include: {
         user: {

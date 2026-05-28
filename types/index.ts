@@ -56,6 +56,9 @@ export interface Patient {
   osId?: string | null;
   osNumber?: string | null;
   os?: HealthInsurance | null;
+  // Emergency contact
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -369,10 +372,34 @@ export interface ClinicalRecord {
   currentMedication?: string | null;
   notes?: string | null;
   customFields?: string | null; // JSON: profession-specific fields
+  // Anthropometry
+  heightCm?: number | null;
+  weightKg?: number | string | null; // Prisma Decimal serializes as string
+  // Habits
+  habitsTobacco?: string | null;
+  habitsAlcohol?: string | null;
+  habitsActivity?: string | null;
+  habitsDiet?: string | null;
+  // Structured allergies (JSON string of StructuredAllergy[])
+  structuredAllergies?: string | null;
   evolutions?: Evolution[];
   createdAt: string;
   updatedAt: string;
 }
+
+export type AllergySeverity = "alta" | "media" | "baja";
+
+export interface StructuredAllergy {
+  nombre: string;
+  severidad: AllergySeverity;
+  nota?: string | null;
+}
+
+export const ALLERGY_SEVERITY_LABELS: Record<AllergySeverity, string> = {
+  alta: "Alta",
+  media: "Media",
+  baja: "Baja",
+};
 
 export interface Evolution {
   id: string;
@@ -404,6 +431,7 @@ export interface Prescription {
   items: string; // JSON string of PrescriptionItem[]
   diagnosis?: string | null;
   notes?: string | null;
+  durationDays?: number;
   user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
   patient?: Patient;
   createdAt: string;
