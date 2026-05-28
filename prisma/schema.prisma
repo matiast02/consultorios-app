@@ -21,6 +21,29 @@ model User {
   licenseNumber    String?          // Matricula profesional
   specializationId String?
 
+  // Contact + professional bio
+  phone            String?
+  officeAddress    String?
+  bio              String?  @db.Text   // max 280 chars (validar en zod)
+
+  // Scheduling config
+  slotDurationMinutes Int @default(30)
+  bufferMinutes       Int @default(0)
+  minAdvanceMinutes   Int @default(60)
+
+  // Regional prefs
+  language  String @default("es-AR")
+  timezone  String @default("America/Argentina/Buenos_Aires")
+  weekStart Int    @default(1)        // 0=Sunday, 1=Monday
+
+  // Notification toggles
+  notifyReminder24h    Boolean @default(true)
+  notifyReminder2h     Boolean @default(true)
+  notifyNewShift       Boolean @default(true)
+  notifyCancellation   Boolean @default(true)
+  notifyWeeklySummary  Boolean @default(false)
+  notifySmsFallback    Boolean @default(true)
+
   specialization Specialization? @relation(fields: [specializationId], references: [id])
   accounts       Account[]
   sessions   Session[]
@@ -237,11 +260,13 @@ model UserInsurance {
   id               String @id @default(cuid())
   userId           String
   healthInsuranceId String
+  copago           Int    @default(0)  // pesos
 
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   healthInsurance  HealthInsurance   @relation(fields: [healthInsuranceId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, healthInsuranceId])
   @@index([userId])
@@ -310,10 +335,19 @@ model UserPreference {
 
 // ─── Blocked Days ─────────────────────────────────────────────────────────────
 
+enum BlockDayCategory {
+  VACATION
+  HOLIDAY
+  CONFERENCE
+  OTHER
+}
+
 model BlockDay {
-  id     String   @id @default(cuid())
-  userId String
-  date   DateTime
+  id       String           @id @default(cuid())
+  userId   String
+  date     DateTime
+  category BlockDayCategory @default(OTHER)
+  note     String?          @db.Text
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

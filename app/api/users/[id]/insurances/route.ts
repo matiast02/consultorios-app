@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { updateUserInsurancesSchema } from "@/lib/validations";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-// GET /api/users/[id]/insurances — List insurances accepted by this user
+// GET /api/users/[id]/insurances — List insurances accepted by this user (with copago)
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
@@ -20,11 +21,19 @@ export async function GET(_req: NextRequest, context: RouteContext) {
     const userInsurances = await prisma.userInsurance.findMany({
       where: { userId: id },
       include: { healthInsurance: true },
+      orderBy: { healthInsurance: { name: "asc" } },
     });
 
+    // Backward-compatible: keep `data` as the list of HealthInsurance objects (consumed today
+    // by older callers), but also expose `accepted` with copago for the redesign UI.
     const data = userInsurances.map((ui) => ui.healthInsurance);
+    const accepted = userInsurances.map((ui) => ({
+      insuranceId: ui.healthInsuranceId,
+      copago: ui.copago,
+      healthInsurance: ui.healthInsurance,
+    }));
 
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({ success: true, data, accepted });
   } catch (error) {
     console.error("GET /api/users/[id]/insurances error:", error);
     return NextResponse.json(
@@ -34,7 +43,11 @@ export async function GET(_req: NextRequest, context: RouteContext) {
   }
 }
 
-// PUT /api/users/[id]/insurances — Replace all accepted insurances
+// PUT /api/users/[id]/insurances — Replace all accepted insurances (with copago)
+//
+// Accepts either:
+//   { insurances: [{ insuranceId, copago }] }    — new shape
+//   { insuranceIds: ["abc", "def"] }              — legacy shape (copago=0)
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
@@ -48,32 +61,30 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
 
     const body = await req.json();
-    const { insuranceIds } = body;
+    const parsed = updateUserInsurancesSchema.safeParse(body);
 
-    if (!Array.isArray(insuranceIds)) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: "insuranceIds debe ser un array" },
+        { success: false, error: "Datos inválidos", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
 
-    // Validate all IDs are strings
-    if (!insuranceIds.every((id: unknown) => typeof id === "string")) {
-      return NextResponse.json(
-        { success: false, error: "Todos los IDs deben ser strings" },
-        { status: 400 }
-      );
-    }
+    // Normalize input to {insuranceId, copago}[]
+    const items: { insuranceId: string; copago: number }[] = parsed.data.insurances
+      ? parsed.data.insurances
+      : (parsed.data.insuranceIds ?? []).map((insuranceId) => ({ insuranceId, copago: 0 }));
 
     // Use transaction: delete all existing, then create new ones
     await prisma.$transaction(async (tx) => {
       await tx.userInsurance.deleteMany({ where: { userId: id } });
 
-      if (insuranceIds.length > 0) {
+      if (items.length > 0) {
         await tx.userInsurance.createMany({
-          data: insuranceIds.map((healthInsuranceId: string) => ({
+          data: items.map(({ insuranceId, copago }) => ({
             userId: id,
-            healthInsuranceId,
+            healthInsuranceId: insuranceId,
+            copago,
           })),
         });
       }
@@ -83,11 +94,17 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const userInsurances = await prisma.userInsurance.findMany({
       where: { userId: id },
       include: { healthInsurance: true },
+      orderBy: { healthInsurance: { name: "asc" } },
     });
 
     const data = userInsurances.map((ui) => ui.healthInsurance);
+    const accepted = userInsurances.map((ui) => ({
+      insuranceId: ui.healthInsuranceId,
+      copago: ui.copago,
+      healthInsurance: ui.healthInsurance,
+    }));
 
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({ success: true, data, accepted });
   } catch (error) {
     console.error("PUT /api/users/[id]/insurances error:", error);
     return NextResponse.json(

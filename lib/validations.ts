@@ -80,11 +80,15 @@ export const upsertPreferencesSchema = z.object({
 
 // ─── Block Days ───────────────────────────────────────────────────────────────
 
+export const blockDayCategoryEnum = z.enum(["VACATION", "HOLIDAY", "CONFERENCE", "OTHER"]);
+
 export const addBlockDaysSchema = z.object({
   userId: z.string().min(1),
   dates: z
     .array(z.string().min(1, "Fecha inválida"))
     .min(1, "Debe incluir al menos una fecha"),
+  category: blockDayCategoryEnum.optional().default("OTHER"),
+  note: z.string().max(500).nullable().optional(),
 });
 
 export const removeBlockDaySchema = z.object({
@@ -341,6 +345,56 @@ export const createRecurringShiftsSchema = z.object({
   consultationTypeId: z.string().nullable().optional(),
 });
 
+// ─── Profile (self) ──────────────────────────────────────────────────────────
+
+export const updateProfileSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  firstName: z.string().max(100).nullable().optional(),
+  lastName: z.string().max(100).nullable().optional(),
+  phone: z.string().max(40).nullable().optional(),
+  officeAddress: z.string().max(200).nullable().optional(),
+  bio: z.string().max(280, "Máximo 280 caracteres").nullable().optional(),
+  licenseNumber: z.string().max(50).nullable().optional(),
+  specializationId: z.string().nullable().optional(),
+});
+
+// ─── User Preferences Config (scheduling + regional) ─────────────────────────
+
+export const updatePreferencesConfigSchema = z.object({
+  slotDurationMinutes: z.number().int().min(5).max(240).optional(),
+  bufferMinutes: z.number().int().min(0).max(60).optional(),
+  minAdvanceMinutes: z.number().int().min(0).max(60 * 24 * 30).optional(),
+  language: z.string().min(2).max(10).optional(),
+  timezone: z.string().min(2).max(60).optional(),
+  weekStart: z.number().int().min(0).max(6).optional(),
+});
+
+// ─── User Notification Preferences ───────────────────────────────────────────
+
+export const updateNotificationsSchema = z.object({
+  notifyReminder24h: z.boolean().optional(),
+  notifyReminder2h: z.boolean().optional(),
+  notifyNewShift: z.boolean().optional(),
+  notifyCancellation: z.boolean().optional(),
+  notifyWeeklySummary: z.boolean().optional(),
+  notifySmsFallback: z.boolean().optional(),
+});
+
+// ─── User Insurances (with copago) ───────────────────────────────────────────
+
+export const updateUserInsurancesSchema = z.object({
+  insurances: z
+    .array(
+      z.object({
+        insuranceId: z.string().min(1),
+        copago: z.number().int().min(0).max(10_000_000).default(0),
+      })
+    )
+    .optional(),
+  // Backward-compat: aceptar la forma vieja {insuranceIds: string[]}
+  insuranceIds: z.array(z.string().min(1)).optional(),
+});
+
 // ─── Type exports ─────────────────────────────────────────────────────────────
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;
@@ -369,3 +423,7 @@ export type CreateConsultationTypeInput = z.infer<typeof createConsultationTypeS
 export type UpdateConsultationTypeInput = z.infer<typeof updateConsultationTypeSchema>;
 export type CreateProfessionConfigInput = z.infer<typeof createProfessionConfigSchema>;
 export type UpdateProfessionConfigInput = z.infer<typeof updateProfessionConfigSchema>;
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type UpdatePreferencesConfigInput = z.infer<typeof updatePreferencesConfigSchema>;
+export type UpdateNotificationsInput = z.infer<typeof updateNotificationsSchema>;
+export type UpdateUserInsurancesInput = z.infer<typeof updateUserInsurancesSchema>;

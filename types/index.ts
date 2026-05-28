@@ -282,10 +282,52 @@ export interface UserPreference {
   toHourPM?: string | null;
 }
 
+export type BlockDayCategory = "VACATION" | "HOLIDAY" | "CONFERENCE" | "OTHER";
+
+export const BLOCK_DAY_CATEGORY_LABELS: Record<BlockDayCategory, string> = {
+  VACATION: "Vacaciones",
+  HOLIDAY: "Feriado",
+  CONFERENCE: "Congreso",
+  OTHER: "Otro",
+};
+
+export const BLOCK_DAY_CATEGORY_COLORS: Record<BlockDayCategory, string> = {
+  VACATION: "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800",
+  HOLIDAY: "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800",
+  CONFERENCE: "bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800",
+  OTHER: "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800/40 dark:text-slate-300 dark:border-slate-700",
+};
+
 export interface BlockDay {
   id: string;
   userId: string;
   date: string;
+  category: BlockDayCategory;
+  note?: string | null;
+}
+
+// ─── User Notification Preferences ───────────────────────────────────────────
+
+export interface UserNotifications {
+  notifyReminder24h: boolean;
+  notifyReminder2h: boolean;
+  notifyNewShift: boolean;
+  notifyCancellation: boolean;
+  notifyWeeklySummary: boolean;
+  notifySmsFallback: boolean;
+}
+
+export type NotificationKey = keyof UserNotifications;
+
+// ─── User Scheduling & Regional Config ───────────────────────────────────────
+
+export interface UserPreferencesConfig {
+  slotDurationMinutes: number;
+  bufferMinutes: number;
+  minAdvanceMinutes: number;
+  language: string;
+  timezone: string;
+  weekStart: number;
 }
 
 // ─── Days of week ────────────────────────────────────────────────────────────
