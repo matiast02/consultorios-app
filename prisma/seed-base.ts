@@ -138,17 +138,36 @@ export async function seedBase(prisma: PrismaClient) {
   console.log("✅ Health insurances created");
 
   // ─── Consultation Types ───────────────────────────────────────────────────
+  // Rename legacy "Primera vez" → "Primera consulta" if present (avoid duplicate
+  // when both names exist by reassigning shifts and removing the old row).
+  const legacyPrimera = await prisma.consultationType.findUnique({ where: { name: "Primera vez" } });
+  const newPrimera = await prisma.consultationType.findUnique({ where: { name: "Primera consulta" } });
+  if (legacyPrimera && !newPrimera) {
+    await prisma.consultationType.update({
+      where: { id: legacyPrimera.id },
+      data: { name: "Primera consulta" },
+    });
+  } else if (legacyPrimera && newPrimera) {
+    await prisma.shift.updateMany({
+      where: { consultationTypeId: legacyPrimera.id },
+      data: { consultationTypeId: newPrimera.id },
+    });
+    await prisma.consultationType.delete({ where: { id: legacyPrimera.id } });
+  }
+
   const consultationTypesData = [
-    { name: "Primera vez", durationMinutes: 40, color: "#8B5CF6", isDefault: true },
-    { name: "Control", durationMinutes: 20, color: "#06B6D4", isDefault: false },
-    { name: "Urgencia", durationMinutes: 15, color: "#EF4444", isDefault: false },
+    { name: "Primera consulta", durationMinutes: 40, color: "#8B5CF6", isDefault: true },
+    { name: "Control", durationMinutes: 30, color: "#06B6D4", isDefault: false },
+    { name: "Receta", durationMinutes: 15, color: "#10B981", isDefault: false },
+    { name: "Estudio", durationMinutes: 30, color: "#3B82F6", isDefault: false },
     { name: "Seguimiento", durationMinutes: 30, color: "#F59E0B", isDefault: false },
+    { name: "Urgencia", durationMinutes: 15, color: "#EF4444", isDefault: false },
   ];
 
   for (const ct of consultationTypesData) {
     await prisma.consultationType.upsert({
       where: { name: ct.name },
-      update: {},
+      update: { durationMinutes: ct.durationMinutes, color: ct.color, isDefault: ct.isDefault },
       create: ct,
     });
   }

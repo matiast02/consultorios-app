@@ -461,3 +461,81 @@ export interface ModuleConfig {
   name: string;
   enabled: boolean;
 }
+
+// ─── Medic Dashboard ────────────────────────────────────────────────────────
+
+export interface DashboardShift {
+  id: string;
+  start: string;
+  end: string;
+  status: ShiftStatus;
+  observations?: string | null;
+  isOverbook?: boolean;
+  durationMinutes: number;
+  patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    telephone?: string | null;
+    os?: { id: string; name: string; code?: string | null } | null;
+  } | null;
+  consultationType?: { id: string; name: string; color?: string | null } | null;
+}
+
+export interface DashboardTodayStats {
+  total: number;
+  atendidos: number;
+  porVenir: number;
+  confirmados: number;
+  ausentes: number;
+  pendientes: number;
+}
+
+export interface DashboardTodayData {
+  date: string;
+  shifts: DashboardShift[];
+  nextShift: DashboardShift | null;
+  stats: DashboardTodayStats;
+}
+
+export interface DashboardWeekDay {
+  date: string;
+  count: number;
+  dayLabel: string;
+  dayNumber: number;
+  isToday: boolean;
+}
+
+export interface DashboardWeekData {
+  totalShifts: number;
+  weekStart: string;
+  weekEnd: string;
+  byDay: DashboardWeekDay[];
+}
+
+export interface DashboardPendienteItem {
+  count: number;
+  summary: string;
+}
+
+export interface DashboardPendientes {
+  evolucionesSinCerrar: DashboardPendienteItem;
+  recetasParaRenovar: DashboardPendienteItem;
+  estudiosPendientes: DashboardPendienteItem;
+}
+
+export interface DashboardRecentPatient {
+  id: string;
+  firstName: string;
+  lastName: string;
+  initials: string;
+  lastShiftType: string | null;
+  lastShiftTime: string;
+}
+
+export interface MedicDashboardData {
+  today: DashboardTodayData;
+  week: DashboardWeekData;
+  pendientes: DashboardPendientes;
+  recentPatients: DashboardRecentPatient[];
+}

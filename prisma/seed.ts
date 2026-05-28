@@ -108,17 +108,21 @@ async function main() {
   }
 
   // ─── Consultation type references (created by seedBase) ──────────────────
-  const [ctControlRow, ctPrimeraRow, ctUrgenciaRow, ctSeguimientoRow] = await Promise.all([
+  const [ctControlRow, ctPrimeraRow, ctUrgenciaRow, ctSeguimientoRow, ctRecetaRow, ctEstudioRow] = await Promise.all([
     prisma.consultationType.findUnique({ where: { name: "Control" } }),
-    prisma.consultationType.findUnique({ where: { name: "Primera vez" } }),
+    prisma.consultationType.findUnique({ where: { name: "Primera consulta" } }),
     prisma.consultationType.findUnique({ where: { name: "Urgencia" } }),
     prisma.consultationType.findUnique({ where: { name: "Seguimiento" } }),
+    prisma.consultationType.findUnique({ where: { name: "Receta" } }),
+    prisma.consultationType.findUnique({ where: { name: "Estudio" } }),
   ]);
   const ct = {
     control: ctControlRow?.id ?? null,
     primera: ctPrimeraRow?.id ?? null,
     urgencia: ctUrgenciaRow?.id ?? null,
     seguimiento: ctSeguimientoRow?.id ?? null,
+    receta: ctRecetaRow?.id ?? null,
+    estudio: ctEstudioRow?.id ?? null,
   };
 
   // ─── Patients ─────────────────────────────────────────────────────────────
@@ -526,15 +530,52 @@ async function main() {
   }
   console.log(`✅ Consultation type assigned to ${typedCount} shifts`);
 
-  // ─── Calendar enrichment: today's shifts + sobreturno ────────────────────
-  // Idempotent: any prior seed-created "today" shifts are deleted first, then
-  // recreated relative to `new Date()` so the calendar's "Próximo turno" card
-  // and day stats always have something to show on the current date.
-  const todayMarker = "[seed-today]";
-  await prisma.shift.deleteMany({
-    where: { userId: drGervilla.id, observations: { startsWith: todayMarker } },
+  // ─── Calendar/Dashboard enrichment: extra patients for today's design ─────
+  // Idempotent: upsert by DNI. These match the patient names shown in the
+  // redesigned medic dashboard.
+  const extraPatientsData = [
+    { firstName: "Valentina", lastName: "Martínez", dni: "31876543", telephone: "1144556677", osKey: "Particular", birthDate: new Date("1989-04-12") },
+    { firstName: "Camila",    lastName: "González", dni: "39456789", telephone: "1155667788", osKey: "Medifé",     birthDate: new Date("1996-07-21") },
+    { firstName: "Mateo",     lastName: "Romero",   dni: "32567890", telephone: "1166778899", osKey: "IOMA",       birthDate: new Date("1986-11-30") },
+    { firstName: "Florencia", lastName: "Torres",   dni: "34678901", telephone: "1177889900", osKey: "Swiss Medical", birthDate: new Date("1990-02-08") },
+    { firstName: "Felipe",    lastName: "Moreno",   dni: "29345678", telephone: "1188990011", osKey: "IOMA",       birthDate: new Date("1983-09-14") },
+    { firstName: "Isabella",  lastName: "Vega",     dni: "37234567", telephone: "1199001122", osKey: "Particular", birthDate: new Date("1994-05-19") },
+    { firstName: "Lucas",     lastName: "Rodríguez", dni: "33891234", telephone: "1100112233", osKey: "OSDE",      birthDate: new Date("1988-12-03") },
+    { firstName: "Lucía",     lastName: "Suárez",   dni: "16123456", telephone: "1111223344", osKey: "PAMI",       birthDate: new Date("1958-03-25") },
+    { firstName: "Tomás",     lastName: "Benítez",  dni: "35345678", telephone: "1122334455", osKey: "Galeno",     birthDate: new Date("1991-08-17") },
+    { firstName: "Renata",    lastName: "Castro",   dni: "30456789", telephone: "1133445566", osKey: "OSDE",       birthDate: new Date("1987-06-09") },
+    { firstName: "Bruno",     lastName: "Acosta",   dni: "27567890", telephone: "1144556678", osKey: "Swiss Medical", birthDate: new Date("1982-01-22") },
+  ];
+  const extraPatients: Record<string, { id: string }> = {};
+  for (const p of extraPatientsData) {
+    const osId = p.osKey ? insurances[p.osKey]?.id : undefined;
+    const data = {
+      firstName: p.firstName,
+      lastName: p.lastName,
+      dni: p.dni,
+      telephone: p.telephone,
+      birthDate: p.birthDate,
+      osId,
+    };
+    const created = await prisma.patient.upsert({
+      where: { dni: p.dni },
+      update: data,
+      create: data,
+    });
+    extraPatients[`${p.firstName} ${p.lastName}`] = created;
+  }
+  console.log(`✅ ${extraPatientsData.length} dashboard patients upserted`);
+
+  // Update existing María García's OS to IOMA to match the dashboard design
+  await prisma.patient.update({
+    where: { dni: "33456123" },
+    data: { osId: insurances["IOMA"]?.id ?? null },
   });
 
+  // ─── Dashboard enrichment: today's shifts (matches design) ────────────────
+  // Idempotent: clean ALL of Gervilla's shifts in the current week first to
+  // avoid leftover counts from prior runs or other seed sections.
+  const todayMarker = "";
   const setT = (base: Date, h: number, m: number): Date => {
     const d = new Date(base);
     d.setHours(h, m, 0, 0);
@@ -543,40 +584,239 @@ async function main() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const todayShifts: Array<{
-    patientIdx: number;
-    h: number;
-    m: number;
-    durMin: number;
+  // Compute Monday-of-week / next Monday
+  const _mondayClean = new Date(today);
+  const _dow = _mondayClean.getDay() === 0 ? 7 : _mondayClean.getDay();
+  _mondayClean.setDate(_mondayClean.getDate() - (_dow - 1));
+  _mondayClean.setHours(0, 0, 0, 0);
+  const _nextMondayClean = new Date(_mondayClean);
+  _nextMondayClean.setDate(_nextMondayClean.getDate() + 7);
+
+  await prisma.shift.deleteMany({
+    where: {
+      userId: drGervilla.id,
+      start: { gte: _mondayClean, lt: _nextMondayClean },
+    },
+  });
+
+  // Patient lookup helper
+  const pid = (key: string): string => {
+    const p = extraPatients[key];
+    if (!p) throw new Error(`Missing extra patient: ${key}`);
+    return p.id;
+  };
+
+  // Map existing seeded patients by name for clarity
+  const juanPerez = patients[0].id;
+  const mariaGarcia = patients[1].id;
+
+  const designedShifts: Array<{
+    patientId: string;
+    h: number; m: number; durMin: number;
     status: ShiftStatus;
     ctId: string | null;
     obs: string;
-    isOverbook?: boolean;
   }> = [
-    { patientIdx: 0, h: 9,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED,  ctId: ct.control,    obs: `${todayMarker} Control matinal — todo en orden.` },
-    { patientIdx: 8, h: 10, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ct.control,    obs: `${todayMarker} Control trimestral HTA — Pedro Álvarez.` },
-    { patientIdx: 4, h: 14, m: 30, durMin: 40, status: ShiftStatus.PENDING,   ctId: ct.primera,    obs: `${todayMarker} Primera consulta — derivación clínica.` },
-    // Sobreturno (urgencia agregada fuera del slot regular)
-    { patientIdx: 2, h: 16, m: 0,  durMin: 15, status: ShiftStatus.PENDING,   ctId: ct.urgencia,   obs: `${todayMarker} Sobreturno — dolor torácico, urgencia.`, isOverbook: true },
+    // ─ Atendidos ─
+    { patientId: juanPerez,                  h: 8,  m: 0,  durMin: 30, status: ShiftStatus.FINISHED,  ctId: ct.control,   obs: `Control de rutina. Paciente en buen estado general.` },
+    { patientId: pid("Valentina Martínez"),  h: 8,  m: 30, durMin: 30, status: ShiftStatus.FINISHED,  ctId: ct.receta,    obs: `Renovación de medicación` },
+    // ─ Ausente ─
+    { patientId: mariaGarcia,                h: 9,  m: 0,  durMin: 30, status: ShiftStatus.ABSENT,    ctId: ct.control,   obs: `No asistió, sin aviso` },
+    // ─ Próximo (Confirmado) ─
+    { patientId: pid("Camila González"),     h: 9,  m: 30, durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ct.primera,   obs: `Palpitaciones nocturnas` },
+    // ─ Confirmados ─
+    { patientId: pid("Mateo Romero"),        h: 10, m: 0,  durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ct.estudio,   obs: `Ergometría programada` },
+    // ─ Pendientes mañana ─
+    { patientId: pid("Florencia Torres"),    h: 10, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ct.control,   obs: `Control trimestral` },
+    { patientId: pid("Felipe Moreno"),       h: 11, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ct.seguimiento, obs: `Post-internación` },
+    { patientId: pid("Isabella Vega"),       h: 11, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ct.control,   obs: `Control HTA` },
+    // ─ PAUSA 13:00–14:00 (sin turnos) ─
+    // ─ Tarde ─
+    { patientId: pid("Lucas Rodríguez"),     h: 14, m: 30, durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ct.primera,   obs: `Derivada por médico clínico` },
+    { patientId: pid("Lucía Suárez"),        h: 15, m: 0,  durMin: 30, status: ShiftStatus.CONFIRMED, ctId: ct.receta,    obs: `Renovación trimestral` },
+    { patientId: pid("Tomás Benítez"),       h: 15, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ct.control,   obs: `Control de presión` },
+    { patientId: pid("Renata Castro"),       h: 16, m: 0,  durMin: 30, status: ShiftStatus.PENDING,   ctId: ct.seguimiento, obs: `Seguimiento post-quirúrgico` },
+    { patientId: pid("Bruno Acosta"),        h: 16, m: 30, durMin: 30, status: ShiftStatus.PENDING,   ctId: ct.control,   obs: `Control anual` },
   ];
 
-  for (const t of todayShifts) {
+  for (const t of designedShifts) {
     const start = setT(today, t.h, t.m);
     const end = new Date(start.getTime() + t.durMin * 60_000);
     await prisma.shift.create({
       data: {
         userId: drGervilla.id,
-        patientId: patients[t.patientIdx].id,
+        patientId: t.patientId,
         start,
         end,
         status: t.status,
         observations: t.obs,
         consultationTypeId: t.ctId ?? null,
-        isOverbook: t.isOverbook ?? false,
       },
     });
   }
-  console.log(`✅ ${todayShifts.length} shifts created for today (incl. 1 sobreturno)`);
+  console.log(`✅ ${designedShifts.length} dashboard shifts created for today`);
+
+  // ─── Dashboard enrichment: this week's shifts for bar chart ────────────────
+  // Target: Mon 9, Tue 6, Wed 5, Thu (today, already done), Fri 5
+  // (the previous deleteMany above already cleared all week shifts)
+  const monday = new Date(today);
+  const dayOfWeek = monday.getDay() === 0 ? 7 : monday.getDay(); // Sun=7, Mon=1
+  monday.setDate(monday.getDate() - (dayOfWeek - 1));
+  monday.setHours(0, 0, 0, 0);
+
+  const todayOffsetForPlan = (today.getDay() === 0 ? 7 : today.getDay()) - 1;
+  const weekPlan: Array<{ offset: number; count: number }> = [
+    { offset: 0, count: 9 }, // Monday
+    { offset: 1, count: 6 }, // Tuesday
+    { offset: 2, count: 5 }, // Wednesday
+    { offset: 4, count: 5 }, // Friday
+  ].filter((p) => p.offset !== todayOffsetForPlan);
+
+  // Reuse existing patient ids (cycle through them)
+  const allPatientIds = patients.map((p) => p.id).concat(Object.values(extraPatients).map((p) => p.id));
+  const variedCtIds = [ct.control, ct.primera, ct.seguimiento, ct.receta, ct.estudio].filter(Boolean) as string[];
+
+  const todayOffset = (today.getDay() === 0 ? 7 : today.getDay()) - 1; // 0=Mon..6=Sun
+
+  let weekShiftIdx = 0;
+  const weekShiftsCreated: Array<{ id: string; isFinishedMonTue: boolean; patientId: string; isPastDay: boolean }> = [];
+  for (const wd of weekPlan) {
+    const dayDate = new Date(monday);
+    dayDate.setDate(dayDate.getDate() + wd.offset);
+    // Spread the shifts across morning/afternoon
+    const startHour = 8;
+    for (let i = 0; i < wd.count; i++) {
+      const slotIdx = i;
+      const h = startHour + Math.floor(slotIdx / 2);
+      const m = (slotIdx % 2) * 30;
+      // Skip lunch slot (13:00–14:00)
+      let hh = h, mm = m;
+      if (hh === 13) { hh = 14; }
+      const start = setT(dayDate, hh, mm);
+      const end = new Date(start.getTime() + 30 * 60_000);
+      const isPastDay = wd.offset < todayOffset;
+      const status = isPastDay ? ShiftStatus.FINISHED : ShiftStatus.PENDING;
+      const patientId = allPatientIds[(weekShiftIdx + 3) % allPatientIds.length];
+      const ctId = variedCtIds[weekShiftIdx % variedCtIds.length];
+      const created = await prisma.shift.create({
+        data: {
+          userId: drGervilla.id,
+          patientId,
+          start,
+          end,
+          status,
+          observations: i === 0 && wd.offset === 0 ? "Inicio de semana" : "Consulta agendada",
+          consultationTypeId: ctId,
+        },
+      });
+      const isFinishedMonTue = isPastDay && wd.offset <= 1;
+      weekShiftsCreated.push({ id: created.id, isFinishedMonTue, patientId, isPastDay });
+      weekShiftIdx++;
+    }
+  }
+  console.log(`✅ ${weekShiftsCreated.length} week shifts created for bar chart`);
+
+  // ─── Dashboard enrichment: pendientes data ────────────────────────────────
+  // The dashboard derives "Evoluciones sin cerrar" from FINISHED shifts in the
+  // last 7 days without an attached Evolution. We want EXACTLY 3 to show up,
+  // all from Mon/Tue. Backfill evolutions on every other FINISHED week shift.
+  const allFinishedWeek = weekShiftsCreated.filter((w) => w.isPastDay);
+  const monTueFinished = weekShiftsCreated.filter((w) => w.isFinishedMonTue);
+  // Pick the first 3 Mon/Tue shifts to remain "sin cerrar"
+  const sinCerrarIds = new Set(monTueFinished.slice(0, 3).map((w) => w.id));
+  const toEvolve = allFinishedWeek.filter((w) => !sinCerrarIds.has(w.id));
+
+  // 1) Ensure clinical records exist for all patients in toEvolve (one-time)
+  const patientIdsToEvolve = [...new Set(toEvolve.map((w) => w.patientId))];
+  const crByPatient = new Map<string, string>();
+  for (const pId of patientIdsToEvolve) {
+    const cr = await prisma.clinicalRecord.upsert({
+      where: { patientId: pId },
+      update: {},
+      create: { patientId: pId },
+    });
+    crByPatient.set(pId, cr.id);
+  }
+  // 2) Bulk-delete prior seed-week evolutions (so re-runs are idempotent)
+  await prisma.evolution.deleteMany({
+    where: {
+      clinicalRecordId: { in: Array.from(crByPatient.values()) },
+      notes: { startsWith: "[seed-week-evo]" },
+    },
+  });
+  // 3) Create one evolution per shift in toEvolve
+  for (const w of toEvolve) {
+    const crId = crByPatient.get(w.patientId);
+    if (!crId) continue;
+    await prisma.evolution.create({
+      data: {
+        clinicalRecordId: crId,
+        shiftId: w.id,
+        userId: drGervilla.id,
+        reason: "Control",
+        diagnosis: "Evaluación clínica general",
+        notes: "[seed-week-evo] Notas de consulta de rutina.",
+      },
+    });
+  }
+  console.log(`✅ Evolutions backfilled (3 remain "sin cerrar" for the badge)`);
+
+  // ─── Dashboard enrichment: 5 prescriptions about to expire ────────────────
+  const recetaMarker = "[seed-renew]";
+  await prisma.prescription.deleteMany({
+    where: { userId: drGervilla.id, notes: { startsWith: recetaMarker } },
+  });
+  // We need 5 prescriptions where (createdAt + durationDays) falls within ±14d
+  // from today, so the dashboard count returns exactly 5.
+  const expiryPatients = [
+    extraPatients["Felipe Moreno"]?.id,
+    extraPatients["Isabella Vega"]?.id,
+    extraPatients["Florencia Torres"]?.id,
+    extraPatients["Mateo Romero"]?.id,
+    patients[4].id, // Roberto Fernández
+  ].filter(Boolean) as string[];
+  for (let i = 0; i < expiryPatients.length; i++) {
+    const dur = 90;
+    // createdAt so that expiry = today + (i-2) days  ⇒ createdAt = today + (i-2) - 90
+    const expiryOffset = i - 2; // -2, -1, 0, +1, +2
+    const createdAt = new Date(today);
+    createdAt.setDate(createdAt.getDate() + expiryOffset - dur);
+    await prisma.prescription.create({
+      data: {
+        userId: drGervilla.id,
+        patientId: expiryPatients[i],
+        diagnosis: "Tratamiento crónico",
+        durationDays: dur,
+        items: JSON.stringify([
+          { medication: "Enalapril", dose: "10 mg", frequency: "1 vez al día", duration: "90 días" },
+        ]),
+        notes: `${recetaMarker} Renovación trimestral`,
+        createdAt,
+      },
+    });
+  }
+  console.log(`✅ ${expiryPatients.length} prescriptions seeded for renewal`);
+
+  // ─── Dashboard enrichment: 1 pending study order ──────────────────────────
+  const studyMarker = "[seed-study]";
+  await prisma.studyOrder.deleteMany({
+    where: { userId: drGervilla.id, resultNotes: { startsWith: studyMarker } },
+  });
+  const studyCreatedAt = new Date(today);
+  studyCreatedAt.setDate(studyCreatedAt.getDate() - 7);
+  await prisma.studyOrder.create({
+    data: {
+      userId: drGervilla.id,
+      patientId: mariaGarcia,
+      status: "PENDING",
+      items: JSON.stringify([
+        { type: "imagen", description: "Holter 24 hs", urgency: "normal" },
+      ]),
+      resultNotes: `${studyMarker} Holter — pendiente`,
+      createdAt: studyCreatedAt,
+    },
+  });
+  console.log(`✅ 1 pending study order seeded for dashboard`);
 
   // ─── Calendar enrichment: recurring series (3 weekly shifts) ─────────────
   // Same recurrenceGroupId across the series lets the detail dialog show the
@@ -711,8 +951,14 @@ async function main() {
     console.log("✅ Clinical record for Pedro Álvarez upserted");
 
     // Evolutions — replace existing to avoid duplicates (no natural unique key)
+    // Cleanup only Pedro's narrative evolutions; preserve seed-week-evo entries
+    // that the dashboard backfill relies on (they live alongside).
     await prisma.evolution.deleteMany({
-      where: { clinicalRecordId: clinicalRecord.id, userId: drGervilla.id },
+      where: {
+        clinicalRecordId: clinicalRecord.id,
+        userId: drGervilla.id,
+        NOT: { notes: { startsWith: "[seed-week-evo]" } },
+      },
     });
 
     const evolutions = [

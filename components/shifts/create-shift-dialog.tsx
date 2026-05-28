@@ -64,6 +64,8 @@ interface CreateShiftDialogProps {
   defaultEndTime?: string;
   defaultPatientId?: string;
   defaultMedicId?: string;
+  /** When true, hide the medic selector (the caller already locked the medic) */
+  lockMedic?: boolean;
   onCreated: () => void;
 }
 
@@ -75,6 +77,7 @@ export function CreateShiftDialog({
   defaultEndTime,
   defaultPatientId,
   defaultMedicId,
+  lockMedic = false,
   onCreated,
 }: CreateShiftDialogProps) {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -584,8 +587,8 @@ export function CreateShiftDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* Profesional — searchable combobox */}
-          {medics.length > 0 && (
+          {/* Profesional — searchable combobox (hidden when caller locks the medic) */}
+          {!lockMedic && medics.length > 0 && (
             <div className="space-y-2">
               <Label>Profesional</Label>
               <Popover
