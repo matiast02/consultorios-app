@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useProfessionLabels } from "@/hooks/use-profession-labels";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   Clock,
   Shield,
   Puzzle,
+  LogOut,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -234,6 +235,16 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                 {roleLabel}
               </Badge>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => signOut({ callbackUrl: "/" })}
+              className="h-8 w-8 shrink-0 text-sidebar-foreground/60 hover:bg-destructive/10 hover:text-destructive"
+              title="Cerrar sesión"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="sr-only">Cerrar sesión</span>
+            </Button>
           </div>
         </div>
       )}

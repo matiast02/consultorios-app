@@ -220,14 +220,22 @@ export const updateConsultationTypeSchema = createConsultationTypeSchema.partial
 
 // ─── Specializations ─────────────────────────────────────────────────────────
 
+const hexColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Color inválido")
+  .nullable()
+  .optional();
+
 export const createSpecializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
   professionConfigId: z.string().nullable().optional(),
+  color: hexColorSchema,
 });
 
 export const updateSpecializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
   professionConfigId: z.string().nullable().optional(),
+  color: hexColorSchema,
 });
 
 // ─── Profession Configs ─────────────────────────────────────────────────────

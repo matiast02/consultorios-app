@@ -48,7 +48,7 @@ interface UserWithRoles {
   lastName?: string | null;
   email?: string | null;
   isActive: boolean;
-  specialization?: { id: string; name: string } | null;
+  specialization?: { id: string; name: string; color?: string | null } | null;
   image?: string | null;
   roles: { id: string; name: string }[];
   createdAt: string;
@@ -343,8 +343,33 @@ export default function UsuariosPage() {
                       <TableCell className="hidden text-muted-foreground md:table-cell">
                         {user.email ?? "-"}
                       </TableCell>
-                      <TableCell className="hidden text-muted-foreground lg:table-cell">
-                        {user.specialization?.name ?? "-"}
+                      <TableCell className="hidden lg:table-cell">
+                        {user.specialization ? (
+                          <span
+                            className="inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs font-medium text-foreground"
+                            style={
+                              user.specialization.color
+                                ? {
+                                    borderColor: `${user.specialization.color}55`,
+                                    backgroundColor: `${user.specialization.color}14`,
+                                    color: user.specialization.color,
+                                  }
+                                : undefined
+                            }
+                          >
+                            <span
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-current"
+                              style={
+                                user.specialization.color
+                                  ? { backgroundColor: user.specialization.color }
+                                  : undefined
+                              }
+                            />
+                            {user.specialization.name}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">

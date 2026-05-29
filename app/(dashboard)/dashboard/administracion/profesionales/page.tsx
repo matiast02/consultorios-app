@@ -46,7 +46,7 @@ interface MedicUser {
   lastName?: string | null;
   email?: string | null;
   isActive: boolean;
-  specialization?: { id: string; name: string } | null;
+  specialization?: { id: string; name: string; color?: string | null } | null;
   image?: string | null;
   roles: { id: string; name: string }[];
   createdAt: string;
@@ -270,7 +270,17 @@ export default function ProfesionalesPage() {
                     >
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
+                          <div
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700 dark:bg-teal-950/40 dark:text-teal-300"
+                            style={
+                              user.specialization?.color
+                                ? {
+                                    backgroundColor: `${user.specialization.color}1a`,
+                                    color: user.specialization.color,
+                                  }
+                                : undefined
+                            }
+                          >
                             {getInitial(user)}
                           </div>
                           <span>{getDisplayName(user)}</span>
@@ -279,8 +289,33 @@ export default function ProfesionalesPage() {
                       <TableCell className="hidden text-muted-foreground md:table-cell">
                         {user.email ?? "-"}
                       </TableCell>
-                      <TableCell className="hidden text-muted-foreground lg:table-cell">
-                        {user.specialization?.name ?? "-"}
+                      <TableCell className="hidden lg:table-cell">
+                        {user.specialization ? (
+                          <span
+                            className="inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs font-medium text-foreground"
+                            style={
+                              user.specialization.color
+                                ? {
+                                    borderColor: `${user.specialization.color}55`,
+                                    backgroundColor: `${user.specialization.color}14`,
+                                    color: user.specialization.color,
+                                  }
+                                : undefined
+                            }
+                          >
+                            <span
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-current"
+                              style={
+                                user.specialization.color
+                                  ? { backgroundColor: user.specialization.color }
+                                  : undefined
+                              }
+                            />
+                            {user.specialization.name}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge

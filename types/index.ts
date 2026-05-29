@@ -257,6 +257,7 @@ export interface StatsData {
 export interface Specialization {
   id: string;
   name: string;
+  color?: string | null;
   professionConfigId?: string | null;
   professionConfig?: ProfessionConfig | null;
   _count?: { users: number };

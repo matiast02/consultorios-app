@@ -99,6 +99,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         ...(parsed.data.professionConfigId !== undefined && {
           professionConfigId: parsed.data.professionConfigId ?? null,
         }),
+        ...(parsed.data.color !== undefined && {
+          color: parsed.data.color ?? null,
+        }),
       },
       include: {
         _count: { select: { users: true } },

@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         lastName: true,
         email: true,
         isActive: true,
-        specialization: { select: { id: true, name: true } },
+        specialization: { select: { id: true, name: true, color: true } },
         image: true,
         roles: {
           select: {

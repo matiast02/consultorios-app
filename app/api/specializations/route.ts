@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       data: {
         name: parsed.data.name,
         professionConfigId: parsed.data.professionConfigId ?? null,
+        color: parsed.data.color ?? null,
       },
       include: {
         _count: { select: { users: true } },
