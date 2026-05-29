@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, Clock, CalendarX, Shield } from "lucide-react";
+import { User, Clock, CalendarX, Shield, Building2 } from "lucide-react";
 import { ProfileTab } from "@/components/configuracion/profile-tab";
 import { WorkHoursTab } from "@/components/configuracion/work-hours-tab";
 import { BlockedDaysTab } from "@/components/configuracion/blocked-days-tab";
 import { InsurancesTab } from "@/components/configuracion/insurances-tab";
+import { ConsultorioTab } from "@/components/configuracion/consultorio-tab";
 import { differenceInDays, startOfDay } from "date-fns";
 import type { BlockDay } from "@/types";
 
@@ -38,6 +39,7 @@ export default function ConfiguracionPage() {
   const { data: session, status } = useSession();
   const userRole = (session?.user as { role?: string | null } | undefined)?.role;
   const isMedicRole = userRole === "medic";
+  const isAdminRole = userRole === "admin";
 
   // Lightweight counts for the tab badges
   const [blockRangeCount, setBlockRangeCount] = useState<number>(0);
@@ -113,6 +115,11 @@ export default function ConfiguracionPage() {
               </TabsTrigger>
             </>
           )}
+          {isAdminRole && (
+            <TabsTrigger value="consultorio">
+              <TabLabel icon={Building2} label="Consultorio" />
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="perfil" className="mt-6">
@@ -131,6 +138,12 @@ export default function ConfiguracionPage() {
               <InsurancesTab />
             </TabsContent>
           </>
+        )}
+
+        {isAdminRole && (
+          <TabsContent value="consultorio" className="mt-6">
+            <ConsultorioTab />
+          </TabsContent>
         )}
       </Tabs>
     </div>
