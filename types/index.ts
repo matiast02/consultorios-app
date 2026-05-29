@@ -869,3 +869,79 @@ export interface AuditRecentResponse {
   items: AuditEvent[];
   nextCursor: string | null;
 }
+
+// ─── Clinic public site ───────────────────────────────────────────────────────
+
+export interface ClinicSettings {
+  id: string;
+  name: string | null;
+  tagline: string | null;
+  contactEmail: string | null;
+  whatsappPrimary: string | null;
+  whatsappSecondary: string | null;
+  phoneDisplay: string | null;
+  prefillWhatsappMessage: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  mapLat: number | null;
+  mapLng: number | null;
+  mapZoom: number | null;
+  showTeam: boolean;
+  showHours: boolean;
+  showMap: boolean;
+  showContactForm: boolean;
+  yearsOfService: number | null;
+  patientsServedDisplay: string | null;
+}
+
+export interface ClinicHoursDay {
+  id: string;
+  dayOfWeek: number; // 0=Lun..6=Dom (Monday-start)
+  closed: boolean;
+  amOpen: string | null;
+  amClose: string | null;
+  pmOpen: string | null;
+  pmClose: string | null;
+}
+
+export interface PublicMedic {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  name: string | null;
+  image: string | null;
+  bio: string | null;
+  licenseNumber: string | null;
+  specialization: { id: string; name: string; color: string | null } | null;
+}
+
+export interface PublicSpecialization {
+  id: string;
+  name: string;
+  color: string | null;
+  medicCount: number;
+}
+
+export interface ClinicContactRequest {
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+  healthInsurance: string | null;
+  specializationId: string | null;
+  specialization: { id: string; name: string } | null;
+  preferredDay: string | null;
+  message: string | null;
+  status: "new" | "read" | "archived";
+  whatsappOpened: boolean;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface ClinicInfoResponse {
+  settings: ClinicSettings | null;
+  hours: ClinicHoursDay[];
+  medics: PublicMedic[];
+  specializations: PublicSpecialization[];
+  healthInsurances: { id: string; name: string }[];
+}

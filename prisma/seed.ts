@@ -1718,6 +1718,27 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   await seedAdminAuditLogs(prisma);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CLINIC PUBLIC SITE — singleton settings + 7 weekday hours
+  // ═══════════════════════════════════════════════════════════════════════════
+  try {
+    await prisma.clinicSettings.upsert({
+      where: { id: "default" },
+      update: {},
+      create: { id: "default" },
+    });
+    for (let dow = 0; dow < 7; dow++) {
+      await prisma.clinicHours.upsert({
+        where: { dayOfWeek: dow },
+        update: {},
+        create: { dayOfWeek: dow, closed: true },
+      });
+    }
+    console.log("✅ Clinic settings (singleton) + 7 weekday hours seeded");
+  } catch (e) {
+    console.error("❌ Clinic seed failed:", e);
+  }
+
   console.log("\n🎉 Seed completed successfully!");
   console.log("\n📋 Test credentials:");
   console.log("  Dr. Gervilla:  dr.gervilla@consultorio.com / password123");

@@ -456,3 +456,77 @@ export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type UpdatePreferencesConfigInput = z.infer<typeof updatePreferencesConfigSchema>;
 export type UpdateNotificationsInput = z.infer<typeof updateNotificationsSchema>;
 export type UpdateUserInsurancesInput = z.infer<typeof updateUserInsurancesSchema>;
+
+// ─── Clinic public site ───────────────────────────────────────────────────────
+
+const PHONE_DIGITS_RE = /^[0-9]{10,15}$/;
+const TIME_HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const clinicSettingsSchema = z.object({
+  name: z.string().max(80, "Máx. 80 caracteres").nullable().optional(),
+  tagline: z.string().max(80).nullable().optional(),
+  contactEmail: z.union([z.string().email("Email inválido"), z.literal(""), z.null()]).optional(),
+  whatsappPrimary: z
+    .union([z.string().regex(PHONE_DIGITS_RE, "Solo dígitos, 10-15 (E.164 sin +)"), z.literal(""), z.null()])
+    .optional(),
+  whatsappSecondary: z
+    .union([z.string().regex(PHONE_DIGITS_RE, "Solo dígitos, 10-15"), z.literal(""), z.null()])
+    .optional(),
+  phoneDisplay: z.string().max(40).nullable().optional(),
+  prefillWhatsappMessage: z.string().max(500, "Máx. 500 caracteres").nullable().optional(),
+  addressLine1: z.string().max(160).nullable().optional(),
+  addressLine2: z.string().max(160).nullable().optional(),
+  mapLat: z.number().min(-90).max(90).nullable().optional(),
+  mapLng: z.number().min(-180).max(180).nullable().optional(),
+  mapZoom: z.number().int().min(1).max(20).nullable().optional(),
+  showTeam: z.boolean().optional(),
+  showHours: z.boolean().optional(),
+  showMap: z.boolean().optional(),
+  showContactForm: z.boolean().optional(),
+  yearsOfService: z.number().int().min(0).max(200).nullable().optional(),
+  patientsServedDisplay: z.string().max(40).nullable().optional(),
+});
+
+export const clinicHoursDaySchema = z
+  .object({
+    dayOfWeek: z.number().int().min(0).max(6),
+    closed: z.boolean(),
+    amOpen: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+    amClose: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+    pmOpen: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+    pmClose: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+  })
+  .refine((d) => d.closed || !!d.amOpen || !!d.pmOpen, {
+    message: "Si no está cerrado, definí al menos un horario",
+    path: ["closed"],
+  })
+  .refine((d) => !d.amOpen || !d.amClose || d.amOpen < d.amClose, {
+    message: "El cierre AM debe ser posterior a la apertura",
+    path: ["amClose"],
+  })
+  .refine((d) => !d.pmOpen || !d.pmClose || d.pmOpen < d.pmClose, {
+    message: "El cierre PM debe ser posterior a la apertura",
+    path: ["pmClose"],
+  });
+
+export const clinicHoursWeekSchema = z.array(clinicHoursDaySchema).length(7);
+
+export const contactRequestSchema = z.object({
+  fullName: z.string().min(2, "Ingresá tu nombre").max(120),
+  phone: z.string().min(6, "Teléfono requerido").max(40),
+  email: z.union([z.string().email("Email inválido"), z.literal("")]).optional(),
+  healthInsurance: z.string().max(80).optional().or(z.literal("")),
+  specializationId: z.union([z.string().cuid(), z.literal("")]).optional(),
+  preferredDay: z
+    .union([
+      z.enum(["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]),
+      z.literal(""),
+    ])
+    .optional(),
+  message: z.string().max(1000).optional().or(z.literal("")),
+});
+
+export type ClinicSettingsInput = z.infer<typeof clinicSettingsSchema>;
+export type ClinicHoursDayInput = z.infer<typeof clinicHoursDaySchema>;
+export type ClinicHoursWeekInput = z.infer<typeof clinicHoursWeekSchema>;
+export type ContactRequestInput = z.infer<typeof contactRequestSchema>;

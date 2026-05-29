@@ -145,6 +145,7 @@ model Specialization {
 
   professionConfig ProfessionConfig? @relation(fields: [professionConfigId], references: [id])
   users            User[]
+  contactRequests  ContactRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -658,4 +659,61 @@ model WalkInArrival {
   @@index([patientId])
   @@index([assignedShiftId])
   @@index([arrivedAt])
+}
+
+// ─── Clinic public site (singleton + weekly hours + contact inbox) ──────────
+
+model ClinicSettings {
+  id                     String   @id @default("default")
+  name                   String?
+  tagline                String?
+  contactEmail           String?
+  whatsappPrimary        String?
+  whatsappSecondary      String?
+  phoneDisplay           String?
+  prefillWhatsappMessage String?  @db.Text
+  addressLine1           String?
+  addressLine2           String?
+  mapLat                 Decimal? @db.Decimal(9, 6)
+  mapLng                 Decimal? @db.Decimal(9, 6)
+  mapZoom                Int?     @default(16)
+  showTeam               Boolean  @default(true)
+  showHours              Boolean  @default(true)
+  showMap                Boolean  @default(true)
+  showContactForm        Boolean  @default(true)
+  yearsOfService         Int?
+  patientsServedDisplay  String?
+  updatedAt              DateTime @updatedAt
+}
+
+model ClinicHours {
+  id        String   @id @default(cuid())
+  dayOfWeek Int      @unique // 0=Lun..6=Dom (Monday-start)
+  closed    Boolean  @default(false)
+  amOpen    String? // "08:00"
+  amClose   String?
+  pmOpen    String?
+  pmClose   String?
+  updatedAt DateTime @updatedAt
+}
+
+model ContactRequest {
+  id               String          @id @default(cuid())
+  fullName         String
+  phone            String
+  email            String?
+  healthInsurance  String?
+  specializationId String?
+  specialization   Specialization? @relation(fields: [specializationId], references: [id])
+  preferredDay     String?
+  message          String?         @db.Text
+  status           String          @default("new") // new | read | archived
+  whatsappOpened   Boolean         @default(false)
+  ipAddress        String?
+  userAgent        String?         @db.Text
+  createdAt        DateTime        @default(now())
+  readAt           DateTime?
+
+  @@index([status, createdAt])
+  @@index([specializationId])
 }
