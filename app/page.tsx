@@ -6,6 +6,7 @@ import { LandingHero } from "@/components/landing/landing-hero";
 import { LandingSpecialties } from "@/components/landing/landing-specialties";
 import { LandingTeam } from "@/components/landing/landing-team";
 import { LandingHours } from "@/components/landing/landing-hours";
+import { LandingScheduleByMedic, type MedicWeeklySchedule } from "@/components/landing/landing-schedule-by-medic";
 import { LandingStats } from "@/components/landing/landing-stats";
 import { LandingObras } from "@/components/landing/landing-obras";
 import { LandingCta } from "@/components/landing/landing-cta";
@@ -25,7 +26,7 @@ export const revalidate = 60;
 // ────────────────────────────────────────────────────────────────────────────
 
 async function loadClinicInfo() {
-  const [settingsRow, hoursRows, medicRows, specRows, insuranceRows] = await Promise.all([
+  const [settingsRow, hoursRows, medicRows, specRows, insuranceRows, scheduleMedics] = await Promise.all([
     prisma.clinicSettings.upsert({
       where: { id: "default" },
       update: {},
@@ -63,6 +64,26 @@ async function loadClinicInfo() {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        roles: { some: { role: { name: "medic" } } },
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        name: true,
+        image: true,
+        licenseNumber: true,
+        specialization: { select: { id: true, name: true, color: true } },
+        preferences: {
+          select: { day: true, fromHourAM: true, toHourAM: true, fromHourPM: true, toHourPM: true },
+        },
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    }),
   ]);
 
   const settings: ClinicSettingsT = {
@@ -82,7 +103,33 @@ async function loadClinicInfo() {
       medicCount: s._count.users,
     }));
 
-  return { settings, hours, medics, specializations, healthInsurances: insuranceRows };
+  // Build weekly schedule per medic (Mon-start, 7 entries always present).
+  const toMondayStart = (sundayStartDay: number) => (sundayStartDay + 6) % 7;
+  const schedule: MedicWeeklySchedule[] = scheduleMedics.map((m) => {
+    const days = Array.from({ length: 7 }, (_, dow) => ({
+      dayOfWeek: dow,
+      am: null as { from: string; to: string } | null,
+      pm: null as { from: string; to: string } | null,
+    }));
+    for (const p of m.preferences) {
+      const dow = toMondayStart(p.day);
+      const am = p.fromHourAM && p.toHourAM ? { from: p.fromHourAM, to: p.toHourAM } : null;
+      const pm = p.fromHourPM && p.toHourPM ? { from: p.fromHourPM, to: p.toHourPM } : null;
+      if (am || pm) days[dow] = { dayOfWeek: dow, am, pm };
+    }
+    return {
+      id: m.id,
+      firstName: m.firstName,
+      lastName: m.lastName,
+      name: m.name,
+      image: m.image,
+      licenseNumber: m.licenseNumber,
+      specialization: m.specialization,
+      days,
+    };
+  });
+
+  return { settings, hours, medics, specializations, healthInsurances: insuranceRows, schedule };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -148,7 +195,7 @@ function shortWeekLabel(lines: string[]): string | null {
 
 export default async function Home() {
   const session = await auth();
-  const { settings, hours, medics, specializations, healthInsurances } = await loadClinicInfo();
+  const { settings, hours, medics, specializations, healthInsurances, schedule } = await loadClinicInfo();
 
   const clinicName = settings.name?.trim() || "ConsultorioApp";
   const tagline = settings.tagline?.trim() || "Centro médico";
@@ -174,6 +221,8 @@ export default async function Home() {
         {settings.showTeam && <LandingTeam medics={medics} />}
 
         <LandingHours hours={hours} enabled={settings.showHours} />
+
+        {settings.showHours && <LandingScheduleByMedic medics={schedule} />}
 
         <LandingStats
           yearsOfService={settings.yearsOfService}

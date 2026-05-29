@@ -90,19 +90,24 @@ export function LandingTeam({ medics }: Props) {
                   </p>
                 )}
                 <div
-                  className="mt-auto flex items-center justify-between border-t pt-3"
+                  className="mt-auto flex items-center justify-between gap-2 border-t pt-3"
                   style={{ borderColor: "var(--border)" }}
                 >
-                  <span className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--ink-2)" }}>
-                    <Clock className="h-[14px] w-[14px]" style={{ color: "var(--primary)" }} />
-                    Consultá horarios
-                  </span>
                   <a
                     href="#contacto"
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-[7px] text-[12.5px] font-semibold text-white shadow-[0_8px_20px_rgba(10,138,158,0.18)] transition hover:-translate-y-0.5"
+                    style={{ background: "var(--primary)" }}
+                  >
+                    Turno
+                  </a>
+                  <a
+                    href={`#sched-${m.id}`}
                     className="inline-flex items-center gap-1.5 rounded-full border bg-white px-3 py-[7px] text-[12.5px] font-semibold transition hover:border-[color:var(--primary)] hover:text-[color:var(--primary-deep)]"
                     style={{ borderColor: "var(--border-strong)", color: "var(--ink-2)" }}
                   >
-                    Turno <ArrowRight className="h-3.5 w-3.5" />
+                    <Clock className="h-3.5 w-3.5" style={{ color: "var(--primary)" }} />
+                    Horarios
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </a>
                 </div>
               </div>
