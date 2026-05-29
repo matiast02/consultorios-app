@@ -1,0 +1,367 @@
+openapi: 3.0.3
+info:
+  title: Clinic Public Site + Admin Config API
+  version: 1.0.0
+  description: |
+    Endpoints that power:
+      1. The public landing (`app/page.tsx`) — aggregated read of clinic
+         settings, weekly hours, active medics and available specializations.
+      2. The public contact form — creates a `ContactRequest` row and
+         returns a wa.me link the browser opens in a new tab.
+      3. The admin "Consultorio" tab in `/dashboard/configuracion` — CRUD over
+         `ClinicSettings` (singleton) and `ClinicHours` (7 rows) plus an inbox
+         for `ContactRequest`.
+
+    Access control:
+      - `/api/public/*`         → no auth
+      - `/api/admin/clinic-*`   → session + role=admin
+      - `/api/admin/contact-*`  → session + role in {admin, secretary}
+
+servers:
+  - url: /
+
+paths:
+  # ─────────────────────────── PUBLIC ───────────────────────────
+
+  /api/public/clinic-info:
+    get:
+      summary: Aggregated payload for the public landing
+      description: |
+        One call returns everything the landing renders. Fields are nullable;
+        the client hides sections whose data is missing or whose visibility
+        toggle (`showTeam`/`showHours`/`showMap`/`showContactForm`) is off.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      settings: { $ref: "#/components/schemas/ClinicSettings" }
+                      hours:
+                        type: array
+                        minItems: 7
+                        maxItems: 7
+                        items: { $ref: "#/components/schemas/ClinicHoursDay" }
+                      medics:
+                        type: array
+                        items: { $ref: "#/components/schemas/PublicMedic" }
+                      specializations:
+                        type: array
+                        items: { $ref: "#/components/schemas/PublicSpecialization" }
+                      healthInsurances:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            name: { type: string }
+
+  /api/public/contact-requests:
+    post:
+      summary: Submit the public contact form
+      description: |
+        Validates with `contactRequestSchema`. Rate-limited to 5 requests
+        per IP per 10 minutes. On success persists a `ContactRequest` row
+        and returns the wa.me link the client should open.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContactRequestInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      whatsappLink:
+                        type: string
+                        nullable: true
+                        description: null if the clinic has no whatsappPrimary configured
+        "400": { description: Validation error }
+        "429": { description: Rate limit exceeded }
+
+  # ───────────────────────────  ADMIN  ───────────────────────────
+
+  /api/admin/clinic-settings:
+    get:
+      summary: Read the singleton clinic settings row
+      security: [{ session: [admin] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/ClinicSettings" }
+    put:
+      summary: Upsert clinic settings (id = "default")
+      security: [{ session: [admin] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClinicSettingsInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/ClinicSettings" }
+        "400": { description: Validation error }
+        "403": { description: Forbidden — role != admin }
+
+  /api/admin/clinic-hours:
+    get:
+      summary: Read the 7 weekly rows
+      security: [{ session: [admin] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    minItems: 7
+                    maxItems: 7
+                    items: { $ref: "#/components/schemas/ClinicHoursDay" }
+    put:
+      summary: Replace the 7 weekly rows (one per day-of-week)
+      security: [{ session: [admin] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 7
+              maxItems: 7
+              items: { $ref: "#/components/schemas/ClinicHoursDayInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ClinicHoursDay" }
+
+  /api/admin/contact-requests:
+    get:
+      summary: List contact requests (inbox)
+      security: [{ session: [admin, secretary] }]
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [new, read, archived, all]
+            default: all
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ContactRequest" }
+
+  /api/admin/contact-requests/{id}:
+    patch:
+      summary: Update status (mark read / archived)
+      security: [{ session: [admin, secretary] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [new, read, archived]
+                whatsappOpened: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/ContactRequest" }
+
+components:
+  schemas:
+    ClinicSettings:
+      type: object
+      nullable: true
+      properties:
+        id: { type: string, example: "default" }
+        name: { type: string, nullable: true }
+        tagline: { type: string, nullable: true }
+        contactEmail: { type: string, nullable: true }
+        whatsappPrimary:
+          type: string
+          nullable: true
+          description: Digits only, E.164 without leading '+'. Example "5491140001234".
+        whatsappSecondary: { type: string, nullable: true }
+        phoneDisplay:
+          type: string
+          nullable: true
+          description: Pretty display phone, e.g. "+54 11 4000-1234".
+        prefillWhatsappMessage: { type: string, nullable: true }
+        addressLine1: { type: string, nullable: true }
+        addressLine2: { type: string, nullable: true }
+        mapLat: { type: number, format: float, nullable: true, minimum: -90, maximum: 90 }
+        mapLng: { type: number, format: float, nullable: true, minimum: -180, maximum: 180 }
+        mapZoom: { type: integer, nullable: true, minimum: 1, maximum: 20 }
+        showTeam: { type: boolean }
+        showHours: { type: boolean }
+        showMap: { type: boolean }
+        showContactForm: { type: boolean }
+        yearsOfService: { type: integer, nullable: true }
+        patientsServedDisplay:
+          type: string
+          nullable: true
+          description: Free-text such as "+12k" used in the stats band.
+
+    ClinicSettingsInput:
+      allOf:
+        - $ref: "#/components/schemas/ClinicSettings"
+      description: Same shape as `ClinicSettings` minus `id`.
+
+    ClinicHoursDay:
+      type: object
+      properties:
+        id: { type: string }
+        dayOfWeek:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 = Lunes, 6 = Domingo (ISO Monday-start).
+        closed: { type: boolean }
+        amOpen:
+          type: string
+          nullable: true
+          pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
+        amClose: { type: string, nullable: true }
+        pmOpen: { type: string, nullable: true }
+        pmClose: { type: string, nullable: true }
+
+    ClinicHoursDayInput:
+      type: object
+      required: [dayOfWeek, closed]
+      properties:
+        dayOfWeek: { type: integer, minimum: 0, maximum: 6 }
+        closed: { type: boolean }
+        amOpen: { type: string, nullable: true }
+        amClose: { type: string, nullable: true }
+        pmOpen: { type: string, nullable: true }
+        pmClose: { type: string, nullable: true }
+
+    PublicMedic:
+      type: object
+      properties:
+        id: { type: string }
+        firstName: { type: string, nullable: true }
+        lastName: { type: string, nullable: true }
+        name: { type: string, nullable: true }
+        image: { type: string, nullable: true }
+        bio: { type: string, nullable: true }
+        licenseNumber: { type: string, nullable: true }
+        specialization:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string }
+            color: { type: string, nullable: true }
+
+    PublicSpecialization:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        color: { type: string, nullable: true }
+        medicCount: { type: integer }
+
+    ContactRequestInput:
+      type: object
+      required: [fullName, phone]
+      properties:
+        fullName: { type: string, minLength: 2, maxLength: 120 }
+        phone: { type: string, minLength: 6, maxLength: 40 }
+        email: { type: string, format: email, nullable: true }
+        healthInsurance: { type: string, nullable: true }
+        specializationId: { type: string, nullable: true }
+        preferredDay:
+          type: string
+          nullable: true
+          enum: [Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, ""]
+        message: { type: string, maxLength: 1000, nullable: true }
+
+    ContactRequest:
+      allOf:
+        - $ref: "#/components/schemas/ContactRequestInput"
+        - type: object
+          properties:
+            id: { type: string }
+            status: { type: string, enum: [new, read, archived] }
+            whatsappOpened: { type: boolean }
+            specialization:
+              type: object
+              nullable: true
+              properties:
+                id: { type: string }
+                name: { type: string }
+            createdAt: { type: string, format: date-time }
+            readAt: { type: string, format: date-time, nullable: true }
+
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: next-auth.session-token
+      description: |
+        Roles are read from `session.user.role`. Routes prefixed
+        `/api/admin/clinic-*` require `admin`; contact-requests endpoints
+        accept `admin` or `secretary`.
