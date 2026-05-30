@@ -218,7 +218,7 @@ export default async function Home() {
 
         <LandingSpecialties specializations={specializations} />
 
-        {settings.showTeam && <LandingTeam medics={medics} />}
+        {settings.showTeam && <LandingTeam medics={medics} specializations={specializations} />}
 
         <LandingHours hours={hours} enabled={settings.showHours} />
 

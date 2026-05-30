@@ -11,6 +11,7 @@ import {
   Ear,
   Pill,
   GraduationCap,
+  ArrowRight,
 } from "lucide-react";
 import type { PublicSpecialization } from "@/types";
 
@@ -86,9 +87,11 @@ export function LandingSpecialties({ specializations }: Props) {
             const Icon = iconFor(s.name);
             const tint = s.color ?? "var(--primary-deep)";
             return (
-              <div
+              <a
                 key={s.id}
-                className="rounded-[18px] border bg-white p-6 transition-all duration-200 hover:-translate-y-[3px] hover:shadow-[0_16px_40px_rgba(10,34,48,0.10)]"
+                href={`#equipo-${s.id}`}
+                aria-label={`Ver profesionales de ${s.name}`}
+                className="group block cursor-pointer rounded-[18px] border bg-white p-6 transition-all duration-200 hover:-translate-y-[3px] hover:shadow-[0_16px_40px_rgba(10,34,48,0.10)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[color:var(--primary)]"
                 style={{ borderColor: "var(--border)" }}
               >
                 <div
@@ -109,7 +112,14 @@ export function LandingSpecialties({ specializations }: Props) {
                 <p className="text-[14px]" style={{ color: "var(--muted)" }}>
                   {s.medicCount} profesional{s.medicCount === 1 ? "" : "es"} en esta especialidad
                 </p>
-              </div>
+                <span
+                  className="mt-3 inline-flex items-center gap-1 text-[12.5px] font-semibold opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100"
+                  style={{ color: "var(--primary-deep)" }}
+                >
+                  Ver profesionales
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+              </a>
             );
           })}
         </div>
