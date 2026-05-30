@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Loader2, ExternalLink, Inbox, Settings, Clock as ClockIcon, MessageCircle, Check, Archive, Mail, Phone } from "lucide-react";
+import { Loader2, Inbox, Settings, Clock as ClockIcon, MessageCircle, Check, Archive, Mail, Phone, MapPin } from "lucide-react";
+import { ClinicLocationPicker, type LocationValue } from "./clinic-location-picker";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -197,61 +198,56 @@ function SettingsCard() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-lat">Latitud</Label>
-                <Controller
-                  control={control}
-                  name="mapLat"
-                  render={({ field }) => (
-                    <Input
-                      id="cs-lat"
-                      type="number"
-                      step="0.000001"
-                      placeholder="-34.6037"
-                      value={field.value ?? ""}
-                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
-                    />
-                  )}
-                />
-                {errors.mapLat && <p className="text-xs text-destructive">{errors.mapLat.message}</p>}
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold">Ubicación en el mapa</p>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-lng">Longitud</Label>
-                <Controller
-                  control={control}
-                  name="mapLng"
-                  render={({ field }) => (
-                    <Input
-                      id="cs-lng"
-                      type="number"
-                      step="0.000001"
-                      placeholder="-58.3816"
-                      value={field.value ?? ""}
-                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
-                    />
-                  )}
-                />
-                {errors.mapLng && <p className="text-xs text-destructive">{errors.mapLng.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-zoom">Zoom mapa (1-20)</Label>
-                <Controller
-                  control={control}
-                  name="mapZoom"
-                  render={({ field }) => (
-                    <Input
-                      id="cs-zoom"
-                      type="number"
-                      min={1}
-                      max={20}
-                      step={1}
-                      value={field.value ?? ""}
-                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
-                    />
-                  )}
-                />
-              </div>
+              <p className="mb-4 text-xs text-muted-foreground">
+                Buscá tu dirección y arrastrá el pin para marcar la entrada exacta del consultorio.
+              </p>
+              <Controller
+                control={control}
+                name="mapLat"
+                render={({ field: latField }) => (
+                  <Controller
+                    control={control}
+                    name="mapLng"
+                    render={({ field: lngField }) => (
+                      <Controller
+                        control={control}
+                        name="mapZoom"
+                        render={({ field: zoomField }) => {
+                          const current: LocationValue | null =
+                            latField.value != null && lngField.value != null
+                              ? {
+                                  lat: latField.value,
+                                  lng: lngField.value,
+                                  zoom: zoomField.value ?? 16,
+                                  label: null,
+                                }
+                              : null;
+                          return (
+                            <ClinicLocationPicker
+                              value={current}
+                              onChange={(v) => {
+                                latField.onChange(v?.lat ?? null);
+                                lngField.onChange(v?.lng ?? null);
+                                zoomField.onChange(v?.zoom ?? null);
+                              }}
+                            />
+                          );
+                        }}
+                      />
+                    )}
+                  />
+                )}
+              />
+              {(errors.mapLat || errors.mapLng) && (
+                <p className="mt-2 text-xs text-destructive">
+                  {errors.mapLat?.message ?? errors.mapLng?.message}
+                </p>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -288,33 +284,7 @@ function SettingsCard() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <Controller
-                control={control}
-                name="mapLat"
-                render={({ field: latField }) => (
-                  <Controller
-                    control={control}
-                    name="mapLng"
-                    render={({ field: lngField }) =>
-                      latField.value != null && lngField.value != null ? (
-                        <a
-                          href={`https://www.openstreetmap.org/?mlat=${latField.value}&mlon=${lngField.value}#map=16/${latField.value}/${lngField.value}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                          <ExternalLink className="h-3 w-3" /> Previsualizar punto en OpenStreetMap
-                        </a>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          Cargá latitud y longitud para previsualizar el mapa.
-                        </span>
-                      )
-                    }
-                  />
-                )}
-              />
+            <div className="flex items-center justify-end">
               <Button type="submit" disabled={isSubmitting || !isDirty}>
                 {isSubmitting ? "Guardando…" : "Guardar cambios"}
               </Button>

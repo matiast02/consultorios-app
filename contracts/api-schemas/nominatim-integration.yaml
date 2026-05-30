@@ -1,0 +1,120 @@
+openapi: 3.0.3
+info:
+  title: Nominatim external integration
+  version: 1.0.0
+  description: |
+    Documents the two external HTTP calls the admin "Datos del consultorio"
+    location picker makes against Nominatim (OpenStreetMap). No backend
+    endpoint in this repo serves them — the calls go directly from the
+    browser to https://nominatim.openstreetmap.org. Listed here so the
+    integration is explicit and reviewable.
+
+    Usage policy: https://operations.osmfoundation.org/policies/nominatim/
+      - Max 1 request per second (we throttle on the client).
+      - Identifying User-Agent required (we send "ConsultorioApp/1.0").
+      - Cache successful lookups in memory to avoid repeats.
+
+servers:
+  - url: https://nominatim.openstreetmap.org
+
+paths:
+  /search:
+    get:
+      summary: Forward geocoding (address → coordinates)
+      description: Called as the admin types in the "Buscar dirección" input (debounce 350ms, ≥3 chars).
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 3 }
+        - in: query
+          name: format
+          schema: { type: string, enum: ["json"], default: "json" }
+        - in: query
+          name: addressdetails
+          schema: { type: integer, enum: [0, 1], default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 10, default: 5 }
+        - in: query
+          name: countrycodes
+          schema: { type: string, default: "ar" }
+          description: Sesgar resultados a Argentina por defecto.
+      responses:
+        "200":
+          description: Lista de candidatos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NominatimPlace" }
+
+  /reverse:
+    get:
+      summary: Reverse geocoding (coordinates → address)
+      description: Called after the user drags the pin, to update the green address pill.
+      parameters:
+        - in: query
+          name: lat
+          required: true
+          schema: { type: number, minimum: -90, maximum: 90 }
+        - in: query
+          name: lon
+          required: true
+          schema: { type: number, minimum: -180, maximum: 180 }
+        - in: query
+          name: format
+          schema: { type: string, enum: ["json"], default: "json" }
+        - in: query
+          name: addressdetails
+          schema: { type: integer, enum: [0, 1], default: 1 }
+      responses:
+        "200":
+          description: Lugar más cercano
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NominatimPlace" }
+
+components:
+  schemas:
+    NominatimPlace:
+      type: object
+      properties:
+        place_id: { type: integer }
+        lat: { type: string, description: "Stringified float — convertir con Number()" }
+        lon: { type: string }
+        display_name: { type: string, example: "Av. Corrientes 1234, CABA, Argentina" }
+        type: { type: string, example: "house" }
+        importance: { type: number }
+        boundingbox:
+          type: array
+          items: { type: string }
+          minItems: 4
+          maxItems: 4
+        address:
+          type: object
+          additionalProperties: true
+          properties:
+            road: { type: string }
+            house_number: { type: string }
+            suburb: { type: string }
+            city: { type: string }
+            state: { type: string }
+            country: { type: string }
+            postcode: { type: string }
+
+  # Shape of the value the React component owns
+  schemas-internal:
+    LocationValue:
+      type: object
+      nullable: true
+      properties:
+        lat: { type: number }
+        lng: { type: number }
+        zoom: { type: integer, minimum: 1, maximum: 20 }
+        label:
+          type: string
+          nullable: true
+          description: |
+            Pretty label for the green pill. Either Nominatim's `display_name`
+            short-form, or "Ubicación personalizada" when reverse geocoding fails.
