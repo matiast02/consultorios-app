@@ -44,6 +44,10 @@ export function ClinicLocationPicker({ value, onChange }: Props) {
   const [searching, setSearching] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [reverseLoading, setReverseLoading] = useState(false);
+  // Token que el mapa observa para recentrarse. Sólo lo incrementamos cuando el
+  // cambio de ubicación viene de una acción explícita del usuario (sugerencia
+  // elegida). Drag/zoom/dblclick NO lo tocan → el mapa no se ancla al pin.
+  const [flyTo, setFlyTo] = useState<{ center: [number, number]; zoom: number; token: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<number | null>(null);
 
@@ -85,8 +89,12 @@ export function ClinicLocationPicker({ value, onChange }: Props) {
     onChange({ lat, lng, zoom, label });
     setDropdownOpen(false);
     if (opts.setQuery !== false) setQuery(label);
+    // ÚNICO momento en que pedimos al mapa que recentre: elección explícita del usuario.
+    setFlyTo((prev) => ({ center: [lat, lng], zoom, token: (prev?.token ?? 0) + 1 }));
   }
 
+  // Drag del pin o doble-click sobre el mapa. Cambia coords + reverseGeocode.
+  // NO toca flyTo: el usuario ya está mirando esa zona, no queremos arrastrarle la vista.
   async function applyPin(lat: number, lng: number, zoom: number) {
     onChange({ lat, lng, zoom, label: value?.label ?? null });
     setReverseLoading(true);
@@ -102,11 +110,27 @@ export function ClinicLocationPicker({ value, onChange }: Props) {
     }
   }
 
-  const center: [number, number] = useMemo(
+  // Zoom cambió pero el pin no se movió. Sólo persiste el zoom — sin llamar
+  // a reverseGeocode (sería un desperdicio en cada notch del scroll).
+  function applyZoom(zoom: number) {
+    if (!value) return;
+    if (value.zoom === zoom) return;
+    onChange({ ...value, zoom });
+  }
+
+  // Posición INICIAL del mapa al montar. No se re-asigna en runtime — la vista del
+  // mapa se controla con `flyTo` (token-driven) y los pan/zoom del usuario.
+  const initialCenter: [number, number] = useMemo(
     () => (value ? [value.lat, value.lng] : DEFAULT_CENTER),
-    [value]
+    // value se captura sólo en el mount: una vez montado, ignoramos cambios aquí.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
-  const zoom = value?.zoom ?? DEFAULT_ZOOM;
+  const initialZoom = useMemo(
+    () => value?.zoom ?? DEFAULT_ZOOM,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   return (
     <div className="space-y-3">
@@ -131,7 +155,7 @@ export function ClinicLocationPicker({ value, onChange }: Props) {
           )}
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">
-          Empezá a escribir y elegí una opción, o arrastrá el pin directamente sobre el mapa.
+          Empezá a escribir y elegí una opción, hacé doble-click sobre el mapa, o arrastrá el pin.
         </p>
 
         {dropdownOpen && suggestions.length > 0 && (
@@ -155,7 +179,14 @@ export function ClinicLocationPicker({ value, onChange }: Props) {
         )}
       </div>
 
-      <MapInner center={center} zoom={zoom} value={value} onPinChange={applyPin} />
+      <MapInner
+        initialCenter={initialCenter}
+        initialZoom={initialZoom}
+        value={value}
+        flyTo={flyTo}
+        onPinChange={applyPin}
+        onZoomChange={applyZoom}
+      />
 
       {value && (
         <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-sm dark:border-emerald-900/40 dark:bg-emerald-950/30">

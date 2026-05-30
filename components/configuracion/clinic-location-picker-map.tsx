@@ -29,50 +29,85 @@ const PIN_ICON = L.divIcon({
 });
 
 interface Props {
-  center: [number, number];
-  zoom: number;
+  /** Posición inicial del mapa al montar (no es source-of-truth en runtime). */
+  initialCenter: [number, number];
+  /** Zoom inicial del mapa al montar. */
+  initialZoom: number;
+  /** Posición y zoom actuales del pin — controla SÓLO el pin, no la vista. */
   value: LocationValue | null;
+  /** Centro al que volar cuando el padre lo dispare (search/sugerencia/centrar). */
+  flyTo: { center: [number, number]; zoom: number; token: number } | null;
+  /** Drag del pin o dblclick en el mapa. Cambia coords (+ reverseGeocode en el padre). */
   onPinChange: (lat: number, lng: number, zoom: number) => void;
+  /** Zoom cambió pero el pin no se movió. Sólo persiste el zoom; no toca coords ni reverseGeocode. */
+  onZoomChange: (zoom: number) => void;
 }
 
-// Helper: re-centra el mapa cuando cambia `center` desde props (p. ej. tras elegir una sugerencia).
-function FlyTo({ center, zoom }: { center: [number, number]; zoom: number }) {
+// Recentra el mapa cuando cambia `flyTo.token` (no en cada cambio de coords).
+// De esta forma, mover el pin o cambiar el zoom NO arrastra la vista — eso permite
+// que el usuario explore otras zonas sin que el mapa "vuelva al pin" todo el tiempo.
+function FlyToOnToken({ flyTo }: { flyTo: Props["flyTo"] }) {
   const map = useMap();
-  const lastKey = useRef<string>("");
+  const lastToken = useRef<number | null>(null);
   useEffect(() => {
-    const key = `${center[0]},${center[1]},${zoom}`;
-    if (key === lastKey.current) return;
-    lastKey.current = key;
-    map.setView(center, zoom, { animate: true });
-  }, [center, zoom, map]);
+    if (!flyTo) return;
+    if (lastToken.current === flyTo.token) return;
+    lastToken.current = flyTo.token;
+    map.setView(flyTo.center, flyTo.zoom, { animate: true });
+  }, [flyTo, map]);
   return null;
 }
 
 // Captura el zoom actual del mapa después de cualquier zoomend.
-function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
+function ZoomTracker({ onZoomChange }: { onZoomChange: (z: number) => void }) {
   useMapEvents({
     zoomend(e) {
-      onZoom(e.target.getZoom());
+      onZoomChange(e.target.getZoom());
     },
   });
   return null;
 }
 
-export default function ClinicLocationPickerMap({ center, zoom, value, onPinChange }: Props) {
+// Doble-click sobre el mapa → mueve el pin a esa posición (sin recentrar).
+function DoubleClickPinPlacer({
+  onPinChange,
+}: {
+  onPinChange: (lat: number, lng: number, zoom: number) => void;
+}) {
+  const map = useMap();
+  useMapEvents({
+    dblclick(e) {
+      onPinChange(e.latlng.lat, e.latlng.lng, map.getZoom());
+    },
+  });
+  return null;
+}
+
+export default function ClinicLocationPickerMap({
+  initialCenter,
+  initialZoom,
+  value,
+  flyTo,
+  onPinChange,
+  onZoomChange,
+}: Props) {
   const markerRef = useRef<L.Marker | null>(null);
 
+  // El marker se posiciona sobre el value (o el centro inicial si aún no hay pin).
   const markerPos: [number, number] = useMemo(
-    () => (value ? [value.lat, value.lng] : center),
-    [value, center]
+    () => (value ? [value.lat, value.lng] : initialCenter),
+    [value, initialCenter]
   );
 
   return (
     <div className="relative">
       <MapContainer
-        center={markerPos}
-        zoom={zoom}
+        center={initialCenter}
+        zoom={initialZoom}
         style={{ height: 360, width: "100%", borderRadius: 12 }}
         scrollWheelZoom
+        // Desactivamos el zoom-in nativo al doble-click; lo usamos para colocar el pin.
+        doubleClickZoom={false}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -86,9 +121,9 @@ export default function ClinicLocationPickerMap({ center, zoom, value, onPinChan
             dragend(e) {
               const m = e.target as L.Marker;
               const ll = m.getLatLng();
-              // _map es protected en tipos de Leaflet; usamos el cast a unknown para no leakear la API interna.
+              // _map es protected en tipos de Leaflet; cast a unknown para no leakear la API interna.
               const map = (m as unknown as { _map?: L.Map })._map;
-              const currentZoom = map?.getZoom() ?? zoom;
+              const currentZoom = map?.getZoom() ?? initialZoom;
               onPinChange(ll.lat, ll.lng, currentZoom);
             },
           }}
@@ -96,27 +131,22 @@ export default function ClinicLocationPickerMap({ center, zoom, value, onPinChan
             markerRef.current = r;
           }}
         />
-        <FlyTo center={markerPos} zoom={zoom} />
-        <ZoomTracker
-          onZoom={(z) => {
-            // Persistimos zoom incluso si no se movió el pin.
-            const ll = markerRef.current?.getLatLng();
-            if (ll) onPinChange(ll.lat, ll.lng, z);
-          }}
-        />
+        <FlyToOnToken flyTo={flyTo} />
+        <ZoomTracker onZoomChange={onZoomChange} />
+        <DoubleClickPinPlacer onPinChange={onPinChange} />
         <RecenterButton target={markerPos} />
       </MapContainer>
 
       {/* Overlay de hint top-left */}
       <div className="pointer-events-none absolute left-3 top-3 z-[400] inline-flex items-center gap-1.5 rounded-md bg-white/95 px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-sm">
         <Move className="h-3.5 w-3.5 text-primary" />
-        Arrastrá el pin para ajustar
+        Doble-click o arrastrá el pin para ajustar
       </div>
     </div>
   );
 }
 
-// Botón Centrar (esquina inf. derecha)
+// Botón Centrar (esquina inf. derecha) — recentra el mapa sobre el pin actual.
 function RecenterButton({ target }: { target: [number, number] }) {
   const map = useMap();
   return (
