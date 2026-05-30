@@ -135,7 +135,9 @@ export function ClinicLocationPicker({ value, onChange }: Props) {
         </p>
 
         {dropdownOpen && suggestions.length > 0 && (
-          <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-72 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md">
+          // z-[1100]: Leaflet usa hasta z-700 para popups y z-1000 para controles;
+          // el dropdown DEBE quedar por encima del mapa que se renderiza más abajo.
+          <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-[1100] max-h-72 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md">
             {suggestions.map((s) => (
               <li key={s.place_id}>
                 <button
