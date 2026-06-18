@@ -144,7 +144,7 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
   const openNewShift = () => setCreateShiftOpen(true);
   const openNewPatient = () => setCreatePatientOpen(true);
   const openSearchPatient = () => router.push("/dashboard/pacientes");
-  const openBlockDay = () => router.push("/dashboard/configuracion?tab=block-days");
+  const openBlockDay = () => router.push("/dashboard/configuracion?tab=bloqueados");
   const goToPatient = (patientId: string) => router.push(`/dashboard/pacientes/${patientId}`);
 
   const handleStartConsultation = (s: DashboardShift) => {

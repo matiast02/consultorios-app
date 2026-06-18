@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Clock, CalendarX, Shield, Building2 } from "lucide-react";
@@ -35,11 +36,39 @@ function TabLabel({
 }
 
 
+type ConfigTab = "perfil" | "horarios" | "bloqueados" | "obras" | "consultorio";
+
 export default function ConfiguracionPage() {
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const userRole = (session?.user as { role?: string | null } | undefined)?.role;
   const isMedicRole = userRole === "medic";
   const isAdminRole = userRole === "admin";
+
+  // Tabs available for the current role.
+  const allowedTabs = useMemo<readonly ConfigTab[]>(() => {
+    const tabs: ConfigTab[] = ["perfil"];
+    if (isMedicRole) tabs.push("horarios", "bloqueados", "obras");
+    if (isAdminRole) tabs.push("consultorio");
+    return tabs;
+  }, [isMedicRole, isAdminRole]);
+
+  // Read the active tab from the URL so deep-links (e.g. ?tab=bloqueados) land
+  // on the right tab; fall back to Perfil for unknown/forbidden values.
+  const tabParam = searchParams.get("tab") as ConfigTab | null;
+  const activeTab: ConfigTab =
+    tabParam && allowedTabs.includes(tabParam) ? tabParam : "perfil";
+
+  function changeTab(next: string) {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (next === "perfil") sp.delete("tab");
+    else sp.set("tab", next);
+    const qs = sp.toString();
+    router.replace(`/dashboard/configuracion${qs ? `?${qs}` : ""}`, {
+      scroll: false,
+    });
+  }
 
   // Lightweight counts for the tab badges
   const [blockRangeCount, setBlockRangeCount] = useState<number>(0);
@@ -97,7 +126,7 @@ export default function ConfiguracionPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="perfil" className="w-full">
+      <Tabs value={activeTab} onValueChange={changeTab} className="w-full">
         <TabsList variant="pill">
           <TabsTrigger value="perfil">
             <TabLabel icon={User} label="Perfil" />
