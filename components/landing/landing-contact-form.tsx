@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -16,6 +16,13 @@ interface Props {
 
 export function LandingContactForm({ specializations, healthInsurances, whatsappPrimary }: Props) {
   const [submitting, setSubmitting] = useState(false);
+  // Anti-bot: honeypot field + time-to-submit. Set on mount (client only) to
+  // avoid hydration mismatch.
+  const honeypotRef = useRef<HTMLInputElement>(null);
+  const mountedAtRef = useRef<number>(0);
+  useEffect(() => {
+    mountedAtRef.current = Date.now();
+  }, []);
   const {
     register,
     handleSubmit,
@@ -37,10 +44,15 @@ export function LandingContactForm({ specializations, healthInsurances, whatsapp
   async function onSubmit(values: ContactRequestInput) {
     setSubmitting(true);
     try {
+      const elapsedMs = mountedAtRef.current ? Date.now() - mountedAtRef.current : null;
       const res = await fetch("/api/public/contact-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          _hp: honeypotRef.current?.value ?? "",
+          _elapsedMs: elapsedMs,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -84,6 +96,19 @@ export function LandingContactForm({ specializations, healthInsurances, whatsapp
       </p>
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
+        {/* Honeypot — hidden from humans, bots tend to fill it. Do not remove. */}
+        <div aria-hidden="true" className="absolute h-0 w-0 overflow-hidden" style={{ left: "-9999px" }}>
+          <label htmlFor="company-website">No completar este campo</label>
+          <input
+            id="company-website"
+            ref={honeypotRef}
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            defaultValue=""
+          />
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-[7px]">
             <label htmlFor="f-nombre" className={labelClass} style={labelStyle}>

@@ -30,17 +30,24 @@ export async function GET(req: NextRequest) {
     const notifications: ComputedNotification[] = [];
 
     // Run all queries in parallel
-    const [rescheduledShifts, pendingStudies, inactivePatients, todayShifts] =
-      await Promise.all([
-        // a) Turnos reprogramados (last 48h)
-        getRescheduledShifts(userId, userIsMedic, now),
-        // b) Estudios pendientes
-        getPendingStudies(userId, userIsMedic),
-        // c) Pacientes inactivos (last shift > 90 days ago)
-        getInactivePatients(userId, userIsMedic, now),
-        // d) Resumen del dia
-        getTodayShifts(userId, userIsMedic, now),
-      ]);
+    const [
+      rescheduledShifts,
+      pendingStudies,
+      inactivePatients,
+      todayShifts,
+      newContactRequests,
+    ] = await Promise.all([
+      // a) Turnos reprogramados (last 48h)
+      getRescheduledShifts(userId, userIsMedic, now),
+      // b) Estudios pendientes
+      getPendingStudies(userId, userIsMedic),
+      // c) Pacientes inactivos (last shift > 90 days ago)
+      getInactivePatients(userId, userIsMedic, now),
+      // d) Resumen del dia
+      getTodayShifts(userId, userIsMedic, now),
+      // e) Solicitudes de contacto nuevas (solo staff: admin/secretaria)
+      getNewContactRequests(userIsMedic),
+    ]);
 
     // Build daily summary notification
     if (todayShifts.total > 0) {
@@ -57,6 +64,19 @@ export async function GET(req: NextRequest) {
         type: "daily_summary",
         title: "Turnos de hoy",
         message: `Tienes ${todayShifts.total} turno${todayShifts.total !== 1 ? "s" : ""} hoy${timeStr ? `. Primero a las ${timeStr}` : ""}. ${todayShifts.pending} pendiente${todayShifts.pending !== 1 ? "s" : ""}, ${todayShifts.confirmed} confirmado${todayShifts.confirmed !== 1 ? "s" : ""}.`,
+        resourceId: null,
+        read: false,
+        createdAt: now.toISOString(),
+      });
+    }
+
+    // Build new contact requests notification (staff only)
+    if (newContactRequests > 0) {
+      notifications.push({
+        id: "generated-new-contact-requests",
+        type: "new_contact_requests",
+        title: "Solicitudes de contacto",
+        message: `${newContactRequests} ${newContactRequests === 1 ? "consulta nueva" : "consultas nuevas"} desde la web esperando respuesta`,
         resourceId: null,
         read: false,
         createdAt: now.toISOString(),
@@ -170,6 +190,12 @@ async function getRescheduledShifts(
     orderBy: { rescheduledAt: "desc" },
     take: 10,
   });
+}
+
+async function getNewContactRequests(userIsMedic: boolean) {
+  // Public contact requests are a reception/admin concern; medics don't see them.
+  if (userIsMedic) return 0;
+  return prisma.contactRequest.count({ where: { status: "new" } });
 }
 
 async function getPendingStudies(userId: string, userIsMedic: boolean) {

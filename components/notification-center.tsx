@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useCachedFetch } from "@/hooks/use-cached-fetch";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,7 @@ import {
   FlaskConical,
   UserX,
   RefreshCw,
+  Inbox,
   CheckCheck,
 } from "lucide-react";
 import type { AppNotification } from "@/types";
@@ -23,6 +25,7 @@ const NOTIFICATION_ICONS: Record<string, React.ElementType> = {
   pending_studies: FlaskConical,
   inactive_patient: UserX,
   rescheduled: RefreshCw,
+  new_contact_requests: Inbox,
 };
 
 const NOTIFICATION_COLORS: Record<string, string> = {
@@ -30,6 +33,12 @@ const NOTIFICATION_COLORS: Record<string, string> = {
   pending_studies: "text-amber-500",
   inactive_patient: "text-red-500",
   rescheduled: "text-purple-500",
+  new_contact_requests: "text-emerald-500",
+};
+
+// Notifications that link to a destination when clicked.
+const NOTIFICATION_HREFS: Record<string, string> = {
+  new_contact_requests: "/dashboard/administracion/solicitudes-contacto",
 };
 
 function formatRelativeTime(dateStr: string): string {
@@ -53,6 +62,7 @@ export function NotificationCenter() {
     { refreshInterval: 60000 } // poll every 60s
   );
 
+  const router = useRouter();
   const notifications = notifData?.notifications ?? [];
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
@@ -148,6 +158,11 @@ export function NotificationCenter() {
                     onClick={() => {
                       if (!isRead) {
                         markAsRead(notification.id);
+                      }
+                      const href = NOTIFICATION_HREFS[notification.type];
+                      if (href) {
+                        setOpen(false);
+                        router.push(href);
                       }
                     }}
                   >

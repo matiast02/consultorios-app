@@ -25,6 +25,17 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
+
+    // ── Anti-bot (no external service) ────────────────────────────────────
+    // 1) Honeypot: a hidden field real users never see. If it's filled, it's a
+    //    bot. Return a success-shaped response so the bot can't detect the trap.
+    // 2) Timing: forms submitted almost instantly are automated. Same response.
+    const honeypot = typeof body?._hp === "string" ? body._hp.trim() : "";
+    const elapsedMs = typeof body?._elapsedMs === "number" ? body._elapsedMs : null;
+    if (honeypot.length > 0 || (elapsedMs !== null && elapsedMs < 1500)) {
+      return NextResponse.json({ success: true, data: { id: null, whatsappLink: null } }, { status: 201 });
+    }
+
     const parsed = contactRequestSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
