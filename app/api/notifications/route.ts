@@ -252,8 +252,10 @@ async function getInactivePatients(
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
   // Find patients whose last FINISHED shift was > 90 days ago
-  // For medics, only their own patients (via shifts)
-  const medicFilter = userIsMedic ? `AND s.userId = '${userId}'` : "";
+  // For medics, only their own patients (via shifts).
+  // Bind userId as a parameter (never interpolate) to avoid SQL injection.
+  const medicFilter = userIsMedic ? "AND s.userId = ?" : "";
+  const params: unknown[] = userIsMedic ? [userId, ninetyDaysAgo] : [ninetyDaysAgo];
 
   // Use raw query for this complex aggregation
   const results: Array<{
@@ -272,7 +274,7 @@ async function getInactivePatients(
     HAVING MAX(s.start) < ?
     ORDER BY MAX(s.start) ASC
     LIMIT 5
-  `, ninetyDaysAgo);
+  `, ...params);
 
   return results;
 }
