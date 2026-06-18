@@ -11,6 +11,7 @@ import {
   Calendar,
   FileText,
   HeartPulse,
+  Salad,
   Stethoscope,
   User as UserIcon,
 } from "lucide-react";
@@ -21,15 +22,19 @@ import { DatosTab } from "@/components/pacientes/datos-tab";
 import { HistoriaTab } from "@/components/pacientes/historia-tab";
 import { EvolucionesTab } from "@/components/pacientes/evoluciones-tab";
 import { RecetasTab } from "@/components/pacientes/recetas-tab";
+import { NutricionTab } from "@/components/pacientes/nutricion-tab";
 import { TurnosTab } from "@/components/pacientes/turnos-tab";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
 import { CreatePrescriptionDialog } from "@/components/prescriptions/create-prescription-dialog";
 import { PrescriptionView } from "@/components/prescriptions/prescription-view";
+import { CreateMealPlanDialog } from "@/components/nutrition/create-meal-plan-dialog";
+import { MealPlanView } from "@/components/nutrition/meal-plan-view";
 import { safeParseJSON, relTime } from "@/components/pacientes/shared";
 import type {
   ClinicalRecord,
   Evolution,
+  MealPlan,
   ModuleConfig,
   Patient,
   Prescription,
@@ -43,6 +48,7 @@ const VALID_TABS = [
   "historia",
   "evoluciones",
   "recetas",
+  "nutricion",
   "turnos",
 ] as const;
 type TabId = (typeof VALID_TABS)[number];
@@ -85,12 +91,17 @@ export default function PacienteDetailPage() {
   const [evolutions, setEvolutions] = useState<Evolution[]>([]);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [prescriptionsEnabled, setPrescriptionsEnabled] = useState(false);
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
+  const [nutritionEnabled, setNutritionEnabled] = useState(false);
 
   // Dialogs
   const [editOpen, setEditOpen] = useState(false);
   const [evolutionOpen, setEvolutionOpen] = useState(false);
   const [prescriptionOpen, setPrescriptionOpen] = useState(false);
   const [viewingPrescription, setViewingPrescription] = useState<Prescription | null>(null);
+  const [mealPlanOpen, setMealPlanOpen] = useState(false);
+  const [editingMealPlan, setEditingMealPlan] = useState<MealPlan | null>(null);
+  const [viewingMealPlan, setViewingMealPlan] = useState<MealPlan | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -141,11 +152,32 @@ export default function PacienteDetailPage() {
             }
           }
         }
+
+        // Nutrition: only for professionals whose profession enables the
+        // anthropometric tracker (i.e. nutritionists). Meal plans share the
+        // "prescriptions" module gate on the API side.
+        if (sessionUserId) {
+          const pcRes = await fetch(`/api/users/${sessionUserId}/profession-config`);
+          if (pcRes.ok) {
+            const pcJson = await pcRes.json();
+            const fields = safeParseJSON<string[]>(pcJson.data?.clinicalFields ?? null, []);
+            if (fields.includes("anthropometricTracker")) {
+              setNutritionEnabled(true);
+              const mpRes = await fetch(`/api/meal-plans?patientId=${patientId}`);
+              if (mpRes.ok) {
+                const mpJson = await mpRes.json();
+                setMealPlans(Array.isArray(mpJson.data) ? mpJson.data : []);
+              }
+            }
+          }
+        }
       } else {
         // Reset clinical state for secretaries
         setEvolutions([]);
         setPrescriptions([]);
         setPrescriptionsEnabled(false);
+        setMealPlans([]);
+        setNutritionEnabled(false);
       }
     } catch {
       toast.error("Error al cargar el paciente");
@@ -153,7 +185,7 @@ export default function PacienteDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [patientId, router, isClinical]);
+  }, [patientId, router, isClinical, sessionUserId]);
 
   useEffect(() => {
     fetchAll();
@@ -255,6 +287,16 @@ export default function PacienteDetailPage() {
             label: "Recetas",
             icon: FileText,
             count: prescriptions.length,
+          },
+        ]
+      : []),
+    ...(isClinical && nutritionEnabled
+      ? [
+          {
+            id: "nutricion" as TabId,
+            label: "Nutrición",
+            icon: Salad,
+            count: mealPlans.length,
           },
         ]
       : []),
@@ -366,6 +408,23 @@ export default function PacienteDetailPage() {
                 />
               </TabsContent>
             )}
+
+            {nutritionEnabled && (
+              <TabsContent value="nutricion" className="mt-5">
+                <NutricionTab
+                  mealPlans={mealPlans}
+                  onNew={() => {
+                    setEditingMealPlan(null);
+                    setMealPlanOpen(true);
+                  }}
+                  onView={(p) => setViewingMealPlan(p)}
+                  onEdit={(p) => {
+                    setEditingMealPlan(p);
+                    setMealPlanOpen(true);
+                  }}
+                />
+              </TabsContent>
+            )}
           </>
         )}
 
@@ -438,6 +497,46 @@ export default function PacienteDetailPage() {
                       : viewingPrescription.user?.name ?? "Profesional"
                   }
                   prescriptionLabel="Receta"
+                />
+              )}
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+
+      {isClinical && nutritionEnabled && (
+        <>
+          <CreateMealPlanDialog
+            open={mealPlanOpen}
+            onOpenChange={(v) => {
+              setMealPlanOpen(v);
+              if (!v) setEditingMealPlan(null);
+            }}
+            patientId={patientId}
+            patientName={`${patient.lastName}, ${patient.firstName}`}
+            userId={sessionUserId}
+            editPlan={editingMealPlan}
+            onCreated={() => {
+              setMealPlanOpen(false);
+              setEditingMealPlan(null);
+              fetchAll();
+            }}
+          />
+
+          <Dialog
+            open={!!viewingMealPlan}
+            onOpenChange={(v) => {
+              if (!v) setViewingMealPlan(null);
+            }}
+          >
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[800px]">
+              <DialogHeader>
+                <DialogTitle>Plan alimentario</DialogTitle>
+              </DialogHeader>
+              {viewingMealPlan && (
+                <MealPlanView
+                  plan={viewingMealPlan}
+                  patientName={`${patient.lastName}, ${patient.firstName}`}
                 />
               )}
             </DialogContent>
