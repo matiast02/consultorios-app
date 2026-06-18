@@ -11,7 +11,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Printer, Stethoscope } from "lucide-react";
+import { Printer, Download, Stethoscope } from "lucide-react";
+import { generatePrescriptionPDF } from "@/lib/pdf-generator";
 import type { Prescription, PrescriptionItem } from "@/types";
 
 interface PrescriptionViewProps {
@@ -53,10 +54,24 @@ export function PrescriptionView({
     window.print();
   }
 
+  function handleDownloadPDF() {
+    const doc = generatePrescriptionPDF(prescription, patientName, medicName, {
+      patientDni,
+      label: prescriptionLabel,
+    });
+    const slug = patientName.replace(/\s+/g, "-").toLowerCase() || "paciente";
+    const docSlug = prescriptionLabel.replace(/\s+/g, "-").toLowerCase();
+    doc.save(`${docSlug}-${slug}.pdf`);
+  }
+
   return (
     <div className="space-y-4">
-      {/* Print button — hidden on print */}
-      <div className="flex justify-end print:hidden">
+      {/* Action buttons — hidden on print */}
+      <div className="flex justify-end gap-2 print:hidden">
+        <Button onClick={handleDownloadPDF} variant="outline" size="sm">
+          <Download className="mr-2 h-4 w-4" />
+          Descargar PDF
+        </Button>
         <Button onClick={handlePrint} variant="outline" size="sm">
           <Printer className="mr-2 h-4 w-4" />
           Imprimir
