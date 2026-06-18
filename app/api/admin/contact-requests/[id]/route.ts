@@ -59,3 +59,38 @@ export async function PATCH(
     );
   }
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
+    }
+    const role = await getUserRole(session.user.id);
+    if (!role || !ALLOWED_ROLES.has(role)) {
+      return NextResponse.json({ success: false, error: "Acceso denegado" }, { status: 403 });
+    }
+
+    const existing = await prisma.contactRequest.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ success: false, error: "Solicitud no encontrada" }, { status: 404 });
+    }
+
+    await prisma.contactRequest.delete({ where: { id } });
+
+    return NextResponse.json({ success: true, data: { id } });
+  } catch (error) {
+    console.error("DELETE /api/admin/contact-requests/[id] error:", error);
+    return NextResponse.json(
+      { success: false, error: "Error al eliminar la solicitud" },
+      { status: 500 }
+    );
+  }
+}

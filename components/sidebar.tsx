@@ -28,6 +28,7 @@ import {
   Clock,
   Shield,
   Puzzle,
+  Inbox,
   LogOut,
 } from "lucide-react";
 import { useState } from "react";
@@ -71,6 +72,11 @@ const secretaryItems = [
     label: "Secretarias",
     href: "/dashboard/administracion/secretarias",
     icon: UserRoundCog,
+  },
+  {
+    label: "Solicitudes",
+    href: "/dashboard/administracion/solicitudes-contacto",
+    icon: Inbox,
   },
 ];
 
