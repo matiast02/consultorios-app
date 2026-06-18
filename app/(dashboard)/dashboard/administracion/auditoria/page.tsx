@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -437,9 +437,8 @@ export default function AuditoriaPage() {
                 </TableHeader>
                 <TableBody>
                   {logs.map((log) => (
-                    <>
+                    <Fragment key={log.id}>
                       <TableRow
-                        key={log.id}
                         className="transition-colors duration-150 hover:bg-primary/5"
                       >
                         <TableCell className="whitespace-nowrap text-sm">
@@ -499,7 +498,7 @@ export default function AuditoriaPage() {
                         </TableCell>
                       </TableRow>
                       {expandedRow === log.id && log.details && (
-                        <TableRow key={`${log.id}-details`}>
+                        <TableRow>
                           <TableCell
                             colSpan={7}
                             className="bg-muted/30 px-6 py-3"
@@ -510,7 +509,7 @@ export default function AuditoriaPage() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>
