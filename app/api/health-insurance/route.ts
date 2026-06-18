@@ -39,6 +39,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const role = (session.user as { role?: string | null }).role;
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "No tiene permisos para realizar esta acción" },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const parsed = createHealthInsuranceSchema.safeParse(body);
 

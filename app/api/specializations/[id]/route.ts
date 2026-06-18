@@ -54,6 +54,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const role = (session.user as { role?: string | null }).role;
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "No tiene permisos para realizar esta acción" },
+        { status: 403 }
+      );
+    }
+
     const { id } = await context.params;
 
     const existing = await prisma.specialization.findUnique({
@@ -127,6 +135,14 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    const role = (session.user as { role?: string | null }).role;
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "No tiene permisos para realizar esta acción" },
+        { status: 403 }
       );
     }
 
