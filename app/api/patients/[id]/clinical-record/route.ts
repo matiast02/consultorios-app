@@ -110,6 +110,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
             familyHistory: null,
             currentMedication: null,
             notes: null,
+            odontogram: null,
+            genogram: null,
           },
         });
       }

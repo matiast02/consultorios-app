@@ -12,7 +12,9 @@ import {
   FileText,
   HeartPulse,
   Salad,
+  Smile,
   Stethoscope,
+  Users,
   User as UserIcon,
 } from "lucide-react";
 import { PatientHeader } from "@/components/pacientes/patient-header";
@@ -23,6 +25,8 @@ import { HistoriaTab } from "@/components/pacientes/historia-tab";
 import { EvolucionesTab } from "@/components/pacientes/evoluciones-tab";
 import { RecetasTab } from "@/components/pacientes/recetas-tab";
 import { NutricionTab } from "@/components/pacientes/nutricion-tab";
+import { OdontogramaTab } from "@/components/pacientes/odontograma-tab";
+import { GenogramaTab } from "@/components/pacientes/genograma-tab";
 import { TurnosTab } from "@/components/pacientes/turnos-tab";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
@@ -49,6 +53,8 @@ const VALID_TABS = [
   "evoluciones",
   "recetas",
   "nutricion",
+  "odontograma",
+  "genograma",
   "turnos",
 ] as const;
 type TabId = (typeof VALID_TABS)[number];
@@ -93,6 +99,8 @@ export default function PacienteDetailPage() {
   const [prescriptionsEnabled, setPrescriptionsEnabled] = useState(false);
   const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
   const [nutritionEnabled, setNutritionEnabled] = useState(false);
+  const [odontogramEnabled, setOdontogramEnabled] = useState(false);
+  const [genogramEnabled, setGenogramEnabled] = useState(false);
 
   // Dialogs
   const [editOpen, setEditOpen] = useState(false);
@@ -161,6 +169,8 @@ export default function PacienteDetailPage() {
           if (pcRes.ok) {
             const pcJson = await pcRes.json();
             const fields = safeParseJSON<string[]>(pcJson.data?.clinicalFields ?? null, []);
+            setOdontogramEnabled(fields.includes("odontogram"));
+            setGenogramEnabled(fields.includes("genogram"));
             if (fields.includes("anthropometricTracker")) {
               setNutritionEnabled(true);
               const mpRes = await fetch(`/api/meal-plans?patientId=${patientId}`);
@@ -178,6 +188,8 @@ export default function PacienteDetailPage() {
         setPrescriptionsEnabled(false);
         setMealPlans([]);
         setNutritionEnabled(false);
+        setOdontogramEnabled(false);
+        setGenogramEnabled(false);
       }
     } catch {
       toast.error("Error al cargar el paciente");
@@ -299,6 +311,12 @@ export default function PacienteDetailPage() {
             count: mealPlans.length,
           },
         ]
+      : []),
+    ...(isClinical && odontogramEnabled
+      ? [{ id: "odontograma" as TabId, label: "Odontograma", icon: Smile }]
+      : []),
+    ...(isClinical && genogramEnabled
+      ? [{ id: "genograma" as TabId, label: "Genograma", icon: Users }]
       : []),
     { id: "turnos", label: "Turnos", icon: Calendar, count: shifts.length },
   ];
@@ -422,6 +440,31 @@ export default function PacienteDetailPage() {
                     setEditingMealPlan(p);
                     setMealPlanOpen(true);
                   }}
+                />
+              </TabsContent>
+            )}
+
+            {odontogramEnabled && (
+              <TabsContent value="odontograma" className="mt-5">
+                <OdontogramaTab
+                  patientId={patientId}
+                  initialData={record?.odontogram ?? null}
+                  onSaved={(json) =>
+                    setRecord((r) => (r ? { ...r, odontogram: json } : r))
+                  }
+                />
+              </TabsContent>
+            )}
+
+            {genogramEnabled && (
+              <TabsContent value="genograma" className="mt-5">
+                <GenogramaTab
+                  patientId={patientId}
+                  patientName={`${patient.firstName} ${patient.lastName}`}
+                  initialData={record?.genogram ?? null}
+                  onSaved={(json) =>
+                    setRecord((r) => (r ? { ...r, genogram: json } : r))
+                  }
                 />
               </TabsContent>
             )}

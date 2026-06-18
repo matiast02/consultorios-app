@@ -413,6 +413,10 @@ model ClinicalRecord {
   // Structured allergies (JSON: { nombre, severidad: alta|media|baja, nota? }[])
   structuredAllergies String? @db.Text
 
+  // Profession-specific visual editors (JSON)
+  odontogram String? @db.Text // JSON OdontogramData (odontología)
+  genogram   String? @db.Text // JSON GenogramData (psicología)
+
   patient    Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
   evolutions Evolution[]
 

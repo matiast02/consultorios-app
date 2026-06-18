@@ -127,6 +127,9 @@ export const updateClinicalRecordSchema = z.object({
   habitsDiet: z.string().max(240).nullable().optional(),
   // Structured allergies (array; serialized to JSON server-side)
   structuredAllergies: z.array(structuredAllergySchema).nullable().optional(),
+  // Profession-specific visual editors (JSON strings)
+  odontogram: z.string().nullable().optional(),
+  genogram: z.string().nullable().optional(),
 });
 
 export const createEvolutionSchema = z.object({

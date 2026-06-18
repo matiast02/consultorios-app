@@ -386,6 +386,9 @@ export interface ClinicalRecord {
   habitsDiet?: string | null;
   // Structured allergies (JSON string of StructuredAllergy[])
   structuredAllergies?: string | null;
+  // Profession-specific visual editors (JSON strings)
+  odontogram?: string | null;
+  genogram?: string | null;
   evolutions?: Evolution[];
   createdAt: string;
   updatedAt: string;
