@@ -57,7 +57,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     const role = (session.user as { role?: string | null }).role;
-    if (role !== "admin") {
+    if (role !== "admin" && role !== "secretary") {
       return NextResponse.json(
         { success: false, error: "No tiene permisos para realizar esta acción" },
         { status: 403 }
@@ -111,7 +111,7 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     }
 
     const role = (session.user as { role?: string | null }).role;
-    if (role !== "admin") {
+    if (role !== "admin" && role !== "secretary") {
       return NextResponse.json(
         { success: false, error: "No tiene permisos para realizar esta acción" },
         { status: 403 }

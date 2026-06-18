@@ -57,8 +57,16 @@ describe("Catalog mutations require admin role", () => {
     expect(res.status).toBe(201);
   });
 
-  it("POST /api/health-insurance — 403 para secretaria", async () => {
+  it("POST /api/health-insurance — secretaria SÍ puede (201)", async () => {
     asRole("secretary");
+    const res = await createHealthInsurance(
+      postReq("http://localhost/api/health-insurance", { name: "OSDE" })
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("POST /api/health-insurance — 403 para médico", async () => {
+    asRole("medic");
     const res = await createHealthInsurance(
       postReq("http://localhost/api/health-insurance", { name: "OSDE" })
     );

@@ -78,15 +78,15 @@ const secretaryItems = [
     href: "/dashboard/administracion/solicitudes-contacto",
     icon: Inbox,
   },
-];
-
-// Items visible only to admin
-const adminOnlyItems = [
   {
     label: "Obras Sociales",
     href: "/dashboard/administracion/obras-sociales",
     icon: Heart,
   },
+];
+
+// Items visible only to admin
+const adminOnlyItems = [
   {
     label: "Especialidades",
     href: "/dashboard/administracion/especialidades",
