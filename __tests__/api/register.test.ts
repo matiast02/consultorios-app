@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { prismaMock, resetAllMocks } from "../setup";
+import { prismaMock, authMock, resetAllMocks } from "../setup";
+import { getUserRole } from "@/lib/auth-utils";
 
 // Mock rate-limit before importing the route
 vi.mock("@/lib/rate-limit", () => ({
@@ -43,6 +44,27 @@ const VALID_BODY = {
 describe("POST /api/register", () => {
   beforeEach(() => {
     resetAllMocks();
+    // Registration is admin-only: default the requester to an admin session.
+    authMock.mockResolvedValue({
+      user: { id: "admin-1", email: "admin@test.com", role: "admin" },
+    });
+    vi.mocked(getUserRole).mockResolvedValue("admin");
+  });
+
+  // 0 ─ Rejects non-admin requesters (registration is admin-only)
+  it("rechaza si el solicitante no es admin", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("secretary");
+
+    const res = await POST(createRequest(VALID_BODY));
+    expect(res.status).toBe(403);
+  });
+
+  // 0b ─ Rejects unauthenticated requesters
+  it("rechaza sin autenticacion", async () => {
+    authMock.mockResolvedValueOnce(null);
+
+    const res = await POST(createRequest(VALID_BODY));
+    expect(res.status).toBe(401);
   });
 
   // 1 ─ Registers valid user
