@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { isSecretary } from "@/lib/auth-utils";
+import { checkModuleAccess } from "@/lib/modules";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -21,6 +22,13 @@ export async function GET(_req: NextRequest, context: RouteContext) {
     if (await isSecretary(session.user.id)) {
       return NextResponse.json(
         { success: false, error: "Sin acceso a recetas" },
+        { status: 403 }
+      );
+    }
+
+    if (!(await checkModuleAccess("prescriptions", session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Modulo de recetas no habilitado" },
         { status: 403 }
       );
     }
