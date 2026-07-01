@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: 3 requests per minute per user
-    const { allowed } = checkRateLimit(`change-pw:${session.user.id}`, { maxRequests: 3, windowMs: 60000 });
+    const { allowed } = await checkRateLimit(`change-pw:${session.user.id}`, { maxRequests: 3, windowMs: 60000 });
     if (!allowed) {
       return NextResponse.json(
         { success: false, error: "Demasiados intentos. Intenta en un minuto." },

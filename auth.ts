@@ -31,7 +31,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const { email, password } = parsed.data;
 
         // Brute-force protection: check if login is allowed
-        const loginCheck = checkLoginAllowed(email);
+        const loginCheck = await checkLoginAllowed(email);
         if (!loginCheck.allowed) {
           logAudit({
             userId: "unknown",
@@ -51,7 +51,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         });
 
         if (!user || !user.password) {
-          recordFailedLogin(email);
+          await recordFailedLogin(email);
           logAudit({
             userId: "unknown",
             action: "LOGIN_FAILED",
@@ -76,7 +76,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const passwordsMatch = await bcrypt.compare(password, user.password);
         if (!passwordsMatch) {
-          recordFailedLogin(email);
+          await recordFailedLogin(email);
           logAudit({
             userId: user.id,
             action: "LOGIN_FAILED",
@@ -88,7 +88,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         // Success: reset failed attempts counter and log
-        recordSuccessfulLogin(email);
+        await recordSuccessfulLogin(email);
         logAudit({
           userId: user.id,
           action: "LOGIN_SUCCESS",

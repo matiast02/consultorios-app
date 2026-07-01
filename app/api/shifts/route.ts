@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: 30 requests per minute per user
-    const { allowed } = checkRateLimit(`shifts-create:${session.user.id}`, { maxRequests: 30, windowMs: 60000 });
+    const { allowed } = await checkRateLimit(`shifts-create:${session.user.id}`, { maxRequests: 30, windowMs: 60000 });
     if (!allowed) {
       return NextResponse.json(
         { success: false, error: "Demasiados intentos. Intenta en un minuto." },

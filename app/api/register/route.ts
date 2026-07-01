@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     // Rate limit: 5 requests per minute per IP
     const ip = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "unknown";
-    const { allowed } = checkRateLimit(`register:${ip}`, { maxRequests: 5, windowMs: 60000 });
+    const { allowed } = await checkRateLimit(`register:${ip}`, { maxRequests: 5, windowMs: 60000 });
     if (!allowed) {
       return NextResponse.json(
         { success: false, error: "Demasiados intentos. Intenta en un minuto." },

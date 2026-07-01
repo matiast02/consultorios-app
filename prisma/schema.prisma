@@ -721,3 +721,15 @@ model ContactRequest {
   @@index([status, createdAt])
   @@index([specializationId])
 }
+
+// Rate limiting + brute-force lockout (shared store, serverless-safe).
+// Generic counter keyed by identifier (e.g. "contact:<ip>", "login:<email>").
+model RateLimit {
+  key         String    @id
+  count       Int       @default(0)
+  expiresAt   DateTime // when the current window resets
+  lockedUntil DateTime? // login lockout expiry (null for generic limits)
+  updatedAt   DateTime  @updatedAt
+
+  @@index([expiresAt])
+}

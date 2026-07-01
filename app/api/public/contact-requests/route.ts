@@ -15,7 +15,7 @@ function getClientIp(req: NextRequest): string {
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
-    const rl = checkRateLimit(`contact:${ip}`, { maxRequests: 5, windowMs: 10 * 60 * 1000 });
+    const rl = await checkRateLimit(`contact:${ip}`, { maxRequests: 5, windowMs: 10 * 60 * 1000 });
     if (!rl.allowed) {
       const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000);
       return NextResponse.json(

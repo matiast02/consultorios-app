@@ -1,46 +1,54 @@
-// Simple in-memory rate limiter
-// In production, use Redis or similar
+// DB-backed rate limiter (serverless-safe: shared across instances via MySQL).
+// Fixed-window counter keyed by identifier (e.g. "contact:<ip>", "shift:<userId>").
 
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-
-const store = new Map<string, RateLimitEntry>();
-
-// Clean expired entries periodically
-if (typeof globalThis !== "undefined") {
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of store) {
-      if (entry.resetAt < now) store.delete(key);
-    }
-  }, 60000);
-}
+import { prisma } from "@/lib/prisma";
 
 export interface RateLimitConfig {
   maxRequests: number; // max requests per window
   windowMs: number; // window in milliseconds
 }
 
-export function checkRateLimit(
+export async function checkRateLimit(
   identifier: string,
   config: RateLimitConfig = { maxRequests: 10, windowMs: 60000 }
-): { allowed: boolean; remaining: number; resetAt: number } {
-  const now = Date.now();
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  const now = new Date();
   const key = identifier;
-  let entry = store.get(key);
 
-  if (!entry || entry.resetAt < now) {
-    entry = { count: 0, resetAt: now + config.windowMs };
-    store.set(key, entry);
+  try {
+    const existing = await prisma.rateLimit.findUnique({ where: { key } });
+
+    // No entry, or the previous window has expired → start a fresh window.
+    if (!existing || existing.expiresAt < now) {
+      const expiresAt = new Date(now.getTime() + config.windowMs);
+      await prisma.rateLimit.upsert({
+        where: { key },
+        create: { key, count: 1, expiresAt },
+        update: { count: 1, expiresAt, lockedUntil: null },
+      });
+      return {
+        allowed: true,
+        remaining: Math.max(0, config.maxRequests - 1),
+        resetAt: expiresAt.getTime(),
+      };
+    }
+
+    const updated = await prisma.rateLimit.update({
+      where: { key },
+      data: { count: { increment: 1 } },
+    });
+
+    return {
+      allowed: updated.count <= config.maxRequests,
+      remaining: Math.max(0, config.maxRequests - updated.count),
+      resetAt: existing.expiresAt.getTime(),
+    };
+  } catch {
+    // Fail open: never block legitimate traffic if the store is unavailable.
+    return {
+      allowed: true,
+      remaining: config.maxRequests,
+      resetAt: now.getTime() + config.windowMs,
+    };
   }
-
-  entry.count++;
-
-  return {
-    allowed: entry.count <= config.maxRequests,
-    remaining: Math.max(0, config.maxRequests - entry.count),
-    resetAt: entry.resetAt,
-  };
 }
