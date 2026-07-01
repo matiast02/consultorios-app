@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { isSecretary } from "@/lib/auth-utils";
 import { checkModuleAccess } from "@/lib/modules";
+import { recordClinicalVersion, prescriptionSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -83,6 +84,9 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     }
 
     const { id } = await context.params;
+    const body = await req.json().catch(() => ({}));
+    const annulReason =
+      typeof body?.annulReason === "string" ? body.annulReason.trim() : "";
 
     const prescription = await prisma.prescription.findUnique({
       where: { id },
@@ -97,13 +101,41 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
 
     if (prescription.userId !== session.user.id) {
       return NextResponse.json(
-        { success: false, error: "Solo el creador puede eliminar esta receta" },
+        { success: false, error: "Solo el creador puede anular esta receta" },
         { status: 403 }
       );
     }
 
-    await prisma.prescription.delete({
-      where: { id },
+    if (prescription.annulledAt) {
+      return NextResponse.json(
+        { success: false, error: "La receta ya está anulada" },
+        { status: 409 }
+      );
+    }
+
+    if (!annulReason) {
+      return NextResponse.json(
+        { success: false, error: "Se requiere un motivo para anular la receta" },
+        { status: 400 }
+      );
+    }
+
+    // Inalterabilidad: se anula (no se borra).
+    const authorId = session.user.id!;
+    await prisma.$transaction(async (tx) => {
+      await tx.prescription.update({
+        where: { id },
+        data: { annulledAt: new Date(), annulReason, annulledById: authorId },
+      });
+      await recordClinicalVersion(tx, {
+        entityType: "prescription",
+        entityId: id,
+        patientId: prescription.patientId,
+        action: "annulled",
+        data: prescriptionSnapshot(prescription),
+        authorId,
+        reason: annulReason,
+      });
     });
 
     logAudit({
@@ -111,11 +143,11 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       action: "DELETE",
       resource: "prescription" as never,
       resourceId: id,
-      details: { patientId: prescription.patientId },
+      details: { patientId: prescription.patientId, annulled: true, reason: annulReason },
       req,
     });
 
-    return NextResponse.json({ success: true, data: { id } });
+    return NextResponse.json({ success: true, data: { id, annulled: true } });
   } catch (error) {
     console.error("DELETE /api/prescriptions/[id] error:", error);
     return NextResponse.json(
