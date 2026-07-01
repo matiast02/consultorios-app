@@ -226,6 +226,7 @@ export function ShiftListItem({
               <Link
                 href={`/dashboard/pacientes/${shift.patientId}/historia-clinica`}
                 target="_blank"
+                rel="noopener noreferrer"
               >
                 <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
                 HC
@@ -293,6 +294,7 @@ export function ShiftListItem({
               <Link
                 href={`/dashboard/pacientes/${shift.patientId}/historia-clinica`}
                 target="_blank"
+                rel="noopener noreferrer"
               >
                 Ver completa
                 <ExternalLink className="ml-1 h-3 w-3" />
