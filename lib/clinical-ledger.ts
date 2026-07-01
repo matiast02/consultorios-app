@@ -4,7 +4,6 @@
 // (contentHash incluye el prevHash) para detectar manipulación posterior.
 
 import crypto from "node:crypto";
-import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export type ClinicalEntityType =
@@ -16,7 +15,12 @@ export type ClinicalEntityType =
 
 export type LedgerAction = "created" | "corrected" | "annulled";
 
-type Tx = Prisma.TransactionClient | PrismaClient;
+// Cliente Prisma extendido o su cliente de transacción (mismo shape sin los
+// métodos de nivel-conexión). Acepta tanto `prisma` como el `tx` de $transaction.
+type Tx = Omit<
+  typeof prisma,
+  "$extends" | "$transaction" | "$connect" | "$disconnect" | "$on"
+>;
 
 // ─── Snapshot builders (definen qué campos clínicos se versionan) ─────────────
 
