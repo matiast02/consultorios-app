@@ -18,6 +18,78 @@ export type LedgerAction = "created" | "corrected" | "annulled";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
+// ─── Snapshot builders (definen qué campos clínicos se versionan) ─────────────
+
+
+
+export function evolutionSnapshot(e: Record<string, unknown>): Record<string, unknown> {
+  return {
+    reason: e.reason ?? null,
+    physicalExam: e.physicalExam ?? null,
+    diagnosis: e.diagnosis ?? null,
+    diagnosisCode: e.diagnosisCode ?? null,
+    treatment: e.treatment ?? null,
+    indications: e.indications ?? null,
+    notes: e.notes ?? null,
+    shiftId: e.shiftId ?? null,
+  };
+}
+
+export function clinicalRecordSnapshot(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    bloodType: r.bloodType ?? null,
+    allergies: r.allergies ?? null,
+    personalHistory: r.personalHistory ?? null,
+    familyHistory: r.familyHistory ?? null,
+    currentMedication: r.currentMedication ?? null,
+    notes: r.notes ?? null,
+    heightCm: r.heightCm ?? null,
+    weightKg: r.weightKg ?? null,
+    habitsTobacco: r.habitsTobacco ?? null,
+    habitsAlcohol: r.habitsAlcohol ?? null,
+    habitsActivity: r.habitsActivity ?? null,
+    habitsDiet: r.habitsDiet ?? null,
+    structuredAllergies: r.structuredAllergies ?? null,
+    odontogram: r.odontogram ?? null,
+    genogram: r.genogram ?? null,
+  };
+}
+
+export function prescriptionSnapshot(p: Record<string, unknown>): Record<string, unknown> {
+  return {
+    items: p.items ?? null,
+    diagnosis: p.diagnosis ?? null,
+    notes: p.notes ?? null,
+    durationDays: p.durationDays ?? null,
+    shiftId: p.shiftId ?? null,
+  };
+}
+
+export function studyOrderSnapshot(s: Record<string, unknown>): Record<string, unknown> {
+  return {
+    items: s.items ?? null,
+    status: s.status ?? null,
+    resultNotes: s.resultNotes ?? null,
+    shiftId: s.shiftId ?? null,
+  };
+}
+
+export function mealPlanSnapshot(m: Record<string, unknown>): Record<string, unknown> {
+  return {
+    title: m.title ?? null,
+    targetCalories: m.targetCalories ?? null,
+    proteinPct: m.proteinPct ?? null,
+    carbsPct: m.carbsPct ?? null,
+    fatPct: m.fatPct ?? null,
+    hydration: m.hydration ?? null,
+    meals: m.meals ?? null,
+    avoidFoods: m.avoidFoods ?? null,
+    supplements: m.supplements ?? null,
+    notes: m.notes ?? null,
+    shiftId: m.shiftId ?? null,
+  };
+}
+
 /**
  * Deterministic hash over the exact stored fields. We hash the literal `dataJson`
  * string so nested key ordering can never change the digest.

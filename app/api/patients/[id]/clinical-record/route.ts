@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateClinicalRecordSchema } from "@/lib/validations";
 import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
+import { recordClinicalVersion, clinicalRecordSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -225,14 +226,33 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         : {}),
     };
 
-    // Upsert the clinical record with provided data
-    const clinicalRecord = await prisma.clinicalRecord.upsert({
+    const authorId = session.user.id;
+    const existingRecord = await prisma.clinicalRecord.findUnique({
       where: { patientId: id },
-      update: dataForPrisma,
-      create: {
+      select: { id: true },
+    });
+
+    // Upsert the clinical record + append an immutable version snapshot.
+    const clinicalRecord = await prisma.$transaction(async (tx) => {
+      const record = await tx.clinicalRecord.upsert({
+        where: { patientId: id },
+        update: dataForPrisma,
+        create: {
+          patientId: id,
+          ...dataForPrisma,
+        },
+      });
+
+      await recordClinicalVersion(tx, {
+        entityType: "clinical_record",
+        entityId: record.id,
         patientId: id,
-        ...dataForPrisma,
-      },
+        action: existingRecord ? "corrected" : "created",
+        data: clinicalRecordSnapshot(record),
+        authorId,
+      });
+
+      return record;
     });
 
     logAudit({
