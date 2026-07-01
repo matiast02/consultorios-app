@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
+import { recordClinicalVersion, studyOrderSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -93,22 +94,43 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const data = parsed.data;
+    if (existing.annulledAt) {
+      return NextResponse.json(
+        { success: false, error: "No se puede editar una orden anulada" },
+        { status: 409 }
+      );
+    }
 
-    const studyOrder = await prisma.studyOrder.update({
-      where: { id },
-      data: {
-        ...(data.status !== undefined ? { status: data.status } : {}),
-        ...(data.resultNotes !== undefined ? { resultNotes: data.resultNotes } : {}),
-      },
-      include: {
-        patient: {
-          select: { id: true, firstName: true, lastName: true },
+    const data = parsed.data;
+    const authorId = session.user.id!;
+
+    const studyOrder = await prisma.$transaction(async (tx) => {
+      const next = await tx.studyOrder.update({
+        where: { id },
+        data: {
+          ...(data.status !== undefined ? { status: data.status } : {}),
+          ...(data.resultNotes !== undefined ? { resultNotes: data.resultNotes } : {}),
         },
-        user: {
-          select: { id: true, name: true, email: true },
+        include: {
+          patient: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          user: {
+            select: { id: true, name: true, email: true },
+          },
         },
-      },
+      });
+
+      await recordClinicalVersion(tx, {
+        entityType: "study_order",
+        entityId: id,
+        patientId: existing.patientId,
+        action: "corrected",
+        data: studyOrderSnapshot(next),
+        authorId,
+      });
+
+      return next;
     });
 
     logAudit({
@@ -149,6 +171,9 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     }
 
     const { id } = await context.params;
+    const body = await req.json().catch(() => ({}));
+    const annulReason =
+      typeof body?.annulReason === "string" ? body.annulReason.trim() : "";
 
     const existing = await prisma.studyOrder.findUnique({ where: { id } });
     if (!existing) {
@@ -158,18 +183,48 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
-    await prisma.studyOrder.delete({ where: { id } });
+    if (existing.annulledAt) {
+      return NextResponse.json(
+        { success: false, error: "La orden ya está anulada" },
+        { status: 409 }
+      );
+    }
+
+    if (!annulReason) {
+      return NextResponse.json(
+        { success: false, error: "Se requiere un motivo para anular la orden" },
+        { status: 400 }
+      );
+    }
+
+    // Inalterabilidad: se anula (no se borra).
+    const authorId = session.user.id!;
+    await prisma.$transaction(async (tx) => {
+      await tx.studyOrder.update({
+        where: { id },
+        data: { annulledAt: new Date(), annulReason, annulledById: authorId },
+      });
+      await recordClinicalVersion(tx, {
+        entityType: "study_order",
+        entityId: id,
+        patientId: existing.patientId,
+        action: "annulled",
+        data: studyOrderSnapshot(existing),
+        authorId,
+        reason: annulReason,
+      });
+    });
 
     logAudit({
       userId: session.user.id!,
       action: "DELETE",
       resource: "study_order" as never,
       resourceId: id,
-      details: { patientId: existing.patientId },
+      details: { patientId: existing.patientId, annulled: true, reason: annulReason },
       req,
     });
 
-    return NextResponse.json({ success: true, data: { id } });
+    return NextResponse.json({ success: true, data: { id, annulled: true } });
   } catch (error) {
     console.error("DELETE /api/study-orders/[id] error:", error);
     return NextResponse.json(

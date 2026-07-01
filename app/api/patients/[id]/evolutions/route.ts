@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createEvolutionSchema } from "@/lib/validations";
 import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
+import { recordClinicalVersion, evolutionSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -187,27 +188,42 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    const evolution = await prisma.evolution.create({
-      data: {
-        clinicalRecordId: clinicalRecord.id,
-        userId: session.user.id,
-        shiftId: parsed.data.shiftId ?? null,
-        reason: parsed.data.reason ?? null,
-        physicalExam: parsed.data.physicalExam ?? null,
-        diagnosis: parsed.data.diagnosis ?? null,
-        diagnosisCode: parsed.data.diagnosisCode ?? null,
-        treatment: parsed.data.treatment ?? null,
-        indications: parsed.data.indications ?? null,
-        notes: parsed.data.notes ?? null,
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, firstName: true, lastName: true },
+    const authorId = session.user.id;
+    const evolution = await prisma.$transaction(async (tx) => {
+      const created = await tx.evolution.create({
+        data: {
+          clinicalRecordId: clinicalRecord.id,
+          userId: authorId,
+          shiftId: parsed.data.shiftId ?? null,
+          reason: parsed.data.reason ?? null,
+          physicalExam: parsed.data.physicalExam ?? null,
+          diagnosis: parsed.data.diagnosis ?? null,
+          diagnosisCode: parsed.data.diagnosisCode ?? null,
+          treatment: parsed.data.treatment ?? null,
+          indications: parsed.data.indications ?? null,
+          notes: parsed.data.notes ?? null,
         },
-        shift: {
-          select: { id: true, start: true, end: true, status: true },
+        include: {
+          user: {
+            select: { id: true, name: true, firstName: true, lastName: true },
+          },
+          shift: {
+            select: { id: true, start: true, end: true, status: true },
+          },
         },
-      },
+      });
+
+      // Immutable ledger entry (v1).
+      await recordClinicalVersion(tx, {
+        entityType: "evolution",
+        entityId: created.id,
+        patientId,
+        action: "created",
+        data: evolutionSnapshot(created),
+        authorId,
+      });
+
+      return created;
     });
 
     logAudit({

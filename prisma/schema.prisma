@@ -440,6 +440,11 @@ model Evolution {
   indications   String? @db.Text // indicaciones
   notes         String? @db.Text
 
+  // Inalterabilidad: se anula (no se borra); las correcciones generan versiones.
+  annulledAt   DateTime?
+  annulReason  String?   @db.Text
+  annulledById String?
+
   clinicalRecord ClinicalRecord @relation(fields: [clinicalRecordId], references: [id], onDelete: Cascade)
   shift          Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   user           User           @relation(fields: [userId], references: [id])
@@ -464,6 +469,10 @@ model AuditLog {
   ipAddress  String?
   userAgent  String?
 
+  // Tamper-evidence: hash encadenado por (resource, resourceId).
+  hash     String? @db.Text
+  prevHash String? @db.Text
+
   user User @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
@@ -472,6 +481,29 @@ model AuditLog {
   @@index([resource, resourceId])
   @@index([createdAt])
   @@index([action])
+}
+
+// ─── Clinical Ledger (inalterabilidad) ───────────────────────────────────────
+// Registro inmutable de versiones de asientos clínicos. Nunca se hace UPDATE ni
+// DELETE sobre esta tabla: cada create/corrección/anulación agrega una fila.
+// El hash encadena versiones por entidad para detectar manipulación.
+model ClinicalEntryVersion {
+  id          String   @id @default(cuid())
+  entityType  String // "evolution" | "clinical_record" | "prescription" | "study_order" | "meal_plan"
+  entityId    String // id del registro origen
+  patientId   String? // para consultas por paciente
+  version     Int // 1, 2, 3...
+  action      String // "created" | "corrected" | "annulled"
+  data        String   @db.Text // snapshot JSON de los campos clínicos
+  authorId    String // autor de esta versión
+  reason      String?  @db.Text // motivo de corrección/anulación
+  contentHash String // sha256 del snapshot canónico
+  prevHash    String? // contentHash de la versión anterior de esta entidad
+  createdAt   DateTime @default(now())
+
+  @@unique([entityType, entityId, version])
+  @@index([entityType, entityId])
+  @@index([patientId])
 }
 
 // ─── Module System ───────────────────────────────────────────────────────────
@@ -512,6 +544,11 @@ model Prescription {
   // Days of validity from createdAt; UI computes vigente|vencida
   durationDays Int @default(90)
 
+  // Inalterabilidad: se anula (no se borra).
+  annulledAt   DateTime?
+  annulReason  String?   @db.Text
+  annulledById String?
+
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
   shift   Shift?  @relation(fields: [shiftId], references: [id])
@@ -541,6 +578,11 @@ model MealPlan {
   avoidFoods     String? @db.Text // Alimentos a evitar
   supplements    String? @db.Text // Suplementos
   notes          String? @db.Text // Observaciones generales
+
+  // Inalterabilidad: se anula (no se borra).
+  annulledAt   DateTime?
+  annulReason  String?   @db.Text
+  annulledById String?
 
   user    User    @relation(fields: [userId], references: [id])
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -581,6 +623,11 @@ model StudyOrder {
   items       String           @db.Text // JSON array of StudyOrderItem
   status      StudyOrderStatus @default(PENDING)
   resultNotes String?          @db.Text // Notas de resultados
+
+  // Inalterabilidad: se anula (no se borra). Distinto del status clínico del estudio.
+  annulledAt   DateTime?
+  annulReason  String?   @db.Text
+  annulledById String?
 
   user    User    @relation(fields: [userId], references: [id])
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)

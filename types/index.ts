@@ -203,6 +203,8 @@ export interface MealPlan {
   avoidFoods?: string | null;
   supplements?: string | null;
   notes?: string | null;
+  annulledAt?: string | null;
+  annulReason?: string | null;
   user?: {
     id: string;
     name?: string | null;
@@ -420,6 +422,8 @@ export interface Evolution {
   treatment?: string | null;
   indications?: string | null;
   notes?: string | null;
+  annulledAt?: string | null;
+  annulReason?: string | null;
   user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
   shift?: { start: string; end: string } | null;
   createdAt: string;
@@ -439,6 +443,8 @@ export interface Prescription {
   diagnosis?: string | null;
   notes?: string | null;
   durationDays?: number;
+  annulledAt?: string | null;
+  annulReason?: string | null;
   user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
   patient?: Patient;
   createdAt: string;

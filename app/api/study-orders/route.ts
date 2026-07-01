@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
+import { recordClinicalVersion, studyOrderSnapshot } from "@/lib/clinical-ledger";
 
 // GET /api/study-orders — List study orders for a patient
 export async function GET(req: NextRequest) {
@@ -88,21 +89,35 @@ export async function POST(req: NextRequest) {
 
     const { patientId, shiftId, items } = parsed.data;
 
-    const studyOrder = await prisma.studyOrder.create({
-      data: {
+    const authorId = session.user.id!;
+    const studyOrder = await prisma.$transaction(async (tx) => {
+      const created = await tx.studyOrder.create({
+        data: {
+          patientId,
+          userId: authorId,
+          shiftId: shiftId ?? null,
+          items: JSON.stringify(items),
+        },
+        include: {
+          patient: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+
+      await recordClinicalVersion(tx, {
+        entityType: "study_order",
+        entityId: created.id,
         patientId,
-        userId: session.user.id!,
-        shiftId: shiftId ?? null,
-        items: JSON.stringify(items),
-      },
-      include: {
-        patient: {
-          select: { id: true, firstName: true, lastName: true },
-        },
-        user: {
-          select: { id: true, name: true, email: true },
-        },
-      },
+        action: "created",
+        data: studyOrderSnapshot(created),
+        authorId,
+      });
+
+      return created;
     });
 
     logAudit({

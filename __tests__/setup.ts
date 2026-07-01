@@ -41,6 +41,8 @@ export const prismaMock = {
   clinicalRecord: createModelMock(),
   prescription: createModelMock(),
   rateLimit: createModelMock(),
+  clinicalEntryVersion: createModelMock(),
+  auditLog: createModelMock(),
   $queryRawUnsafe: vi.fn().mockResolvedValue([]),
   $transaction: vi.fn().mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {

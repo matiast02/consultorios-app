@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Eye, Pencil, Plus, Salad } from "lucide-react";
+import { Eye, Pencil, Plus, Salad, History, Ban } from "lucide-react";
 import type { MealPlan } from "@/types";
 import { SectionHead, fmtDateAR } from "./shared";
 
@@ -12,6 +12,9 @@ interface NutricionTabProps {
   onNew: () => void;
   onView: (p: MealPlan) => void;
   onEdit: (p: MealPlan) => void;
+  onAnnul?: (p: MealPlan) => void;
+  onHistory?: (p: MealPlan) => void;
+  currentUserId?: string | null;
 }
 
 function getDocName(p: MealPlan): string {
@@ -21,7 +24,7 @@ function getDocName(p: MealPlan): string {
   return p.user.name ?? "Profesional";
 }
 
-export function NutricionTab({ mealPlans, onNew, onView, onEdit }: NutricionTabProps) {
+export function NutricionTab({ mealPlans, onNew, onView, onEdit, onAnnul, onHistory, currentUserId }: NutricionTabProps) {
   const sorted = [...mealPlans].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
@@ -55,7 +58,7 @@ export function NutricionTab({ mealPlans, onNew, onView, onEdit }: NutricionTabP
             return (
               <div
                 key={p.id}
-                className="flex items-start gap-4 rounded-xl border bg-card px-4 py-3.5"
+                className={`flex items-start gap-4 rounded-xl border bg-card px-4 py-3.5${p.annulledAt ? " opacity-70" : ""}`}
               >
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -68,6 +71,11 @@ export function NutricionTab({ mealPlans, onNew, onView, onEdit }: NutricionTabP
                     <span className="text-[12.5px] text-muted-foreground">
                       · {getDocName(p)}
                     </span>
+                    {p.annulledAt && (
+                      <Badge variant="secondary" className="bg-destructive/10 text-destructive hover:bg-destructive/10">
+                        Anulado
+                      </Badge>
+                    )}
                   </div>
                   {macros.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
@@ -94,15 +102,39 @@ export function NutricionTab({ mealPlans, onNew, onView, onEdit }: NutricionTabP
                     <Eye className="mr-1.5 h-3.5 w-3.5" />
                     Ver/Imprimir
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8"
-                    onClick={() => onEdit(p)}
-                  >
-                    <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                    Editar
-                  </Button>
+                  {!p.annulledAt && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => onEdit(p)}
+                    >
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                      Editar
+                    </Button>
+                  )}
+                  {onHistory && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-muted-foreground hover:text-primary"
+                      onClick={() => onHistory(p)}
+                    >
+                      <History className="mr-1.5 h-3.5 w-3.5" />
+                      Historial
+                    </Button>
+                  )}
+                  {onAnnul && !p.annulledAt && (!currentUserId || p.userId === currentUserId) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => onAnnul(p)}
+                    >
+                      <Ban className="mr-1.5 h-3.5 w-3.5" />
+                      Anular
+                    </Button>
+                  )}
                 </div>
               </div>
             );

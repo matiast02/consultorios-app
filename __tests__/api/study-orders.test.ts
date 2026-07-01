@@ -48,9 +48,11 @@ function createPutRequest(body: Record<string, unknown>): NextRequest {
   });
 }
 
-function createDeleteRequest(): NextRequest {
+function createDeleteRequest(body?: Record<string, unknown>): NextRequest {
   return new NextRequest("http://localhost:3000/api/study-orders/order-1", {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
   });
 }
 
@@ -219,20 +221,27 @@ describe("DELETE /api/study-orders/[id]", () => {
     resetAllMocks();
   });
 
-  it("elimina orden de estudio", async () => {
+  it("anula orden de estudio (no la borra) con motivo", async () => {
     prismaMock.studyOrder.findUnique.mockResolvedValue(STUDY_ORDER_RESULT);
-    prismaMock.studyOrder.delete.mockResolvedValue(STUDY_ORDER_RESULT);
+    prismaMock.studyOrder.update.mockResolvedValue(STUDY_ORDER_RESULT);
 
-    const res = await DELETE(createDeleteRequest(), {
+    const res = await DELETE(createDeleteRequest({ annulReason: "Cargada por error" }), {
       params: Promise.resolve({ id: "order-1" }),
     });
     const json = await res.json();
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(json.data).toEqual({ id: "order-1" });
-    expect(prismaMock.studyOrder.delete).toHaveBeenCalledWith({
-      where: { id: "order-1" },
+    expect(json.data.annulled).toBe(true);
+    expect(prismaMock.studyOrder.update).toHaveBeenCalled();
+    expect(prismaMock.studyOrder.delete).not.toHaveBeenCalled();
+  });
+
+  it("rechaza anular sin motivo", async () => {
+    prismaMock.studyOrder.findUnique.mockResolvedValue(STUDY_ORDER_RESULT);
+    const res = await DELETE(createDeleteRequest(), {
+      params: Promise.resolve({ id: "order-1" }),
     });
+    expect(res.status).toBe(400);
   });
 });

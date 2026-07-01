@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateEvolutionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { isMedic, isSecretary } from "@/lib/auth-utils";
+import { recordClinicalVersion, evolutionSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string; evolutionId: string }> };
 
@@ -90,6 +91,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     const { id: patientId, evolutionId } = await context.params;
     const body = await req.json();
+    // Correction reason is tracked in the ledger, separate from the clinical fields.
+    const correctionReason =
+      typeof body?.correctionReason === "string" ? body.correctionReason : null;
     const parsed = updateEvolutionSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -121,6 +125,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
+    // Annulled entries are immutable.
+    if (evolution.annulledAt) {
+      return NextResponse.json(
+        { success: false, error: "No se puede editar una evolución anulada" },
+        { status: 409 }
+      );
+    }
+
     // If changing shiftId, validate the new shift
     if (parsed.data.shiftId && parsed.data.shiftId !== evolution.shiftId) {
       const shift = await prisma.shift.findFirst({
@@ -146,17 +158,33 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       }
     }
 
-    const updated = await prisma.evolution.update({
-      where: { id: evolutionId },
-      data: parsed.data,
-      include: {
-        user: {
-          select: { id: true, name: true, firstName: true, lastName: true },
+    const authorId = session.user.id;
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.evolution.update({
+        where: { id: evolutionId },
+        data: parsed.data,
+        include: {
+          user: {
+            select: { id: true, name: true, firstName: true, lastName: true },
+          },
+          shift: {
+            select: { id: true, start: true, end: true, status: true },
+          },
         },
-        shift: {
-          select: { id: true, start: true, end: true, status: true },
-        },
-      },
+      });
+
+      // Immutable correction version (original snapshot is preserved).
+      await recordClinicalVersion(tx, {
+        entityType: "evolution",
+        entityId: evolutionId,
+        patientId,
+        action: "corrected",
+        data: evolutionSnapshot(next),
+        authorId,
+        reason: correctionReason,
+      });
+
+      return next;
     });
 
     logAudit({
@@ -177,7 +205,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
   }
 }
 
-// DELETE /api/patients/[id]/evolutions/[evolutionId] — Delete evolution (only by creator)
+// DELETE /api/patients/[id]/evolutions/[evolutionId] — Annul evolution (creator only).
+// Inalterabilidad: no se borra físicamente; se marca como anulada y queda en el ledger.
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
@@ -189,6 +218,9 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     }
 
     const { id: patientId, evolutionId } = await context.params;
+    const body = await req.json().catch(() => ({}));
+    const annulReason =
+      typeof body?.annulReason === "string" ? body.annulReason.trim() : "";
 
     const evolution = await prisma.evolution.findFirst({
       where: {
@@ -204,29 +236,64 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Only the creator can delete
+    // Only the creator can annul
     if (evolution.userId !== session.user.id) {
       return NextResponse.json(
-        { success: false, error: "Solo el médico que creó la evolución puede eliminarla" },
+        { success: false, error: "Solo el médico que creó la evolución puede anularla" },
         { status: 403 }
       );
     }
 
-    await prisma.evolution.delete({ where: { id: evolutionId } });
+    if (evolution.annulledAt) {
+      return NextResponse.json(
+        { success: false, error: "La evolución ya está anulada" },
+        { status: 409 }
+      );
+    }
+
+    if (!annulReason) {
+      return NextResponse.json(
+        { success: false, error: "Se requiere un motivo para anular la evolución" },
+        { status: 400 }
+      );
+    }
+
+    const authorId = session.user.id;
+    await prisma.$transaction(async (tx) => {
+      await tx.evolution.update({
+        where: { id: evolutionId },
+        data: {
+          annulledAt: new Date(),
+          annulReason,
+          annulledById: authorId,
+        },
+      });
+
+      await recordClinicalVersion(tx, {
+        entityType: "evolution",
+        entityId: evolutionId,
+        patientId,
+        action: "annulled",
+        data: evolutionSnapshot(evolution),
+        authorId,
+        reason: annulReason,
+      });
+    });
 
     logAudit({
       userId: session.user.id,
       action: "DELETE",
       resource: "evolution",
       resourceId: evolutionId,
+      details: { annulled: true, reason: annulReason },
       req,
     });
 
-    return NextResponse.json({ success: true, data: { id: evolutionId } });
+    return NextResponse.json({ success: true, data: { id: evolutionId, annulled: true } });
   } catch (error) {
     console.error("DELETE /api/patients/[id]/evolutions/[evolutionId] error:", error);
     return NextResponse.json(
-      { success: false, error: "Error al eliminar evolución" },
+      { success: false, error: "Error al anular evolución" },
       { status: 500 }
     );
   }

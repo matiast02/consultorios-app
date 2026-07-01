@@ -29,6 +29,7 @@ import {
   Shield,
   Puzzle,
   Inbox,
+  ShieldCheck,
   LogOut,
 } from "lucide-react";
 import { useState } from "react";
@@ -116,6 +117,11 @@ const adminOnlyItems = [
     label: "Modulos",
     href: "/dashboard/administracion/modulos",
     icon: Puzzle,
+  },
+  {
+    label: "Integridad HC",
+    href: "/dashboard/administracion/integridad",
+    icon: ShieldCheck,
   },
 ];
 

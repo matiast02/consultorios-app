@@ -41,9 +41,11 @@ function createPutRequest(body: Record<string, unknown>): NextRequest {
   });
 }
 
-function createDeleteRequest(): NextRequest {
+function createDeleteRequest(body?: Record<string, unknown>): NextRequest {
   return new NextRequest("http://localhost:3000/api/meal-plans/mp-1", {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
   });
 }
 
@@ -178,12 +180,12 @@ describe("DELETE /api/meal-plans/[id]", () => {
     resetAllMocks();
   });
 
-  it("elimina plan", async () => {
+  it("anula plan (no lo borra) con motivo", async () => {
     prismaMock.mealPlan.findUnique.mockResolvedValue(fakeMealPlan);
-    prismaMock.mealPlan.delete.mockResolvedValue(fakeMealPlan);
+    prismaMock.mealPlan.update.mockResolvedValue(fakeMealPlan);
 
     const { DELETE } = await import("@/app/api/meal-plans/[id]/route");
-    const req = createDeleteRequest();
+    const req = createDeleteRequest({ annulReason: "Cargado por error" });
 
     const context = { params: Promise.resolve({ id: "mp-1" }) };
     const res = await DELETE(req, context);
@@ -191,7 +193,17 @@ describe("DELETE /api/meal-plans/[id]", () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(json.data.id).toBe("mp-1");
-    expect(prismaMock.mealPlan.delete).toHaveBeenCalledOnce();
+    expect(json.data.annulled).toBe(true);
+    expect(prismaMock.mealPlan.update).toHaveBeenCalled();
+    expect(prismaMock.mealPlan.delete).not.toHaveBeenCalled();
+  });
+
+  it("rechaza anular sin motivo", async () => {
+    prismaMock.mealPlan.findUnique.mockResolvedValue(fakeMealPlan);
+    const { DELETE } = await import("@/app/api/meal-plans/[id]/route");
+    const res = await DELETE(createDeleteRequest(), {
+      params: Promise.resolve({ id: "mp-1" }),
+    });
+    expect(res.status).toBe(400);
   });
 });

@@ -5,6 +5,7 @@ import { createPrescriptionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { isMedic, isSecretary } from "@/lib/auth-utils";
+import { recordClinicalVersion, prescriptionSnapshot } from "@/lib/clinical-ledger";
 
 // GET /api/prescriptions — List prescriptions for a patient
 export async function GET(req: NextRequest) {
@@ -102,21 +103,35 @@ export async function POST(req: NextRequest) {
 
     const { patientId, shiftId, items, diagnosis, notes, durationDays } = parsed.data;
 
-    const prescription = await prisma.prescription.create({
-      data: {
-        patientId,
-        userId: session.user.id!,
-        shiftId: shiftId ?? null,
-        items: JSON.stringify(items),
-        diagnosis: diagnosis ?? null,
-        notes: notes ?? null,
-        ...(durationDays !== undefined ? { durationDays } : {}),
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true },
+    const authorId = session.user.id!;
+    const prescription = await prisma.$transaction(async (tx) => {
+      const created = await tx.prescription.create({
+        data: {
+          patientId,
+          userId: authorId,
+          shiftId: shiftId ?? null,
+          items: JSON.stringify(items),
+          diagnosis: diagnosis ?? null,
+          notes: notes ?? null,
+          ...(durationDays !== undefined ? { durationDays } : {}),
         },
-      },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+
+      await recordClinicalVersion(tx, {
+        entityType: "prescription",
+        entityId: created.id,
+        patientId,
+        action: "created",
+        data: prescriptionSnapshot(created),
+        authorId,
+      });
+
+      return created;
     });
 
     logAudit({

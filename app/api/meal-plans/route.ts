@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createMealPlanSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
+import { recordClinicalVersion, mealPlanSnapshot } from "@/lib/clinical-ledger";
 
 // GET /api/meal-plans — List meal plans for a patient
 export async function GET(req: NextRequest) {
@@ -85,27 +86,41 @@ export async function POST(req: NextRequest) {
 
     const data = parsed.data;
 
-    const mealPlan = await prisma.mealPlan.create({
-      data: {
-        userId: session.user.id!,
-        patientId: data.patientId,
-        shiftId: data.shiftId ?? null,
-        title: data.title,
-        targetCalories: data.targetCalories ?? null,
-        proteinPct: data.proteinPct ?? null,
-        carbsPct: data.carbsPct ?? null,
-        fatPct: data.fatPct ?? null,
-        hydration: data.hydration ?? null,
-        meals: JSON.stringify(data.meals),
-        avoidFoods: data.avoidFoods ?? null,
-        supplements: data.supplements ?? null,
-        notes: data.notes ?? null,
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true, firstName: true, lastName: true },
+    const authorId = session.user.id!;
+    const mealPlan = await prisma.$transaction(async (tx) => {
+      const created = await tx.mealPlan.create({
+        data: {
+          userId: authorId,
+          patientId: data.patientId,
+          shiftId: data.shiftId ?? null,
+          title: data.title,
+          targetCalories: data.targetCalories ?? null,
+          proteinPct: data.proteinPct ?? null,
+          carbsPct: data.carbsPct ?? null,
+          fatPct: data.fatPct ?? null,
+          hydration: data.hydration ?? null,
+          meals: JSON.stringify(data.meals),
+          avoidFoods: data.avoidFoods ?? null,
+          supplements: data.supplements ?? null,
+          notes: data.notes ?? null,
         },
-      },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, firstName: true, lastName: true },
+          },
+        },
+      });
+
+      await recordClinicalVersion(tx, {
+        entityType: "meal_plan",
+        entityId: created.id,
+        patientId: data.patientId,
+        action: "created",
+        data: mealPlanSnapshot(created),
+        authorId,
+      });
+
+      return created;
     });
 
     logAudit({
