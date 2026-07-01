@@ -10,6 +10,8 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  History,
+  Ban,
   Plus,
   Search,
   Stethoscope,
@@ -21,6 +23,11 @@ import { cn } from "@/lib/utils";
 interface EvolucionesTabProps {
   evolutions: Evolution[];
   onNew: () => void;
+  /** Optional: only medics (authors) get annul/history actions. */
+  onAnnul?: (e: Evolution) => void;
+  onHistory?: (e: Evolution) => void;
+  /** Current user id — the "Anular" action only shows for the evolution's author. */
+  currentUserId?: string | null;
 }
 
 function getDocName(evo: Evolution): string {
@@ -30,7 +37,7 @@ function getDocName(evo: Evolution): string {
   return evo.user.name ?? "Profesional";
 }
 
-export function EvolucionesTab({ evolutions, onNew }: EvolucionesTabProps) {
+export function EvolucionesTab({ evolutions, onNew, onAnnul, onHistory, currentUserId }: EvolucionesTabProps) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     evolutions[0] ? { [evolutions[0].id]: true } : {},
@@ -105,6 +112,7 @@ export function EvolucionesTab({ evolutions, onNew }: EvolucionesTabProps) {
                   className={cn(
                     "relative mb-[14px] cursor-pointer rounded-xl border bg-card px-4 py-3.5 transition-colors",
                     open && "border-primary/30 shadow-xs",
+                    e.annulledAt && "opacity-70",
                     "before:absolute before:left-[-22px] before:top-[18px] before:h-3 before:w-3 before:rounded-full before:bg-card before:ring-[3px] before:ring-background",
                     open ? "before:border-primary" : "before:border-muted-foreground/40",
                     "before:border-[3px]",
@@ -131,6 +139,15 @@ export function EvolucionesTab({ evolutions, onNew }: EvolucionesTabProps) {
                         <Badge className="border-primary/20 bg-primary/10 text-primary hover:bg-primary/10">
                           {e.diagnosis ? "Evolución" : "Nota"}
                         </Badge>
+                        {e.annulledAt ? (
+                          <Badge variant="secondary" className="bg-destructive/10 text-destructive hover:bg-destructive/10">
+                            Anulada
+                          </Badge>
+                        ) : e.updatedAt && e.updatedAt !== e.createdAt ? (
+                          <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 hover:bg-amber-500/15 dark:text-amber-400">
+                            Corregida
+                          </Badge>
+                        ) : null}
                       </div>
                       {(e.diagnosis || e.diagnosisCode) && (
                         <div className="mt-2 text-[13px]">
@@ -148,28 +165,58 @@ export function EvolucionesTab({ evolutions, onNew }: EvolucionesTabProps) {
                         </p>
                       )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 shrink-0 px-2 text-[12px] text-muted-foreground hover:text-primary"
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        toggle(e.id);
-                      }}
-                    >
-                      {open ? (
-                        <>
-                          <ChevronUp className="mr-1 h-3.5 w-3.5" />
-                          Colapsar
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="mr-1 h-3.5 w-3.5" />
-                          Expandir
-                        </>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {onHistory && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[12px] text-muted-foreground hover:text-primary"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            onHistory(e);
+                          }}
+                        >
+                          <History className="mr-1 h-3.5 w-3.5" />
+                          Historial
+                        </Button>
                       )}
-                    </Button>
+                      {onAnnul && !e.annulledAt && (!currentUserId || e.userId === currentUserId) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[12px] text-muted-foreground hover:text-destructive"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            onAnnul(e);
+                          }}
+                        >
+                          <Ban className="mr-1 h-3.5 w-3.5" />
+                          Anular
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-[12px] text-muted-foreground hover:text-primary"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          toggle(e.id);
+                        }}
+                      >
+                        {open ? (
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
+
+                  {e.annulledAt && e.annulReason && (
+                    <p className="mt-2 rounded-md bg-destructive/5 px-2.5 py-1.5 text-[12px] text-destructive">
+                      Anulada: {e.annulReason}
+                    </p>
+                  )}
 
                   {open && (
                     <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">

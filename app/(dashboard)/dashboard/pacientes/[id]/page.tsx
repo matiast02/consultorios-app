@@ -34,6 +34,8 @@ import { CreatePrescriptionDialog } from "@/components/prescriptions/create-pres
 import { PrescriptionView } from "@/components/prescriptions/prescription-view";
 import { CreateMealPlanDialog } from "@/components/nutrition/create-meal-plan-dialog";
 import { MealPlanView } from "@/components/nutrition/meal-plan-view";
+import { AnnulReasonDialog } from "@/components/clinical/annul-reason-dialog";
+import { VersionHistoryDialog } from "@/components/clinical/version-history-dialog";
 import { safeParseJSON, relTime } from "@/components/pacientes/shared";
 import type {
   ClinicalRecord,
@@ -110,6 +112,9 @@ export default function PacienteDetailPage() {
   const [mealPlanOpen, setMealPlanOpen] = useState(false);
   const [editingMealPlan, setEditingMealPlan] = useState<MealPlan | null>(null);
   const [viewingMealPlan, setViewingMealPlan] = useState<MealPlan | null>(null);
+  // Inalterabilidad: anular / ver historial de asientos clínicos
+  const [annulTarget, setAnnulTarget] = useState<{ endpoint: string; title: string } | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<{ entityType: string; entityId: string; title: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -414,6 +419,20 @@ export default function PacienteDetailPage() {
               <EvolucionesTab
                 evolutions={evolutions}
                 onNew={() => setEvolutionOpen(true)}
+                currentUserId={sessionUserId}
+                onAnnul={(e) =>
+                  setAnnulTarget({
+                    endpoint: `/api/patients/${patientId}/evolutions/${e.id}`,
+                    title: "Anular evolución",
+                  })
+                }
+                onHistory={(e) =>
+                  setHistoryTarget({
+                    entityType: "evolution",
+                    entityId: e.id,
+                    title: "Historial de la evolución",
+                  })
+                }
               />
             </TabsContent>
 
@@ -423,6 +442,20 @@ export default function PacienteDetailPage() {
                   prescriptions={prescriptions}
                   onNew={() => setPrescriptionOpen(true)}
                   onView={(p) => setViewingPrescription(p)}
+                  currentUserId={sessionUserId}
+                  onAnnul={(p) =>
+                    setAnnulTarget({
+                      endpoint: `/api/prescriptions/${p.id}`,
+                      title: "Anular receta",
+                    })
+                  }
+                  onHistory={(p) =>
+                    setHistoryTarget({
+                      entityType: "prescription",
+                      entityId: p.id,
+                      title: "Historial de la receta",
+                    })
+                  }
                 />
               </TabsContent>
             )}
@@ -431,6 +464,7 @@ export default function PacienteDetailPage() {
               <TabsContent value="nutricion" className="mt-5">
                 <NutricionTab
                   mealPlans={mealPlans}
+                  currentUserId={sessionUserId}
                   onNew={() => {
                     setEditingMealPlan(null);
                     setMealPlanOpen(true);
@@ -440,6 +474,19 @@ export default function PacienteDetailPage() {
                     setEditingMealPlan(p);
                     setMealPlanOpen(true);
                   }}
+                  onAnnul={(p) =>
+                    setAnnulTarget({
+                      endpoint: `/api/meal-plans/${p.id}`,
+                      title: "Anular plan alimentario",
+                    })
+                  }
+                  onHistory={(p) =>
+                    setHistoryTarget({
+                      entityType: "meal_plan",
+                      entityId: p.id,
+                      title: "Historial del plan",
+                    })
+                  }
                 />
               </TabsContent>
             )}
@@ -584,6 +631,30 @@ export default function PacienteDetailPage() {
               )}
             </DialogContent>
           </Dialog>
+        </>
+      )}
+
+      {/* Inalterabilidad: anular evolución + ver historial de versiones */}
+      {isClinical && (
+        <>
+          <AnnulReasonDialog
+            open={!!annulTarget}
+            onOpenChange={(v) => !v && setAnnulTarget(null)}
+            endpoint={annulTarget?.endpoint ?? ""}
+            title={annulTarget?.title ?? "Anular registro"}
+            onAnnulled={() => {
+              setAnnulTarget(null);
+              fetchAll();
+            }}
+          />
+
+          <VersionHistoryDialog
+            open={!!historyTarget}
+            onOpenChange={(v) => !v && setHistoryTarget(null)}
+            entityType={historyTarget?.entityType ?? "evolution"}
+            entityId={historyTarget?.entityId ?? null}
+            title={historyTarget?.title ?? "Historial de versiones"}
+          />
         </>
       )}
     </div>

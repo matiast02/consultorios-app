@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Eye, FileText, Mail, Plus, RefreshCw } from "lucide-react";
+import { Eye, FileText, Mail, Plus, RefreshCw, History, Ban } from "lucide-react";
 import type { Prescription, PrescriptionItem } from "@/types";
 import { SectionHead, fmtDateAR, relTime, safeParseJSON } from "./shared";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,9 @@ interface RecetasTabProps {
   prescriptions: Prescription[];
   onNew: () => void;
   onView: (p: Prescription) => void;
+  onAnnul?: (p: Prescription) => void;
+  onHistory?: (p: Prescription) => void;
+  currentUserId?: string | null;
 }
 
 function isExpired(p: Prescription, now: Date): boolean {
@@ -37,7 +40,7 @@ function getDocName(p: Prescription): string {
   return p.user.name ?? "Profesional";
 }
 
-export function RecetasTab({ prescriptions, onNew, onView }: RecetasTabProps) {
+export function RecetasTab({ prescriptions, onNew, onView, onAnnul, onHistory, currentUserId }: RecetasTabProps) {
   const [filter, setFilter] = useState<Filter>("todas");
   const now = new Date();
 
@@ -97,7 +100,7 @@ export function RecetasTab({ prescriptions, onNew, onView }: RecetasTabProps) {
               key={p.id}
               className={cn(
                 "flex items-start gap-4 rounded-xl border bg-card px-4 py-3.5",
-                p._expired && "opacity-70",
+                (p._expired || p.annulledAt) && "opacity-70",
               )}
             >
               {/* Tear strip */}
@@ -118,7 +121,14 @@ export function RecetasTab({ prescriptions, onNew, onView }: RecetasTabProps) {
                   <span className="text-[12.5px] text-muted-foreground">
                     · {p.diagnosis ?? "Sin diagnóstico"} · {getDocName(p)}
                   </span>
-                  {!p._expired ? (
+                  {p.annulledAt ? (
+                    <Badge
+                      variant="secondary"
+                      className="ml-auto bg-destructive/10 text-destructive hover:bg-destructive/10"
+                    >
+                      Anulada
+                    </Badge>
+                  ) : !p._expired ? (
                     <Badge className="ml-auto border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
                       Vigente · vence {fmtDateAR(p._expiry)}
                     </Badge>
@@ -179,15 +189,37 @@ export function RecetasTab({ prescriptions, onNew, onView }: RecetasTabProps) {
                   <Eye className="mr-1.5 h-3.5 w-3.5" />
                   Ver/Imprimir
                 </Button>
-                {p._expired ? (
+                {p._expired && !p.annulledAt ? (
                   <Button size="sm" className="h-8" onClick={onNew}>
                     <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                     Renovar
                   </Button>
-                ) : (
+                ) : !p.annulledAt ? (
                   <Button variant="ghost" size="sm" className="h-8">
                     <Mail className="mr-1.5 h-3.5 w-3.5" />
                     Enviar
+                  </Button>
+                ) : null}
+                {onHistory && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-muted-foreground hover:text-primary"
+                    onClick={() => onHistory(p)}
+                  >
+                    <History className="mr-1.5 h-3.5 w-3.5" />
+                    Historial
+                  </Button>
+                )}
+                {onAnnul && !p.annulledAt && (!currentUserId || p.userId === currentUserId) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => onAnnul(p)}
+                  >
+                    <Ban className="mr-1.5 h-3.5 w-3.5" />
+                    Anular
                   </Button>
                 )}
               </div>
