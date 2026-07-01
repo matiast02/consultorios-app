@@ -20,6 +20,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "db:backfill-ledger": "tsx prisma/backfill-ledger.ts",
     "db:seed-base": "tsx prisma/seed-base.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
