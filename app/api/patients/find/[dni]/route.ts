@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizeDni } from "@/lib/search";
 
 type RouteContext = { params: Promise<{ dni: string }> };
 
-// GET /api/patients/find/[dni] — Find patient by DNI
+// GET /api/patients/find/[dni] — Find patient by DNI (digits only, separators
+// like dots / hyphens / spaces are stripped from the URL param).
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
@@ -15,7 +17,15 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       );
     }
 
-    const { dni } = await context.params;
+    const { dni: rawDni } = await context.params;
+    const dni = normalizeDni(decodeURIComponent(rawDni));
+
+    if (!dni) {
+      return NextResponse.json(
+        { success: false, error: "DNI inválido" },
+        { status: 400 }
+      );
+    }
 
     const patient = await prisma.patient.findFirst({
       where: { dni, deletedAt: null },

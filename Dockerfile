@@ -3,8 +3,8 @@ FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm (pinned — pnpm 11+ requires Node 22)
+RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
 
 # Copy dependency files
 COPY package.json pnpm-lock.yaml ./
@@ -18,7 +18,7 @@ FROM node:20-alpine AS builder
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -27,7 +27,7 @@ COPY . .
 RUN npx prisma generate
 
 # Compile seed-base.ts to JS for production seeding (idempotent upserts)
-RUN npx esbuild prisma/seed-base.ts --bundle --platform=node --outfile=prisma/seed-base.cjs --format=cjs
+RUN pnpm exec esbuild prisma/seed-base.ts --bundle --platform=node --outfile=prisma/seed-base.cjs --format=cjs
 
 # Build Next.js (standalone output)
 ENV NEXT_TELEMETRY_DISABLED=1

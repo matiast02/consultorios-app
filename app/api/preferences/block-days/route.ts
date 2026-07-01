@@ -29,7 +29,7 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const { userId, dates } = parsed.data;
+    const { userId, dates, category, note } = parsed.data;
 
     // Find active shifts on the dates being blocked
     const dateRanges = dates.map((dateStr) => {
@@ -146,6 +146,8 @@ export async function PUT(req: NextRequest) {
       data: dates.map((dateStr) => ({
         userId,
         date: new Date(dateStr),
+        category: category ?? "OTHER",
+        note: note ?? null,
       })),
       skipDuplicates: true,
     });

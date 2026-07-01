@@ -11,10 +11,17 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    if (!(await checkModuleAccess("study_orders", session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Modulo de estudios no habilitado" },
+        { status: 403 }
       );
     }
 
@@ -53,10 +60,17 @@ export async function GET(req: NextRequest, context: RouteContext) {
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    if (!(await checkModuleAccess("study_orders", session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Modulo de estudios no habilitado" },
+        { status: 403 }
       );
     }
 
@@ -120,10 +134,17 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    if (!(await checkModuleAccess("study_orders", session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Modulo de estudios no habilitado" },
+        { status: 403 }
       );
     }
 

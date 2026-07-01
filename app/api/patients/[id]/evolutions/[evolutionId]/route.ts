@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateEvolutionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { isMedic, isSecretary } from "@/lib/auth-utils";
 
 type RouteContext = { params: Promise<{ id: string; evolutionId: string }> };
 
@@ -10,10 +11,18 @@ type RouteContext = { params: Promise<{ id: string; evolutionId: string }> };
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    // Secretaries cannot read evolutions (clinical data) — mirror the list route.
+    if (await isSecretary(session.user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Sin acceso a historia clínica" },
+        { status: 403 }
       );
     }
 
@@ -35,6 +44,8 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       where: {
         id: evolutionId,
         clinicalRecord: { patientId },
+        // Medics can only read their own evolutions (admins see all).
+        ...((await isMedic(session.user.id)) ? { userId: session.user.id } : {}),
       },
       include: {
         user: {

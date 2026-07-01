@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createEvolutionSchema } from "@/lib/validations";
-import { isMedic } from "@/lib/auth-utils";
+import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -11,10 +11,18 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    // Secretaries cannot read evolutions (clinical data).
+    if (await isSecretary(session.user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Sin acceso a historia clínica" },
+        { status: 403 }
       );
     }
 
@@ -104,7 +112,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   }
 }
 
-// POST /api/patients/[id]/evolutions — Create evolution
+// POST /api/patients/[id]/evolutions — Create evolution (medics only)
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
@@ -112,6 +120,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    // Only medics can create evolutions (clinical record).
+    if (!(await isMedic(session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Solo profesionales médicos pueden registrar evoluciones" },
+        { status: 403 }
       );
     }
 

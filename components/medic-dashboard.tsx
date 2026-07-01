@@ -1,102 +1,82 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import Link from "next/link";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+
 import { ScheduleSetupWizard } from "@/components/schedule-setup-wizard";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { QuickAttendDialog } from "@/components/shifts/quick-attend-dialog";
-import { RecurringShiftDialog } from "@/components/shifts/recurring-shift-dialog";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
-import { CreateStudyOrderDialog } from "@/components/study-orders/create-study-order-dialog";
-import { StatCard } from "@/components/dashboard/stat-card";
+import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { RescheduledBanner } from "@/components/dashboard/rescheduled-banner";
-import { ShiftListItem } from "@/components/dashboard/shift-list-item";
-import {
-  Stethoscope,
-  Clock,
-  CheckCircle,
-  UserX,
-  CalendarCheck,
-  Loader2,
-  ChevronRight,
-  Users,
-  CalendarDays,
-} from "lucide-react";
-import type { Shift, ShiftStatus } from "@/types";
-import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS } from "@/types";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+
+import { DashboardHeader } from "@/components/dashboard/medic/dashboard-header";
+import { NextShiftCard } from "@/components/dashboard/medic/next-shift-card";
+import { DaySummaryCard } from "@/components/dashboard/medic/day-summary-card";
+import { TodayShiftsCard } from "@/components/dashboard/medic/today-shifts-card";
+import { WeekCard } from "@/components/dashboard/medic/week-card";
+import { PendientesCard } from "@/components/dashboard/medic/pendientes-card";
+import { QuickActionsCard } from "@/components/dashboard/medic/quick-actions-card";
+import { RecentPatientsCard } from "@/components/dashboard/medic/recent-patients-card";
+
+import type { DashboardShift, MedicDashboardData, Shift } from "@/types";
 
 interface MedicDashboardProps {
   userName: string;
 }
 
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+function toShift(d: DashboardShift): Shift {
+  return {
+    id: d.id,
+    userId: "",
+    patientId: d.patient?.id ?? "",
+    start: d.start,
+    end: d.end,
+    observations: d.observations ?? null,
+    status: d.status,
+    isOverbook: d.isOverbook,
+    consultationTypeId: d.consultationType?.id ?? null,
+    consultationType: d.consultationType
+      ? { id: d.consultationType.id, name: d.consultationType.name, color: d.consultationType.color ?? null, durationMinutes: d.durationMinutes, isDefault: false }
+      : null,
+    patient: d.patient
+      ? {
+          id: d.patient.id,
+          firstName: d.patient.firstName,
+          lastName: d.patient.lastName,
+          telephone: d.patient.telephone ?? null,
+          osId: d.patient.os?.id ?? null,
+          os: d.patient.os ?? null,
+          createdAt: "",
+          updatedAt: "",
+        }
+      : undefined,
+    createdAt: "",
+    updatedAt: "",
+  };
 }
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString("es-AR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-const STATUS_ORDER: Record<ShiftStatus, number> = {
-  CONFIRMED: 0,
-  PENDING: 1,
-  FINISHED: 2,
-  ABSENT: 3,
-  CANCELLED: 4,
-};
-
-// ─── Main Dashboard ──────────────────────────────────────────────────────────
 
 export function MedicDashboard({ userName }: MedicDashboardProps) {
   const { data: session } = useSession();
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const router = useRouter();
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+
+  const [data, setData] = useState<MedicDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [attendShift, setAttendShift] = useState<Shift | null>(null);
-  const [scheduleNext, setScheduleNext] = useState<{
-    patientId: string;
-    medicId: string;
-  } | null>(null);
-  const [scheduleRecurring, setScheduleRecurring] = useState<{
-    patientId: string;
-    patientName: string;
-    medicId: string;
-  } | null>(null);
-  const [createStudyOrder, setCreateStudyOrder] = useState<{
-    patientId: string;
-    patientName: string;
-    shiftId: string;
-  } | null>(null);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [expandedShiftId, setExpandedShiftId] = useState<string | null>(null);
-  const [editingObsId, setEditingObsId] = useState<string | null>(null);
-  const [editingObsText, setEditingObsText] = useState("");
-  const [savingObs, setSavingObs] = useState(false);
   const [needsScheduleSetup, setNeedsScheduleSetup] = useState(false);
   const [checkingSchedule, setCheckingSchedule] = useState(true);
   const [rescheduledShifts, setRescheduledShifts] = useState<Shift[]>([]);
   const [dismissedRescheduled, setDismissedRescheduled] = useState(false);
 
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const [attendShift, setAttendShift] = useState<Shift | null>(null);
+  const [detailShiftId, setDetailShiftId] = useState<string | null>(null);
+  const [createShiftOpen, setCreateShiftOpen] = useState(false);
+  const [createPatientOpen, setCreatePatientOpen] = useState(false);
 
-  // Check if medic has configured their schedule
+  // Schedule check
   useEffect(() => {
     if (!userId) return;
     async function checkSchedule() {
@@ -107,7 +87,7 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           setNeedsScheduleSetup(!json.data?.hasSchedule);
         }
       } catch {
-        // Non-critical, don't block
+        // non-critical
       } finally {
         setCheckingSchedule(false);
       }
@@ -115,9 +95,9 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     checkSchedule();
   }, [userId]);
 
-  // Fetch rescheduled shifts
+  // Rescheduled banner
   useEffect(() => {
-    async function loadRescheduled() {
+    async function load() {
       try {
         const res = await fetch("/api/shifts/rescheduled");
         if (res.ok) {
@@ -125,144 +105,61 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           setRescheduledShifts(json.data ?? []);
         }
       } catch {
-        // Non-critical
+        // non-critical
       }
     }
-    loadRescheduled();
+    load();
   }, []);
 
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const fetchShifts = useCallback(async () => {
+  // Main dashboard data
+  const fetchDashboard = useCallback(async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        month: String(today.getMonth() + 1),
-        year: String(today.getFullYear()),
-      });
-      const res = await fetch(`/api/shifts?${params}`);
-      if (!res.ok) throw new Error("Error al cargar turnos");
+      const res = await fetch("/api/dashboard/medic");
+      if (!res.ok) throw new Error();
       const json = await res.json();
-      setShifts(json.data ?? []);
+      setData(json.data ?? null);
     } catch {
-      toast.error("No se pudieron cargar los turnos");
-      setShifts([]);
+      toast.error("No se pudo cargar el dashboard");
+      setData(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchShifts();
-  }, [fetchShifts]);
+    fetchDashboard();
+  }, [fetchDashboard]);
 
-  const todayShifts = shifts
-    .filter((s) => isSameDay(new Date(s.start), today))
-    .sort((a, b) => {
-      const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-      if (statusDiff !== 0) return statusDiff;
-      return new Date(a.start).getTime() - new Date(b.start).getTime();
-    });
+  // Auto-refresh next shift countdown every minute
+  useEffect(() => {
+    const id = setInterval(() => {
+      // Force a re-render by reseting state to itself
+      setData((prev) => (prev ? { ...prev } : prev));
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
-  const tomorrowShifts = shifts
-    .filter((s) => isSameDay(new Date(s.start), tomorrow))
-    .sort(
-      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
-    );
+  // ─── Action handlers ───
+  const openNewShift = () => setCreateShiftOpen(true);
+  const openNewPatient = () => setCreatePatientOpen(true);
+  const openSearchPatient = () => router.push("/dashboard/pacientes");
+  const openBlockDay = () => router.push("/dashboard/configuracion?tab=bloqueados");
+  const goToPatient = (patientId: string) => router.push(`/dashboard/pacientes/${patientId}`);
 
-  const totalToday = todayShifts.length;
-  const finished = todayShifts.filter((s) => s.status === "FINISHED").length;
-  const pending = todayShifts.filter(
-    (s) => s.status === "PENDING" || s.status === "CONFIRMED"
-  ).length;
-  const absent = todayShifts.filter((s) => s.status === "ABSENT").length;
+  const handleStartConsultation = (s: DashboardShift) => {
+    setAttendShift(toShift(s));
+  };
+  const handleAttend = (s: DashboardShift) => {
+    setAttendShift(toShift(s));
+  };
+  const handleEditObs = (s: DashboardShift) => {
+    // For now we redirect to calendar so the user can edit there.
+    // A future iteration could open an inline editor here.
+    router.push(`/dashboard/calendario?shift=${s.id}`);
+  };
 
-  async function changeStatus(shiftId: string, status: ShiftStatus) {
-    try {
-      setUpdatingId(shiftId);
-      const res = await fetch(`/api/shifts/${shiftId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? "Error al cambiar estado");
-      }
-      toast.success(
-        `Turno marcado como ${SHIFT_STATUS_LABELS[status].toLowerCase()}`
-      );
-      fetchShifts();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Error al actualizar"
-      );
-    } finally {
-      setUpdatingId(null);
-    }
-  }
-
-  async function saveObservations(shiftId: string) {
-    try {
-      setSavingObs(true);
-      const res = await fetch(`/api/shifts/${shiftId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ observations: editingObsText || null }),
-      });
-      if (!res.ok) throw new Error("Error al guardar");
-      toast.success("Observaciones actualizadas");
-      setEditingObsId(null);
-      fetchShifts();
-    } catch {
-      toast.error("Error al guardar observaciones");
-    } finally {
-      setSavingObs(false);
-    }
-  }
-
-  function toggleExpand(shiftId: string) {
-    setExpandedShiftId((prev) => (prev === shiftId ? null : shiftId));
-  }
-
-  const statCards = [
-    {
-      label: "Turnos hoy",
-      value: totalToday,
-      icon: CalendarCheck,
-      color: "text-primary",
-      bg: "bg-primary/10",
-      border: "border-l-primary",
-    },
-    {
-      label: "Pendientes",
-      value: pending,
-      icon: Clock,
-      color: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-50 dark:bg-amber-950/40",
-      border: "border-l-amber-500",
-    },
-    {
-      label: "Atendidos",
-      value: finished,
-      icon: CheckCircle,
-      color: "text-emerald-600 dark:text-emerald-400",
-      bg: "bg-emerald-50 dark:bg-emerald-950/40",
-      border: "border-l-emerald-500",
-    },
-    {
-      label: "Ausentes",
-      value: absent,
-      icon: UserX,
-      color: "text-red-600 dark:text-red-400",
-      bg: "bg-red-50 dark:bg-red-950/40",
-      border: "border-l-red-500",
-    },
-  ];
-
-  if (checkingSchedule) {
+  if (checkingSchedule || loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -270,259 +167,156 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     );
   }
 
+  if (!data) {
+    return (
+      <div className="rounded-2xl border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
+        No se pudo cargar el dashboard. Intentá recargar la página.
+      </div>
+    );
+  }
+
+  const doctorName = (() => {
+    // Show "Dr. Apellido" if userName looks like "Nombre Apellido"
+    const parts = userName.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return `Dr. ${parts[parts.length - 1]}`;
+    }
+    return userName;
+  })();
+
   return (
-    <div className="space-y-6">
-      {/* Schedule setup wizard for first-time medics */}
+    <div className="space-y-5">
       {userId && (
         <ScheduleSetupWizard
           open={needsScheduleSetup}
           userId={userId}
           userName={userName}
           mandatory
-          onComplete={() => {
-            setNeedsScheduleSetup(false);
-          }}
+          onComplete={() => setNeedsScheduleSetup(false)}
         />
       )}
 
-      {/* Header */}
-      <div className="relative overflow-hidden rounded-xl border bg-card p-6 shadow-sm">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute right-0 top-0 h-full w-48 bg-gradient-to-l from-primary/5 to-transparent"
+      <DashboardHeader
+        doctorName={doctorName}
+        onNewShift={openNewShift}
+        onNewPatient={openNewPatient}
+      />
+
+      {!dismissedRescheduled && rescheduledShifts.length > 0 && (
+        <RescheduledBanner
+          shifts={rescheduledShifts}
+          maxVisible={3}
+          onDismiss={() => setDismissedRescheduled(true)}
         />
-        <div className="relative">
-          <div className="flex items-center gap-2 text-primary">
-            <Stethoscope className="h-5 w-5" />
-            <span className="text-sm font-medium">Mi Consultorio</span>
-          </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">
-            {userName}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {format(today, "EEEE, d 'de' MMMM yyyy", { locale: es })}
-          </p>
+      )}
+
+      {/* Top row: próximo turno + resumen del día */}
+      <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+        <NextShiftCard
+          shift={data.today.nextShift}
+          onStartConsultation={handleStartConsultation}
+          onViewPatient={goToPatient}
+        />
+        <DaySummaryCard stats={data.today.stats} />
+      </div>
+
+      {/* Main row: turnos de hoy + sidebar */}
+      <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+        <TodayShiftsCard
+          shifts={data.today.shifts}
+          nextShiftId={data.today.nextShift?.id ?? null}
+          onAttend={handleAttend}
+          onViewPatient={goToPatient}
+          onEditObs={handleEditObs}
+          onSelectShift={(s) => setDetailShiftId(s.id)}
+        />
+
+        <div className="space-y-4">
+          <WeekCard data={data.week} />
+          <PendientesCard data={data.pendientes} />
+          <QuickActionsCard
+            onNewShift={openNewShift}
+            onNewPatient={openNewPatient}
+            onBlockDay={openBlockDay}
+            onSearchPatient={openSearchPatient}
+          />
+          <RecentPatientsCard patients={data.recentPatients} />
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
-        </div>
-      ) : (
-        <>
-          {/* Rescheduled shifts notification */}
-          {!dismissedRescheduled && (
-            <RescheduledBanner
-              shifts={rescheduledShifts}
-              maxVisible={3}
-              onDismiss={() => setDismissedRescheduled(true)}
-            />
-          )}
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {statCards.map((card) => (
-              <StatCard key={card.label} {...card} />
-            ))}
-          </div>
-
-          {/* Today's Queue */}
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
-                    <Users className="h-4 w-4 text-primary" />
-                  </div>
-                  <CardTitle className="text-base">
-                    Turnos de hoy
-                    {totalToday > 0 && (
-                      <span className="ml-2 text-sm font-normal text-muted-foreground">
-                        ({finished}/{totalToday} atendidos)
-                      </span>
-                    )}
-                  </CardTitle>
-                </div>
-                <Button asChild variant="outline" size="sm">
-                  <Link href="/dashboard/calendario">
-                    <CalendarDays className="mr-2 h-3.5 w-3.5" />
-                    Ver calendario
-                  </Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {todayShifts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                    <CalendarCheck className="h-8 w-8 text-muted-foreground/50" />
-                  </div>
-                  <p className="mt-4 font-medium">No hay turnos para hoy</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Tu agenda esta libre.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {todayShifts.map((shift) => (
-                    <ShiftListItem
-                      key={shift.id}
-                      shift={shift}
-                      isExpanded={expandedShiftId === shift.id}
-                      isUpdating={updatingId === shift.id}
-                      isEditingObs={editingObsId === shift.id}
-                      editingObsText={editingObsText}
-                      savingObs={savingObs}
-                      onToggleExpand={toggleExpand}
-                      onChangeStatus={changeStatus}
-                      onAttend={setAttendShift}
-                      onStartEditObs={(id, text) => {
-                        setEditingObsId(id);
-                        setEditingObsText(text);
-                      }}
-                      onCancelEditObs={() => setEditingObsId(null)}
-                      onSaveObs={saveObservations}
-                      onObsTextChange={setEditingObsText}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Tomorrow */}
-          {tomorrowShifts.length > 0 && (
-            <Card className="shadow-sm">
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted">
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <CardTitle className="text-base text-muted-foreground">
-                    Manana —{" "}
-                    {format(tomorrow, "EEEE d", { locale: es })}
-                    <span className="ml-2 text-sm font-normal">
-                      ({tomorrowShifts.length}{" "}
-                      {tomorrowShifts.length === 1 ? "turno" : "turnos"})
-                    </span>
-                  </CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-1">
-                  {tomorrowShifts.map((shift) => (
-                    <div
-                      key={shift.id}
-                      className="flex items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-muted/50"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {formatTime(new Date(shift.start))}
-                        </span>
-                        <span className="font-medium">
-                          {shift.patient
-                            ? `${shift.patient.lastName}, ${shift.patient.firstName}`
-                            : "Paciente"}
-                        </span>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] ${SHIFT_STATUS_COLORS[shift.status]}`}
-                      >
-                        {SHIFT_STATUS_LABELS[shift.status]}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </>
-      )}
-
+      {/* Dialogs */}
       {attendShift && (
         <QuickAttendDialog
           open={!!attendShift}
           onOpenChange={(open) => {
             if (!open) {
               setAttendShift(null);
-              fetchShifts();
+              fetchDashboard();
             }
           }}
           shift={attendShift}
-          onSaved={() => {
-            fetchShifts();
-          }}
-          onScheduleNext={(patientId, medicId) => {
+          onSaved={() => fetchDashboard()}
+          onScheduleNext={() => {
             setAttendShift(null);
-            setScheduleNext({ patientId, medicId });
           }}
-          onScheduleRecurring={(patientId, medicId) => {
-            const shift = attendShift;
+          onScheduleRecurring={() => {
             setAttendShift(null);
-            const pName = shift?.patient
-              ? `${shift.patient.lastName}, ${shift.patient.firstName}`
-              : "Paciente";
-            setScheduleRecurring({ patientId, medicId, patientName: pName });
           }}
-          onCreateStudyOrder={(patientId, shiftId) => {
-            const shift = attendShift;
+          onCreateStudyOrder={() => {
             setAttendShift(null);
-            const pName = shift?.patient
-              ? `${shift.patient.lastName}, ${shift.patient.firstName}`
-              : "Paciente";
-            setCreateStudyOrder({ patientId, patientName: pName, shiftId });
           }}
         />
       )}
 
-      {scheduleNext && (
+      {createShiftOpen && (
         <CreateShiftDialog
-          open={!!scheduleNext}
-          onOpenChange={(open) => {
-            if (!open) setScheduleNext(null);
-          }}
-          defaultPatientId={scheduleNext.patientId}
-          defaultMedicId={scheduleNext.medicId}
+          open={createShiftOpen}
+          onOpenChange={setCreateShiftOpen}
+          defaultMedicId={userId}
+          lockMedic
           onCreated={() => {
-            setScheduleNext(null);
-            fetchShifts();
+            setCreateShiftOpen(false);
+            fetchDashboard();
           }}
         />
       )}
 
-      {scheduleRecurring && (
-        <RecurringShiftDialog
-          open={!!scheduleRecurring}
-          onOpenChange={(open) => {
-            if (!open) setScheduleRecurring(null);
-          }}
-          patientId={scheduleRecurring.patientId}
-          patientName={scheduleRecurring.patientName}
-          medicId={scheduleRecurring.medicId}
-          medicName={userName}
-          onCreated={() => {
-            setScheduleRecurring(null);
-            fetchShifts();
+      {createPatientOpen && (
+        <PatientFormDialog
+          open={createPatientOpen}
+          onOpenChange={setCreatePatientOpen}
+          onSaved={() => {
+            setCreatePatientOpen(false);
+            fetchDashboard();
           }}
         />
       )}
 
-      {createStudyOrder && (
-        <CreateStudyOrderDialog
-          open={!!createStudyOrder}
-          onOpenChange={(open) => {
-            if (!open) setCreateStudyOrder(null);
-          }}
-          patientId={createStudyOrder.patientId}
-          patientName={createStudyOrder.patientName}
-          shiftId={createStudyOrder.shiftId}
-          onCreated={() => {
-            setCreateStudyOrder(null);
-          }}
-        />
-      )}
+      <ShiftQuickDialogLoader
+        shiftId={detailShiftId}
+        onOpenChange={(open) => {
+          if (!open) setDetailShiftId(null);
+        }}
+        onUpdated={() => {
+          fetchDashboard();
+        }}
+        onReschedule={(s) => {
+          setDetailShiftId(null);
+          router.push(`/dashboard/calendario?shift=${s.id}`);
+        }}
+        onViewPatient={(patientId) => {
+          setDetailShiftId(null);
+          goToPatient(patientId);
+        }}
+        primaryAction={{
+          label: "Atender",
+          onClick: (s) => {
+            setDetailShiftId(null);
+            setAttendShift(s);
+          },
+          disabled: false,
+        }}
+      />
     </div>
   );
 }

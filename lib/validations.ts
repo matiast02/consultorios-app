@@ -15,6 +15,8 @@ export const createPatientSchema = z.object({
   province: z.string().max(100).nullable().optional(),
   osId: z.string().nullable().optional(),
   osNumber: z.string().max(50).nullable().optional(),
+  emergencyContactName: z.string().max(120).nullable().optional(),
+  emergencyContactPhone: z.string().max(40).nullable().optional(),
 });
 
 export const updatePatientSchema = createPatientSchema.partial();
@@ -80,11 +82,15 @@ export const upsertPreferencesSchema = z.object({
 
 // ─── Block Days ───────────────────────────────────────────────────────────────
 
+export const blockDayCategoryEnum = z.enum(["VACATION", "HOLIDAY", "CONFERENCE", "OTHER"]);
+
 export const addBlockDaysSchema = z.object({
   userId: z.string().min(1),
   dates: z
     .array(z.string().min(1, "Fecha inválida"))
     .min(1, "Debe incluir al menos una fecha"),
+  category: blockDayCategoryEnum.optional().default("OTHER"),
+  note: z.string().max(500).nullable().optional(),
 });
 
 export const removeBlockDaySchema = z.object({
@@ -95,14 +101,35 @@ export const removeBlockDaySchema = z.object({
 
 const bloodTypeEnum = z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]);
 
+export const allergySeverityEnum = z.enum(["alta", "media", "baja"]);
+
+export const structuredAllergySchema = z.object({
+  nombre: z.string().min(1).max(80),
+  severidad: allergySeverityEnum,
+  nota: z.string().max(240).nullable().optional(),
+});
+
 export const updateClinicalRecordSchema = z.object({
-  bloodType: bloodTypeEnum.nullable().optional(),
+  bloodType: bloodTypeEnum.or(z.literal("")).nullable().optional(),
   allergies: z.string().nullable().optional(),
   personalHistory: z.string().nullable().optional(),
   familyHistory: z.string().nullable().optional(),
   currentMedication: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   customFields: z.string().nullable().optional(), // JSON: profession-specific fields
+  // Anthropometry
+  heightCm: z.number().int().min(30).max(260).nullable().optional(),
+  weightKg: z.number().min(1).max(400).nullable().optional(),
+  // Habits
+  habitsTobacco: z.string().max(240).nullable().optional(),
+  habitsAlcohol: z.string().max(240).nullable().optional(),
+  habitsActivity: z.string().max(240).nullable().optional(),
+  habitsDiet: z.string().max(240).nullable().optional(),
+  // Structured allergies (array; serialized to JSON server-side)
+  structuredAllergies: z.array(structuredAllergySchema).nullable().optional(),
+  // Profession-specific visual editors (JSON strings)
+  odontogram: z.string().nullable().optional(),
+  genogram: z.string().nullable().optional(),
 });
 
 export const createEvolutionSchema = z.object({
@@ -196,14 +223,22 @@ export const updateConsultationTypeSchema = createConsultationTypeSchema.partial
 
 // ─── Specializations ─────────────────────────────────────────────────────────
 
+const hexColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Color inválido")
+  .nullable()
+  .optional();
+
 export const createSpecializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
   professionConfigId: z.string().nullable().optional(),
+  color: hexColorSchema,
 });
 
 export const updateSpecializationSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(150),
   professionConfigId: z.string().nullable().optional(),
+  color: hexColorSchema,
 });
 
 // ─── Profession Configs ─────────────────────────────────────────────────────
@@ -272,6 +307,7 @@ export const createPrescriptionSchema = z.object({
   items: z.array(prescriptionItemSchema).min(1, "Agregar al menos un medicamento"),
   diagnosis: z.string().optional(),
   notes: z.string().optional(),
+  durationDays: z.number().int().min(1).max(365).optional(),
 });
 
 export const createMedicationSchema = z.object({
@@ -341,6 +377,56 @@ export const createRecurringShiftsSchema = z.object({
   consultationTypeId: z.string().nullable().optional(),
 });
 
+// ─── Profile (self) ──────────────────────────────────────────────────────────
+
+export const updateProfileSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  firstName: z.string().max(100).nullable().optional(),
+  lastName: z.string().max(100).nullable().optional(),
+  phone: z.string().max(40).nullable().optional(),
+  officeAddress: z.string().max(200).nullable().optional(),
+  bio: z.string().max(280, "Máximo 280 caracteres").nullable().optional(),
+  licenseNumber: z.string().max(50).nullable().optional(),
+  specializationId: z.string().nullable().optional(),
+});
+
+// ─── User Preferences Config (scheduling + regional) ─────────────────────────
+
+export const updatePreferencesConfigSchema = z.object({
+  slotDurationMinutes: z.number().int().min(5).max(240).optional(),
+  bufferMinutes: z.number().int().min(0).max(60).optional(),
+  minAdvanceMinutes: z.number().int().min(0).max(60 * 24 * 30).optional(),
+  language: z.string().min(2).max(10).optional(),
+  timezone: z.string().min(2).max(60).optional(),
+  weekStart: z.number().int().min(0).max(6).optional(),
+});
+
+// ─── User Notification Preferences ───────────────────────────────────────────
+
+export const updateNotificationsSchema = z.object({
+  notifyReminder24h: z.boolean().optional(),
+  notifyReminder2h: z.boolean().optional(),
+  notifyNewShift: z.boolean().optional(),
+  notifyCancellation: z.boolean().optional(),
+  notifyWeeklySummary: z.boolean().optional(),
+  notifySmsFallback: z.boolean().optional(),
+});
+
+// ─── User Insurances (with copago) ───────────────────────────────────────────
+
+export const updateUserInsurancesSchema = z.object({
+  insurances: z
+    .array(
+      z.object({
+        insuranceId: z.string().min(1),
+        copago: z.number().int().min(0).max(10_000_000).default(0),
+      })
+    )
+    .optional(),
+  // Backward-compat: aceptar la forma vieja {insuranceIds: string[]}
+  insuranceIds: z.array(z.string().min(1)).optional(),
+});
+
 // ─── Type exports ─────────────────────────────────────────────────────────────
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;
@@ -369,3 +455,81 @@ export type CreateConsultationTypeInput = z.infer<typeof createConsultationTypeS
 export type UpdateConsultationTypeInput = z.infer<typeof updateConsultationTypeSchema>;
 export type CreateProfessionConfigInput = z.infer<typeof createProfessionConfigSchema>;
 export type UpdateProfessionConfigInput = z.infer<typeof updateProfessionConfigSchema>;
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type UpdatePreferencesConfigInput = z.infer<typeof updatePreferencesConfigSchema>;
+export type UpdateNotificationsInput = z.infer<typeof updateNotificationsSchema>;
+export type UpdateUserInsurancesInput = z.infer<typeof updateUserInsurancesSchema>;
+
+// ─── Clinic public site ───────────────────────────────────────────────────────
+
+const PHONE_DIGITS_RE = /^[0-9]{10,15}$/;
+const TIME_HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const clinicSettingsSchema = z.object({
+  name: z.string().max(80, "Máx. 80 caracteres").nullable().optional(),
+  tagline: z.string().max(80).nullable().optional(),
+  contactEmail: z.union([z.string().email("Email inválido"), z.literal(""), z.null()]).optional(),
+  whatsappPrimary: z
+    .union([z.string().regex(PHONE_DIGITS_RE, "Solo dígitos, 10-15 (E.164 sin +)"), z.literal(""), z.null()])
+    .optional(),
+  whatsappSecondary: z
+    .union([z.string().regex(PHONE_DIGITS_RE, "Solo dígitos, 10-15"), z.literal(""), z.null()])
+    .optional(),
+  phoneDisplay: z.string().max(40).nullable().optional(),
+  prefillWhatsappMessage: z.string().max(500, "Máx. 500 caracteres").nullable().optional(),
+  addressLine1: z.string().max(160).nullable().optional(),
+  addressLine2: z.string().max(160).nullable().optional(),
+  mapLat: z.number().min(-90).max(90).nullable().optional(),
+  mapLng: z.number().min(-180).max(180).nullable().optional(),
+  mapZoom: z.number().int().min(1).max(20).nullable().optional(),
+  showTeam: z.boolean().optional(),
+  showHours: z.boolean().optional(),
+  showMap: z.boolean().optional(),
+  showContactForm: z.boolean().optional(),
+  yearsOfService: z.number().int().min(0).max(200).nullable().optional(),
+  patientsServedDisplay: z.string().max(40).nullable().optional(),
+});
+
+export const clinicHoursDaySchema = z
+  .object({
+    dayOfWeek: z.number().int().min(0).max(6),
+    closed: z.boolean(),
+    amOpen: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+    amClose: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+    pmOpen: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+    pmClose: z.string().regex(TIME_HHMM_RE, "HH:mm").nullable().optional(),
+  })
+  .refine((d) => d.closed || !!d.amOpen || !!d.pmOpen, {
+    message: "Si no está cerrado, definí al menos un horario",
+    path: ["closed"],
+  })
+  .refine((d) => !d.amOpen || !d.amClose || d.amOpen < d.amClose, {
+    message: "El cierre AM debe ser posterior a la apertura",
+    path: ["amClose"],
+  })
+  .refine((d) => !d.pmOpen || !d.pmClose || d.pmOpen < d.pmClose, {
+    message: "El cierre PM debe ser posterior a la apertura",
+    path: ["pmClose"],
+  });
+
+export const clinicHoursWeekSchema = z.array(clinicHoursDaySchema).length(7);
+
+export const contactRequestSchema = z.object({
+  fullName: z.string().min(2, "Ingresá tu nombre").max(120),
+  phone: z.string().min(6, "Teléfono requerido").max(40),
+  email: z.union([z.string().email("Email inválido"), z.literal("")]).optional(),
+  healthInsurance: z.string().max(80).optional().or(z.literal("")),
+  specializationId: z.union([z.string().cuid(), z.literal("")]).optional(),
+  preferredDay: z
+    .union([
+      z.enum(["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]),
+      z.literal(""),
+    ])
+    .optional(),
+  message: z.string().max(1000).optional().or(z.literal("")),
+});
+
+export type ClinicSettingsInput = z.infer<typeof clinicSettingsSchema>;
+export type ClinicHoursDayInput = z.infer<typeof clinicHoursDaySchema>;
+export type ClinicHoursWeekInput = z.infer<typeof clinicHoursWeekSchema>;
+export type ContactRequestInput = z.infer<typeof contactRequestSchema>;

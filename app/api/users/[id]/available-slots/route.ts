@@ -90,6 +90,13 @@ export async function GET(
     // 4. Generate all possible slots from work hours
     const timeSlots: { start: string; end: string; available: boolean }[] = [];
 
+    // If the requested date is today, skip slots whose start time is already in the past.
+    const now = new Date();
+    const isToday =
+      now.getFullYear() === startOfDay.getFullYear() &&
+      now.getMonth() === startOfDay.getMonth() &&
+      now.getDate() === startOfDay.getDate();
+
     function generateSlots(fromHour: string, toHour: string) {
       const [fH, fM] = fromHour.split(":").map(Number);
       const [tH, tM] = toHour.split(":").map(Number);
@@ -111,6 +118,9 @@ export async function GET(
         slotStart.setHours(slotStartH, slotStartM, 0, 0);
         const slotEnd = new Date(startOfDay);
         slotEnd.setHours(slotEndH, slotEndM, 0, 0);
+
+        // Skip slots whose start is already in the past (only for today).
+        if (isToday && slotStart <= now) continue;
 
         const isOccupied = existingShifts.some((s) => {
           const sStart = new Date(s.start);

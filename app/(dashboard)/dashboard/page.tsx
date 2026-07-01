@@ -2,11 +2,16 @@ import { requireAuth } from "@/lib/auth-utils";
 import { DashboardContent } from "./dashboard-content";
 import { MedicDashboard } from "@/components/medic-dashboard";
 import { SecretaryDashboard } from "@/components/secretary-dashboard";
+import { AdminDashboard } from "@/components/admin-dashboard";
 
 export default async function DashboardPage() {
   const user = await requireAuth();
   const role = (user as { role?: string }).role ?? null;
   const userName = user.name ?? "Usuario";
+
+  if (role === "admin") {
+    return <AdminDashboard userName={userName} />;
+  }
 
   if (role === "medic") {
     return <MedicDashboard userName={userName} />;

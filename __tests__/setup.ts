@@ -34,6 +34,13 @@ export const prismaMock = {
   userInsurance: createModelMock(),
   patientInsurance: createModelMock(),
   professionConfig: createModelMock(),
+  contactRequest: createModelMock(),
+  healthInsurance: createModelMock(),
+  specialization: createModelMock(),
+  evolution: createModelMock(),
+  clinicalRecord: createModelMock(),
+  prescription: createModelMock(),
+  rateLimit: createModelMock(),
   $queryRawUnsafe: vi.fn().mockResolvedValue([]),
   $transaction: vi.fn().mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {
@@ -65,6 +72,8 @@ vi.mock("@/auth", () => ({
 
 vi.mock("@/lib/auth-utils", () => ({
   isMedic: vi.fn().mockResolvedValue(false),
+  isSecretary: vi.fn().mockResolvedValue(false),
+  isSecretaryOrAdmin: vi.fn().mockResolvedValue(true),
   getCurrentUser: vi.fn().mockResolvedValue({ id: "user-1", email: "test@test.com" }),
   getCurrentUserId: vi.fn().mockResolvedValue("user-1"),
   getUserRole: vi.fn().mockResolvedValue("secretary"),

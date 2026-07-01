@@ -1,512 +1,363 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { StatCard } from "@/components/dashboard/stat-card";
-import { RescheduledBanner } from "@/components/dashboard/rescheduled-banner";
-import {
-  ClipboardList,
-  Clock,
-  CheckCircle,
-  UserX,
-  CalendarCheck,
-  Loader2,
-  Plus,
-  UserPlus,
-  Stethoscope,
-  ChevronRight,
-  Users,
-  Bell,
-  Send,
-  Mail,
-  Phone,
-} from "lucide-react";
-import type { Shift, Medic } from "@/types";
-import type { ShiftReminder } from "@/lib/reminders";
-import { SHIFT_STATUS_LABELS, SHIFT_STATUS_COLORS } from "@/types";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+
+import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
+import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
+import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+
+import { SecretaryDashboardHeader } from "@/components/dashboard/secretary/dashboard-header";
+import { SecretaryStatsRow } from "@/components/dashboard/secretary/stats-row";
+import { WaitingRoomCard } from "@/components/dashboard/secretary/waiting-room-card";
+import { NextToCallCard } from "@/components/dashboard/secretary/next-to-call-card";
+import { RemindersCard } from "@/components/dashboard/secretary/reminders-card";
+import { TodaySlotsCard } from "@/components/dashboard/secretary/today-slots-card";
+import { AgendaDayCard } from "@/components/dashboard/secretary/agenda-day-card";
+import { RegisterArrivalDialog } from "@/components/dashboard/secretary/register-arrival-dialog";
+
+import type { SecretaryDashboardData, WaitingRoomItem } from "@/types";
 
 interface SecretaryDashboardProps {
   userName: string;
 }
 
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString("es-AR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [medics, setMedics] = useState<Medic[]>([]);
+  const { data: session } = useSession();
+  const router = useRouter();
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  void userId;
+
+  const [data, setData] = useState<SecretaryDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [rescheduledShifts, setRescheduledShifts] = useState<Shift[]>([]);
-  const [dismissedRescheduled, setDismissedRescheduled] = useState(false);
-
-  // Reminders state
-  const [reminderCount, setReminderCount] = useState<number>(0);
-  const [reminders, setReminders] = useState<ShiftReminder[]>([]);
   const [sendingReminders, setSendingReminders] = useState(false);
-  const [remindersGenerated, setRemindersGenerated] = useState(false);
 
-  const today = new Date();
+  const [registerArrivalOpen, setRegisterArrivalOpen] = useState(false);
+  const [createShiftOpen, setCreateShiftOpen] = useState(false);
+  const [createPatientOpen, setCreatePatientOpen] = useState(false);
 
-  // Fetch rescheduled shifts
-  useEffect(() => {
-    async function loadRescheduled() {
-      try {
-        const res = await fetch("/api/shifts/rescheduled");
-        if (res.ok) {
-          const json = await res.json();
-          setRescheduledShifts(json.data ?? []);
-        }
-      } catch {
-        // Non-critical
-      }
-    }
-    loadRescheduled();
-  }, []);
+  // Pre-fill state for "crear turno a partir de un hueco"
+  const [slotDefaults, setSlotDefaults] = useState<{
+    medicId: string;
+    date: Date;
+    startTime: string;
+    endTime: string;
+    durationMinutes: number;
+  } | null>(null);
 
-  // Fetch reminder count (next 24h)
-  useEffect(() => {
-    async function loadReminderCount() {
-      try {
-        const res = await fetch("/api/shifts/reminders");
-        if (res.ok) {
-          const json = await res.json();
-          setReminderCount(json.count ?? 0);
-        }
-      } catch {
-        // Non-critical
-      }
-    }
-    loadReminderCount();
-  }, []);
+  // Shift detail viewer — just the id; the loader fetches + mounts the dialog.
+  const [detailShiftId, setDetailShiftId] = useState<string | null>(null);
 
-  // Generate reminders (called by button)
-  async function handleSendReminders() {
-    setSendingReminders(true);
-    try {
-      const res = await fetch("/api/shifts/reminders", { method: "POST" });
-      if (res.ok) {
-        const json = await res.json();
-        const data: ShiftReminder[] = json.data ?? [];
-        setReminders(data);
-        setRemindersGenerated(true);
-        toast.success(`Se generaron ${data.length} recordatorios`);
-      } else {
-        toast.error("Error al generar recordatorios");
-      }
-    } catch {
-      toast.error("Error al generar recordatorios");
-    } finally {
-      setSendingReminders(false);
-    }
-  }
-
-  const fetchData = useCallback(async () => {
+  const fetchDashboard = useCallback(async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        month: String(today.getMonth() + 1),
-        year: String(today.getFullYear()),
-      });
-      const [shiftsRes, medicsRes] = await Promise.all([
-        fetch(`/api/shifts?${params}`),
-        fetch("/api/users/medics"),
-      ]);
-
-      if (shiftsRes.ok) {
-        const json = await shiftsRes.json();
-        setShifts(json.data ?? []);
-      }
-      if (medicsRes.ok) {
-        const json = await medicsRes.json();
-        setMedics(json.data ?? []);
-      }
+      const res = await fetch("/api/dashboard/secretary");
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setData(json.data ?? null);
     } catch {
-      toast.error("Error al cargar datos");
+      toast.error("No se pudo cargar el dashboard");
+      setData(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchDashboard();
+  }, [fetchDashboard]);
 
-  const todayShifts = shifts
-    .filter((s) => isSameDay(new Date(s.start), today))
-    .sort(
-      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
-    );
+  // Refresh waiting times every 30 seconds so the badges stay current.
+  // Pause the polling whenever ANY dialog is open so we don't blow away the user's input.
+  const anyDialogOpen =
+    registerArrivalOpen ||
+    createShiftOpen ||
+    createPatientOpen ||
+    !!detailShiftId;
+  useEffect(() => {
+    if (anyDialogOpen) return;
+    const id = setInterval(() => {
+      fetchDashboard();
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [fetchDashboard, anyDialogOpen]);
 
-  // Stats per medic
-  const medicStats = medics.map((medic) => {
-    const medicShifts = todayShifts.filter((s) => s.userId === medic.id);
-    return {
-      medic,
-      total: medicShifts.length,
-      pending: medicShifts.filter(
-        (s) => s.status === "PENDING" || s.status === "CONFIRMED"
-      ).length,
-      finished: medicShifts.filter((s) => s.status === "FINISHED").length,
-      absent: medicShifts.filter((s) => s.status === "ABSENT").length,
-    };
-  });
+  // ─── Handlers ────────────────────────────────────────────────────────────
+  const handleNewShift = () => {
+    setSlotDefaults(null);
+    setCreateShiftOpen(true);
+  };
+  const handleRegisterArrival = () => setRegisterArrivalOpen(true);
 
-  // Global stats
-  const totalToday = todayShifts.length;
-  const totalPending = todayShifts.filter(
-    (s) => s.status === "PENDING" || s.status === "CONFIRMED"
-  ).length;
-  const totalFinished = todayShifts.filter(
-    (s) => s.status === "FINISHED"
-  ).length;
-  const totalAbsent = todayShifts.filter(
-    (s) => s.status === "ABSENT"
-  ).length;
-
-  // Upcoming shifts (next ones that are pending/confirmed)
-  const upcomingShifts = todayShifts
-    .filter((s) => s.status === "PENDING" || s.status === "CONFIRMED")
-    .slice(0, 8);
-
-  const medicName = (shift: Shift) => {
-    if (!shift.user) return "—";
-    return shift.user.lastName
-      ? shift.user.lastName
-      : shift.user.name ?? "Profesional";
+  const handlePickSlot = (medicId: string, time: string, durationMinutes: number) => {
+    const [h, m] = time.split(":").map((n) => parseInt(n, 10));
+    const endTotal = h * 60 + m + durationMinutes;
+    const endH = Math.floor(endTotal / 60);
+    const endM = endTotal % 60;
+    const endTime = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+    // Use a Date pinned to local midnight today so the dialog reads the right day
+    const t = new Date();
+    const today = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 12, 0, 0);
+    setSlotDefaults({
+      medicId,
+      date: today,
+      startTime: time,
+      endTime,
+      durationMinutes,
+    });
+    setCreateShiftOpen(true);
   };
 
+  const handleShiftClick = (shiftId: string) => {
+    setDetailShiftId(shiftId);
+  };
+
+  const callShift = async (id: string, kind: "scheduled" | "walkin") => {
+    // For walk-ins we cannot start consultation directly without a shift, so we just toast.
+    if (kind === "walkin") {
+      toast.info("Asigná un turno al walk-in para llamarlo a consulta");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/shifts/${id}/start-consultation`, { method: "POST" });
+      if (!res.ok) throw new Error();
+      toast.success("Paciente pasó a consulta");
+      fetchDashboard();
+    } catch {
+      toast.error("No se pudo registrar el pasaje a consulta");
+    }
+  };
+
+  const handleMarkSeen = (shiftId: string) => callShift(shiftId, "scheduled");
+
+  const handleMarkAbsent = async (shiftId: string) => {
+    try {
+      const res = await fetch(`/api/shifts/${shiftId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "ABSENT" }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Paciente marcado como ausente");
+      fetchDashboard();
+    } catch {
+      toast.error("No se pudo marcar como ausente");
+    }
+  };
+
+  const handleCallWaiting = (item: WaitingRoomItem) => {
+    if (item.patient.telephone) {
+      window.location.href = `tel:${item.patient.telephone.replace(/\s+/g, "")}`;
+    } else {
+      toast.info("Sin teléfono registrado");
+    }
+  };
+
+  const handleEditWaiting = (item: WaitingRoomItem) => {
+    if (item.shift) {
+      router.push(`/dashboard/calendario?shift=${item.shift.id}`);
+    } else if (item.patient.id) {
+      router.push(`/dashboard/pacientes/${item.patient.id}`);
+    }
+  };
+
+  const handleAssignShift = (walkInId: string) => {
+    void walkInId;
+    setCreateShiftOpen(true);
+  };
+
+  const handleWalkInLeft = async (walkInId: string) => {
+    try {
+      const res = await fetch(`/api/walk-ins/${walkInId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markLeftNow: true }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Walk-in marcado como retirado");
+      fetchDashboard();
+    } catch {
+      toast.error("No se pudo actualizar el walk-in");
+    }
+  };
+
+  const handleViewPatient = (patientId: string) => {
+    router.push(`/dashboard/pacientes/${patientId}`);
+  };
+
+  const handleNextToCall = async () => {
+    if (!data?.proximoALlamar) return;
+    await callShift(data.proximoALlamar.waitingRoomId, data.proximoALlamar.kind);
+  };
+
+  const handleSendReminders = async () => {
+    setSendingReminders(true);
+    try {
+      const res = await fetch("/api/shifts/reminders/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      toast.success(`${json.data?.sent ?? 0} recordatorios enviados`);
+      fetchDashboard();
+    } catch {
+      toast.error("No se pudieron enviar los recordatorios");
+    } finally {
+      setSendingReminders(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="rounded-2xl border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
+        No se pudo cargar el dashboard. Intentá recargar la página.
+      </div>
+    );
+  }
+
+  // Build payload for RegisterArrivalDialog from agenda data (medic short name baked-in)
+  const todayShiftsForDialog = data.agenda.profesionales.flatMap((p) =>
+    p.shifts.map((s) => ({
+      id: s.id,
+      start: s.start,
+      patient: undefined as { id: string; firstName: string; lastName: string } | undefined,
+      // We need the patient name from waiting room/agenda — agenda only has shortName.
+      // Compose a tiny placeholder; the dialog only needs the short name for display.
+      medicShortName: p.shortName,
+      arrivedAt: null as string | null,
+    })),
+  );
+  void todayShiftsForDialog;
+
+  // We use salaDeEspera + a synthetic list: shifts that have NOT arrived yet — derived from agenda.
+  // Simpler approach: send the salaDeEspera as "already arrived", so the dialog excludes them.
+  const arrivedIds = new Set(data.salaDeEspera.map((s) => s.id));
+  const dialogShifts = data.agenda.profesionales.flatMap((p) =>
+    p.shifts
+      .filter((s) => !arrivedIds.has(s.id))
+      .map((s) => {
+        const split = s.patientShortName.split(",");
+        const lastName = (split[0] ?? "").trim();
+        const firstNameInit = (split[1] ?? "").trim().replace(/\.$/, "");
+        return {
+          id: s.id,
+          start: s.start,
+          patient: lastName ? { id: "", firstName: firstNameInit, lastName } : null,
+          medicShortName: p.shortName,
+          arrivedAt: null as string | null,
+        };
+      }),
+  );
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="relative overflow-hidden rounded-xl border bg-card p-6 shadow-sm">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute right-0 top-0 h-full w-48 bg-gradient-to-l from-primary/5 to-transparent"
+    <div className="space-y-5">
+      <SecretaryDashboardHeader
+        secretaryName={userName || data.header.secretaryName}
+        activeProfessionalsCount={data.header.activeProfessionalsCount}
+        onNewShift={handleNewShift}
+        onRegisterArrival={handleRegisterArrival}
+      />
+
+      <SecretaryStatsRow stats={data.stats} />
+
+      {/* Main grid: waiting room (wide) + right column */}
+      <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+        <WaitingRoomCard
+          items={data.salaDeEspera}
+          onMarkSeen={handleMarkSeen}
+          onMarkAbsent={handleMarkAbsent}
+          onCall={handleCallWaiting}
+          onEdit={handleEditWaiting}
+          onAssignShift={handleAssignShift}
+          onWalkInLeft={handleWalkInLeft}
+          onViewPatient={handleViewPatient}
+          onRegisterArrival={handleRegisterArrival}
         />
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-primary">
-              <ClipboardList className="h-5 w-5" />
-              <span className="text-sm font-medium">
-                Recepcion y Agenda
-              </span>
-            </div>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight">
-              {userName}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {format(today, "EEEE, d 'de' MMMM yyyy", { locale: es })}
-            </p>
-          </div>
-          <div className="flex gap-2 shrink-0">
-            <Button asChild size="sm" variant="outline">
-              <Link href="/dashboard/pacientes">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Nuevo Paciente
-              </Link>
-            </Button>
-            <Button asChild size="sm">
-              <Link href="/dashboard/calendario">
-                <Plus className="mr-2 h-4 w-4" />
-                Nuevo Turno
-              </Link>
-            </Button>
-          </div>
+
+        <div className="space-y-4">
+          <NextToCallCard data={data.proximoALlamar} onCall={handleNextToCall} />
+          <RemindersCard
+            data={data.recordatorios}
+            sending={sendingReminders}
+            onSendPending={handleSendReminders}
+            onEdit={() => router.push("/dashboard/calendario")}
+          />
+          <TodaySlotsCard
+            groups={data.huecosHoy}
+            onViewWeek={() => router.push("/dashboard/calendario")}
+            onPickSlot={handlePickSlot}
+          />
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
-        </div>
-      ) : (
-        <>
-          {/* Rescheduled shifts notification */}
-          {!dismissedRescheduled && (
-            <RescheduledBanner
-              shifts={rescheduledShifts}
-              showMedicName
-              maxVisible={5}
-              onDismiss={() => setDismissedRescheduled(true)}
-            />
-          )}
+      {/* Wide agenda */}
+      <AgendaDayCard data={data.agenda} onShiftClick={handleShiftClick} />
 
-          {/* Global stats */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label="Turnos hoy"
-              value={totalToday}
-              icon={CalendarCheck}
-              color="text-primary"
-              bg="bg-primary/10"
-              border="border-l-primary"
-            />
-            <StatCard
-              label="Pendientes"
-              value={totalPending}
-              icon={Clock}
-              color="text-amber-600 dark:text-amber-400"
-              bg="bg-amber-50 dark:bg-amber-950/40"
-              border="border-l-amber-500"
-            />
-            <StatCard
-              label="Atendidos"
-              value={totalFinished}
-              icon={CheckCircle}
-              color="text-emerald-600 dark:text-emerald-400"
-              bg="bg-emerald-50 dark:bg-emerald-950/40"
-              border="border-l-emerald-500"
-            />
-            <StatCard
-              label="Ausentes"
-              value={totalAbsent}
-              icon={UserX}
-              color="text-red-600 dark:text-red-400"
-              bg="bg-red-50 dark:bg-red-950/40"
-              border="border-l-red-500"
-            />
-          </div>
+      {/* Dialogs */}
+      <RegisterArrivalDialog
+        open={registerArrivalOpen}
+        onOpenChange={setRegisterArrivalOpen}
+        todayShifts={dialogShifts}
+        onArrived={fetchDashboard}
+      />
 
-          {/* Medic cards */}
-          <div>
-            <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
-              <Stethoscope className="h-5 w-5 text-primary" />
-              Agenda por Profesional
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {medicStats.map(({ medic, total, pending, finished, absent }) => (
-                <Link
-                  key={medic.id}
-                  href={`/dashboard/calendario?medico=${medic.id}`}
-                >
-                  <Card className="cursor-pointer shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                            {(medic.lastName ?? medic.name ?? "M")
-                              .charAt(0)
-                              .toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="font-medium">
-                              {medic.lastName
-                                ? medic.lastName
-                                : medic.name ?? "Profesional"}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {medic.specialization?.name ?? "Sin especialidad"}
-                            </p>
-                          </div>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
+      {createShiftOpen && (
+        <CreateShiftDialog
+          open={createShiftOpen}
+          onOpenChange={(open) => {
+            setCreateShiftOpen(open);
+            if (!open) setSlotDefaults(null);
+          }}
+          defaultDate={slotDefaults?.date}
+          defaultStartTime={slotDefaults?.startTime}
+          defaultEndTime={slotDefaults?.endTime}
+          defaultMedicId={slotDefaults?.medicId}
+          defaultDurationMinutes={slotDefaults?.durationMinutes}
+          lockMedic={!!slotDefaults?.medicId}
+          onCreated={() => {
+            setCreateShiftOpen(false);
+            setSlotDefaults(null);
+            fetchDashboard();
+          }}
+        />
+      )}
 
-                      <div className="mt-3 flex items-center gap-3 text-xs">
-                        <span className="rounded-full bg-muted px-2 py-0.5 font-medium">
-                          {total} turnos
-                        </span>
-                        {pending > 0 && (
-                          <span className="text-amber-600 dark:text-amber-400">
-                            {pending} pend.
-                          </span>
-                        )}
-                        {finished > 0 && (
-                          <span className="text-emerald-600 dark:text-emerald-400">
-                            {finished} atend.
-                          </span>
-                        )}
-                        {absent > 0 && (
-                          <span className="text-red-600 dark:text-red-400">
-                            {absent} aus.
-                          </span>
-                        )}
-                        {total === 0 && (
-                          <span className="text-muted-foreground">
-                            Sin turnos hoy
-                          </span>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          </div>
+      <ShiftQuickDialogLoader
+        shiftId={detailShiftId}
+        onOpenChange={(open) => {
+          if (!open) setDetailShiftId(null);
+        }}
+        onUpdated={() => {
+          fetchDashboard();
+        }}
+        onReschedule={(s) => {
+          router.push(`/dashboard/calendario?shift=${s.id}`);
+        }}
+        onViewPatient={handleViewPatient}
+      />
 
-          {/* Upcoming shifts */}
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
-                    <Users className="h-4 w-4 text-primary" />
-                  </div>
-                  <CardTitle className="text-base">
-                    Proximos turnos de hoy
-                  </CardTitle>
-                </div>
-                <Button asChild variant="outline" size="sm">
-                  <Link href="/dashboard/calendario">
-                    Ver agenda completa
-                  </Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {upcomingShifts.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  No hay turnos pendientes para hoy.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {upcomingShifts.map((shift) => (
-                    <div
-                      key={shift.id}
-                      className="flex items-center justify-between rounded-lg border px-4 py-3 transition-colors hover:bg-muted/50"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="font-mono text-sm font-medium">
-                          {formatTime(new Date(shift.start))}
-                        </span>
-                        <div>
-                          <p className="text-sm font-medium">
-                            {shift.patient
-                              ? `${shift.patient.lastName}, ${shift.patient.firstName}`
-                              : "Paciente"}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {medicName(shift)}
-                            {shift.patient?.os &&
-                              ` — ${shift.patient.os.name}`}
-                          </p>
-                        </div>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${SHIFT_STATUS_COLORS[shift.status]}`}
-                      >
-                        {SHIFT_STATUS_LABELS[shift.status]}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Reminders section */}
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-950/40">
-                    <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">Recordatorios</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      {reminderCount > 0
-                        ? `${reminderCount} turno${reminderCount !== 1 ? "s" : ""} en las proximas 24 horas`
-                        : "Sin turnos proximos en las proximas 24 horas"}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  onClick={handleSendReminders}
-                  disabled={sendingReminders || reminderCount === 0}
-                  size="sm"
-                  variant={remindersGenerated ? "outline" : "default"}
-                >
-                  {sendingReminders ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="mr-2 h-4 w-4" />
-                  )}
-                  {remindersGenerated ? "Regenerar" : "Enviar recordatorios"}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {!remindersGenerated ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  {reminderCount > 0
-                    ? "Presione \"Enviar recordatorios\" para generar la lista de pacientes a notificar."
-                    : "No hay turnos pendientes o confirmados en las proximas 24 horas."}
-                </p>
-              ) : reminders.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  No se encontraron turnos para recordar.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {reminders.map((reminder) => (
-                    <div
-                      key={reminder.shiftId}
-                      className="flex items-center justify-between rounded-lg border px-4 py-3"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="font-mono text-sm font-medium">
-                          {reminder.time}
-                        </span>
-                        <div>
-                          <p className="text-sm font-medium">
-                            {reminder.patientName}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {reminder.professionalName} — {reminder.date}
-                          </p>
-                          <div className="mt-1 flex items-center gap-3">
-                            {reminder.patientEmail && (
-                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Mail className="h-3 w-3" />
-                                {reminder.patientEmail}
-                              </span>
-                            )}
-                            {reminder.patientPhone && (
-                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Phone className="h-3 w-3" />
-                                {reminder.patientPhone}
-                              </span>
-                            )}
-                            {!reminder.patientEmail && !reminder.patientPhone && (
-                              <span className="text-xs text-red-500">
-                                Sin datos de contacto
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </>
+      {createPatientOpen && (
+        <PatientFormDialog
+          open={createPatientOpen}
+          onOpenChange={setCreatePatientOpen}
+          onSaved={() => {
+            setCreatePatientOpen(false);
+            fetchDashboard();
+          }}
+        />
       )}
     </div>
   );

@@ -46,6 +46,11 @@ import { cn } from "@/lib/utils";
 import type { Patient, Medic, UserPreference, BlockDay, ConsultationType, HealthInsurance } from "@/types";
 import { DAY_NAMES } from "@/types";
 
+/** Format a Date as YYYY-MM-DD using LOCAL time (avoids TZ off-by-one). */
+function toLocalDateISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const createShiftSchema = z.object({
   patientId: z.string().min(1, "Selecciona un paciente"),
   date: z.string().min(1, "Selecciona una fecha"),
@@ -64,6 +69,10 @@ interface CreateShiftDialogProps {
   defaultEndTime?: string;
   defaultPatientId?: string;
   defaultMedicId?: string;
+  /** When set, auto-select the consultation type whose duration matches (in minutes). */
+  defaultDurationMinutes?: number;
+  /** When true, hide the medic selector (the caller already locked the medic) */
+  lockMedic?: boolean;
   onCreated: () => void;
 }
 
@@ -75,6 +84,8 @@ export function CreateShiftDialog({
   defaultEndTime,
   defaultPatientId,
   defaultMedicId,
+  defaultDurationMinutes,
+  lockMedic = false,
   onCreated,
 }: CreateShiftDialogProps) {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -96,9 +107,7 @@ export function CreateShiftDialog({
     resolver: zodResolver(createShiftSchema),
     defaultValues: {
       patientId: defaultPatientId ?? "",
-      date: defaultDate
-        ? defaultDate.toISOString().split("T")[0]
-        : new Date().toISOString().split("T")[0],
+      date: toLocalDateISO(defaultDate ?? new Date()),
       startTime: defaultStartTime ?? "09:00",
       endTime: defaultEndTime ?? "09:30",
       medicId: defaultMedicId ?? "",
@@ -211,14 +220,21 @@ export function CreateShiftDialog({
           const json = await res.json();
           const list: ConsultationType[] = json.data ?? [];
           setConsultationTypes(list);
-          // Auto-select default type
+          // Prefer a type matching the pre-filled duration; else fall back to the default flag
+          if (defaultDurationMinutes) {
+            const match = list.find((t) => t.durationMinutes === defaultDurationMinutes);
+            if (match) {
+              setSelectedTypeId(match.id);
+              return;
+            }
+          }
           const def = list.find((t) => t.isDefault);
           if (def) setSelectedTypeId(def.id);
         }
       } catch { /* non-critical */ }
     }
     loadTypes();
-  }, [open]);
+  }, [open, defaultDurationMinutes]);
 
   // Auto-calculate endTime when consultation type or startTime changes
   useEffect(() => {
@@ -583,9 +599,27 @@ export function CreateShiftDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {defaultStartTime && defaultMedicId && (
+          <div className="rounded-lg border border-[#0d4f4d]/30 bg-[#0d4f4d]/[0.06] px-3 py-2 text-[12.5px] text-foreground">
+            <div className="flex flex-wrap items-center gap-x-1.5">
+              <Clock className="h-3.5 w-3.5 text-[#0d4f4d]" />
+              <span>Reservando hueco a las</span>
+              <span className="font-semibold tabular-nums">{defaultStartTime}</span>
+              {defaultEndTime && (
+                <span className="text-muted-foreground">— {defaultEndTime}</span>
+              )}
+              {defaultDurationMinutes && (
+                <span className="rounded-md bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {defaultDurationMinutes} min
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* Profesional — searchable combobox */}
-          {medics.length > 0 && (
+          {/* Profesional — searchable combobox (hidden when caller locks the medic) */}
+          {!lockMedic && medics.length > 0 && (
             <div className="space-y-2">
               <Label>Profesional</Label>
               <Popover

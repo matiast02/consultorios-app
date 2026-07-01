@@ -1,160 +1,206 @@
 "use client";
 
-import type { Shift } from "@/types";
-import { SHIFT_STATUS_COLORS, DAY_NAMES } from "@/types";
-import { DroppableSlot, DraggableShift } from "./dnd-helpers";
-import { HOUR_SLOTS, pad, formatTime, dateToYMD } from "./calendar-helpers";
+import type { Shift, UserPreference } from "@/types";
+import { DraggableShift, DroppableSlot } from "./dnd-helpers";
+import {
+  HOURS_START,
+  HOURS_END,
+  STATE_WEEK_CLASS,
+  WEEK_HOUR_PX,
+  dateToYMD,
+  formatTime,
+  isSameDay,
+  shiftToState,
+  toMinutes,
+  capacityFromPreference,
+  pad,
+} from "./calendar-helpers";
 
-// ─── Props ────────────────────────────────────────────────────────────────────
+const DOWS_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
-export interface WeekViewProps {
-  weekDays: Date[];
-  getShiftsForDay: (date: Date) => Shift[];
-  isDayBlocked: (date: Date) => boolean;
-  isToday: (date: Date) => boolean;
-  isSelected: (date: Date) => boolean;
-  isWithinWorkHours: (dayOfWeek: number, hour: number) => boolean;
-  getShiftPosition: (shift: Shift) => { top: number; height: number };
-  onSelectDay: (date: Date) => void;
+interface WeekViewProps {
+  weekDays: Date[]; // 7 days, Sunday first
+  today: Date;
+  /** Function returning the work-hour preference for a given weekday (0..6). */
+  getPreference: (dayOfWeek: number) => UserPreference | undefined;
+  isDayBlocked: (day: Date) => boolean;
+  getShiftsForDay: (day: Date) => Shift[];
+  selectedShiftId?: string | null;
+  onSelectDay: (day: Date) => void;
   onSlotClick: (date: Date, hour: number) => void;
-  onShiftClick: (shift: Shift) => void;
+  onSelectShift: (s: Shift) => void;
 }
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export function WeekView({
   weekDays,
-  getShiftsForDay,
+  today,
+  getPreference,
   isDayBlocked,
-  isToday,
-  isSelected,
-  isWithinWorkHours,
-  getShiftPosition,
+  getShiftsForDay,
+  selectedShiftId,
   onSelectDay,
   onSlotClick,
-  onShiftClick,
+  onSelectShift,
 }: WeekViewProps) {
+  const hours: number[] = [];
+  for (let h = HOURS_START; h <= HOURS_END; h++) hours.push(h);
+  const totalHeight = (HOURS_END - HOURS_START) * WEEK_HOUR_PX;
+  const yForMin = (m: number) => (m / 60 - HOURS_START) * WEEK_HOUR_PX;
+
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[700px]">
-        {/* Day headers */}
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b">
-          <div /> {/* spacer for time column */}
-          {weekDays.map((day) => (
+    <div className="overflow-hidden rounded-[10px] border bg-card shadow-xs">
+      {/* Day headers */}
+      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b bg-muted/50">
+        <div />
+        {weekDays.map((d) => {
+          const isToday = isSameDay(d, today);
+          const pref = getPreference(d.getDay());
+          const cap = capacityFromPreference(pref);
+          const dayShifts = getShiftsForDay(d);
+          return (
             <button
-              key={day.toISOString()}
-              onClick={() => onSelectDay(day)}
-              className={`p-2 text-center border-l transition-colors hover:bg-accent ${
-                isSelected(day) ? "bg-accent" : ""
-              }`}
+              key={d.toISOString()}
+              type="button"
+              onClick={() => onSelectDay(d)}
+              className="border-l p-2.5 text-center transition-colors hover:bg-muted"
             >
-              <div className="text-xs text-muted-foreground">
-                {DAY_NAMES[day.getDay()].substring(0, 3)}
+              <div className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+                {DOWS_SHORT[d.getDay()]}
               </div>
-              <div
-                className={`mt-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium ${
-                  isToday(day)
-                    ? "bg-primary text-primary-foreground"
-                    : ""
-                }`}
-              >
-                {day.getDate()}
-              </div>
-              {isDayBlocked(day) && (
-                <div className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 uppercase">
-                  Bloqueado
+              {isToday ? (
+                <div className="mx-auto mt-1 grid h-7 w-7 place-items-center rounded-full bg-primary text-[15px] font-bold text-primary-foreground">
+                  {d.getDate()}
+                </div>
+              ) : (
+                <div className="mt-1 text-[18px] font-bold leading-none text-foreground">
+                  {d.getDate()}
                 </div>
               )}
+              {cap > 0 ? (
+                <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
+                  {dayShifts.length}/{cap} turnos
+                </div>
+              ) : (
+                <div className="mt-1 text-[11px] text-muted-foreground/70">Cerrado</div>
+              )}
             </button>
+          );
+        })}
+      </div>
+
+      {/* Grid body */}
+      <div className="grid grid-cols-[60px_repeat(7,1fr)]">
+        {/* Hours column */}
+        <div className="border-r">
+          {hours.map((h) => (
+            <div
+              key={h}
+              style={{ height: WEEK_HOUR_PX }}
+              className="flex items-start justify-end pr-2 pt-1 text-[11px] font-medium tabular-nums text-muted-foreground"
+            >
+              {pad(h)}
+            </div>
           ))}
         </div>
 
-        {/* Time grid */}
-        <div className="grid grid-cols-[60px_repeat(7,1fr)]">
-          {/* Time labels */}
-          <div>
-            {HOUR_SLOTS.map((hour) => (
-              <div
-                key={hour}
-                className="relative h-14 border-b pr-2 text-right"
-              >
-                <span className="absolute -top-2 right-2 text-[10px] text-muted-foreground">
-                  {pad(hour)}:00
-                </span>
-              </div>
-            ))}
-          </div>
+        {/* Day columns */}
+        {weekDays.map((d) => {
+          const pref = getPreference(d.getDay());
+          const blocked = isDayBlocked(d);
+          const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+          const open = !!pref && (
+            !!(pref.fromHourAM && pref.toHourAM) ||
+            !!(pref.fromHourPM && pref.toHourPM)
+          );
+          const dayShifts = getShiftsForDay(d);
 
-          {/* Day columns */}
-          {weekDays.map((day) => {
-            const dayShifts = getShiftsForDay(day);
-            const blocked = isDayBlocked(day);
+          const colTone = blocked
+            ? "bg-[repeating-linear-gradient(-45deg,#fbe7e3_0_6px,#fcedea_6px_12px)]"
+            : !open
+              ? "bg-[repeating-linear-gradient(-45deg,#f1f5f6_0_6px,#f8fbfb_6px_12px)]"
+              : isWeekend
+                ? "bg-muted/40"
+                : "";
 
-            return (
-              <div key={day.toISOString()} className="relative border-l">
-                {/* Hour rows (droppable slots) */}
-                {HOUR_SLOTS.map((hour) => {
-                  const withinWork = isWithinWorkHours(day.getDay(), hour);
-                  const slotId = `slot-${dateToYMD(day)}-${hour}`;
-                  return (
-                    <DroppableSlot
-                      key={hour}
-                      id={slotId}
-                      onClick={() => !blocked && onSlotClick(day, hour)}
-                      className={`h-14 border-b cursor-pointer transition-colors hover:bg-accent/50 ${
-                        blocked
-                          ? "bg-amber-50 dark:bg-amber-950/20"
-                          : withinWork
-                          ? "bg-card dark:bg-background"
-                          : "bg-muted/40 dark:bg-muted/20"
-                      }`}
-                    />
-                  );
-                })}
+          return (
+            <div
+              key={d.toISOString()}
+              className={`relative border-l ${colTone}`}
+              style={{
+                height: totalHeight,
+                backgroundImage:
+                  open && !blocked
+                    ? `repeating-linear-gradient(to bottom, transparent 0, transparent ${WEEK_HOUR_PX - 1}px, var(--border) ${WEEK_HOUR_PX - 1}px, var(--border) ${WEEK_HOUR_PX}px)`
+                    : undefined,
+              }}
+            >
+              {/* Hour droppable slots stacked invisibly for DnD */}
+              {hours.slice(0, -1).map((h) => (
+                <DroppableSlot
+                  key={h}
+                  id={`slot-${dateToYMD(d)}-${h}`}
+                  onClick={() => !blocked && onSlotClick(d, h)}
+                  className="absolute left-0 right-0 cursor-pointer transition-colors hover:bg-primary/[0.06]"
+                  style={{ top: yForMin(h * 60), height: WEEK_HOUR_PX }}
+                />
+              ))}
 
-                {/* Shift blocks (draggable, absolutely positioned) */}
-                {dayShifts.map((shift) => {
-                  const pos = getShiftPosition(shift);
-                  const totalHeight = HOUR_SLOTS.length * 56; // 56px = h-14
-                  const topPx = (pos.top / 100) * totalHeight;
-                  const heightPx = Math.max(
-                    (pos.height / 100) * totalHeight,
-                    20
-                  );
+              {/* Events */}
+              {dayShifts.map((s) => {
+                const startDate = new Date(s.start);
+                const endDate = new Date(s.end);
+                const startMin = toMinutes(startDate);
+                const durationMin = Math.max(15, (endDate.getTime() - startDate.getTime()) / 60000);
+                const top = yForMin(startMin);
+                const height = (durationMin / 60) * WEEK_HOUR_PX - 2;
+                const state = shiftToState(s);
+                const tone = STATE_WEEK_CLASS[state];
+                const selected = selectedShiftId === s.id;
+                return (
+                  <DraggableShift
+                    key={s.id}
+                    shift={s}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectShift(s);
+                    }}
+                    className={`absolute inset-x-[2px] overflow-hidden rounded-md border-l-[3px] bg-card px-1.5 py-0.5 text-[10.5px] leading-tight transition-transform hover:z-[3] hover:scale-[1.02] hover:shadow-sm ${tone} ${selected ? "ring-2 ring-primary" : ""}`}
+                    style={{ top, height }}
+                  >
+                    <div className="tabular-nums text-muted-foreground/90">
+                      {formatTime(startDate)}
+                    </div>
+                    <div className="truncate font-semibold text-foreground">
+                      {s.patient
+                        ? `${s.patient.lastName}, ${s.patient.firstName?.[0] ?? ""}.`
+                        : "Turno"}
+                    </div>
+                  </DraggableShift>
+                );
+              })}
 
-                  return (
-                    <DraggableShift
-                      key={shift.id}
-                      shift={shift}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onShiftClick(shift);
-                      }}
-                      className={`absolute left-0.5 right-0.5 rounded border px-1 py-0.5 text-[10px] overflow-hidden transition-opacity hover:opacity-80 ${shift.isOverbook ? "border-amber-500 border-dashed" : ""} ${SHIFT_STATUS_COLORS[shift.status]}`}
-                      style={{
-                        top: `${topPx}px`,
-                        height: `${heightPx}px`,
-                      }}
-                    >
-                      <div className="font-medium truncate">
-                        {shift.isOverbook && (
-                          <span className="mr-0.5 text-amber-600 dark:text-amber-400">ST</span>
-                        )}
-                        {shift.patient
-                          ? `${shift.patient.lastName}`
-                          : "Turno"}
-                      </div>
-                      <div className="truncate">
-                        {formatTime(new Date(shift.start))}
-                      </div>
-                    </DraggableShift>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+              {/* Now line — only for today's column */}
+              {isSameDay(d, today) && (
+                <NowLine yForMin={yForMin} />
+              )}
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+function NowLine({ yForMin }: { yForMin: (m: number) => number }) {
+  const now = new Date();
+  const min = now.getHours() * 60 + now.getMinutes();
+  if (min < HOURS_START * 60 || min > HOURS_END * 60) return null;
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 z-[4] h-0 border-t-2 border-rose-700"
+      style={{ top: yForMin(min) }}
+    >
+      <div className="absolute left-[-6px] top-[-6px] h-2.5 w-2.5 rounded-full bg-rose-700" />
     </div>
   );
 }

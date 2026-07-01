@@ -51,3 +51,27 @@ export async function isMedic(userId: string): Promise<boolean> {
   const role = await getUserRole(userId);
   return role === "medic";
 }
+
+/**
+ * Check if a user has the "secretary" role.
+ */
+export async function isSecretary(userId: string): Promise<boolean> {
+  const role = await getUserRole(userId);
+  return role === "secretary";
+}
+
+/**
+ * Check if a user has the "secretary" or "admin" role.
+ */
+export async function isSecretaryOrAdmin(userId: string): Promise<boolean> {
+  const role = await getUserRole(userId);
+  return role === "secretary" || role === "admin";
+}
+
+/**
+ * Check if a user has the "admin" role.
+ */
+export async function isAdmin(userId: string): Promise<boolean> {
+  const role = await getUserRole(userId);
+  return role === "admin";
+}

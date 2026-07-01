@@ -1,0 +1,80 @@
+openapi: 3.0.3
+info:
+  title: Clinic Public — Schedule by Medic
+  version: 1.0.0
+  description: |
+    Public, read-only aggregation of weekly schedules per active medic.
+    Powers the "Por profesional — Quién atiende cada día" pivot table on
+    the landing page. Sources data from the existing `UserPreference`
+    model (one row per medic per day, optional AM/PM ranges) and normalizes
+    `day` from Sunday-start (0=Sun) to Monday-start (0=Mon) to match
+    the landing's Monday-first display convention.
+
+servers:
+  - url: /
+
+paths:
+  /api/public/clinic-schedule:
+    get:
+      summary: Weekly schedule for every active medic
+      description: |
+        Returns one row per active medic with their 7-day schedule.
+        - `dayOfWeek` is Monday-start (0=Lun .. 6=Dom).
+        - `am`/`pm` are null if the medic has no slot for that block.
+        - Medics with no `UserPreference` rows are still included; their
+          `days` array contains 7 empty entries (so the UI renders dashes).
+        Revalidates every 60s like `/api/public/clinic-info`.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/MedicWeeklySchedule" }
+
+components:
+  schemas:
+    MedicWeeklySchedule:
+      type: object
+      properties:
+        id: { type: string, description: "Medic User.id (used as anchor #sched-{id})" }
+        firstName: { type: string, nullable: true }
+        lastName: { type: string, nullable: true }
+        name: { type: string, nullable: true }
+        image: { type: string, nullable: true }
+        licenseNumber: { type: string, nullable: true }
+        specialization:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string }
+            color: { type: string, nullable: true }
+        days:
+          type: array
+          minItems: 7
+          maxItems: 7
+          items: { $ref: "#/components/schemas/DaySlot" }
+
+    DaySlot:
+      type: object
+      properties:
+        dayOfWeek:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0=Lun .. 6=Dom
+        am: { $ref: "#/components/schemas/Range" }
+        pm: { $ref: "#/components/schemas/Range" }
+
+    Range:
+      type: object
+      nullable: true
+      properties:
+        from: { type: string, example: "08:00" }
+        to: { type: string, example: "13:00" }

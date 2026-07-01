@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateMealPlanSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { checkModuleAccess } from "@/lib/modules";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -10,10 +11,17 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    if (!(await checkModuleAccess("prescriptions", session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Modulo de planes alimentarios no habilitado" },
+        { status: 403 }
       );
     }
 
@@ -52,10 +60,17 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
+      );
+    }
+
+    if (!(await checkModuleAccess("prescriptions", session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Modulo de planes alimentarios no habilitado" },
+        { status: 403 }
       );
     }
 

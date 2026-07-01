@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createPatientSchema, paginationSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { buildPatientSearchWhere } from "@/lib/search";
 
 // GET /api/patients — List patients with optional search
 export async function GET(req: NextRequest) {
@@ -35,13 +36,10 @@ export async function GET(req: NextRequest) {
 
     const where: Record<string, unknown> = { deletedAt: null };
 
-    if (search) {
-      where.OR = [
-        { firstName: { contains: search } },
-        { lastName: { contains: search } },
-        { dni: { contains: search } },
-      ];
-    }
+    // Multi-token + DNI-normalized search. Returns undefined for empty input
+    // so we only set the filter when there's something to match.
+    const searchFragment = buildPatientSearchWhere(search);
+    if (searchFragment) Object.assign(where, searchFragment);
 
     const [patients, total] = await Promise.all([
       prisma.patient.findMany({

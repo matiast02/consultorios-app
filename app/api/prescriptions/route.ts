@@ -4,19 +4,28 @@ import { prisma } from "@/lib/prisma";
 import { createPrescriptionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
+import { isMedic, isSecretary } from "@/lib/auth-utils";
 
 // GET /api/prescriptions — List prescriptions for a patient
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
 
-    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id!);
+    // Secretaries cannot read prescriptions (clinical data).
+    if (await isSecretary(session.user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Sin acceso a recetas" },
+        { status: 403 }
+      );
+    }
+
+    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id);
     if (!moduleEnabled) {
       return NextResponse.json(
         { success: false, error: "Modulo de recetas no habilitado" },
@@ -54,18 +63,26 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/prescriptions — Create a prescription
+// POST /api/prescriptions — Create a prescription (medics only)
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
 
-    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id!);
+    // Only medics can prescribe.
+    if (!(await isMedic(session.user.id))) {
+      return NextResponse.json(
+        { success: false, error: "Solo profesionales médicos pueden emitir recetas" },
+        { status: 403 }
+      );
+    }
+
+    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id);
     if (!moduleEnabled) {
       return NextResponse.json(
         { success: false, error: "Modulo de recetas no habilitado" },
@@ -83,7 +100,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { patientId, shiftId, items, diagnosis, notes } = parsed.data;
+    const { patientId, shiftId, items, diagnosis, notes, durationDays } = parsed.data;
 
     const prescription = await prisma.prescription.create({
       data: {
@@ -93,6 +110,7 @@ export async function POST(req: NextRequest) {
         items: JSON.stringify(items),
         diagnosis: diagnosis ?? null,
         notes: notes ?? null,
+        ...(durationDays !== undefined ? { durationDays } : {}),
       },
       include: {
         user: {

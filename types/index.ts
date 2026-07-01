@@ -56,6 +56,9 @@ export interface Patient {
   osId?: string | null;
   osNumber?: string | null;
   os?: HealthInsurance | null;
+  // Emergency contact
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -83,6 +86,9 @@ export interface Shift {
   };
   rescheduledFrom?: string | null;
   rescheduledAt?: string | null;
+  // Reception flow (secretary dashboard)
+  arrivedAt?: string | null;
+  consultationStartedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -251,6 +257,7 @@ export interface StatsData {
 export interface Specialization {
   id: string;
   name: string;
+  color?: string | null;
   professionConfigId?: string | null;
   professionConfig?: ProfessionConfig | null;
   _count?: { users: number };
@@ -282,10 +289,52 @@ export interface UserPreference {
   toHourPM?: string | null;
 }
 
+export type BlockDayCategory = "VACATION" | "HOLIDAY" | "CONFERENCE" | "OTHER";
+
+export const BLOCK_DAY_CATEGORY_LABELS: Record<BlockDayCategory, string> = {
+  VACATION: "Vacaciones",
+  HOLIDAY: "Feriado",
+  CONFERENCE: "Congreso",
+  OTHER: "Otro",
+};
+
+export const BLOCK_DAY_CATEGORY_COLORS: Record<BlockDayCategory, string> = {
+  VACATION: "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800",
+  HOLIDAY: "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800",
+  CONFERENCE: "bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800",
+  OTHER: "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800/40 dark:text-slate-300 dark:border-slate-700",
+};
+
 export interface BlockDay {
   id: string;
   userId: string;
   date: string;
+  category: BlockDayCategory;
+  note?: string | null;
+}
+
+// ─── User Notification Preferences ───────────────────────────────────────────
+
+export interface UserNotifications {
+  notifyReminder24h: boolean;
+  notifyReminder2h: boolean;
+  notifyNewShift: boolean;
+  notifyCancellation: boolean;
+  notifyWeeklySummary: boolean;
+  notifySmsFallback: boolean;
+}
+
+export type NotificationKey = keyof UserNotifications;
+
+// ─── User Scheduling & Regional Config ───────────────────────────────────────
+
+export interface UserPreferencesConfig {
+  slotDurationMinutes: number;
+  bufferMinutes: number;
+  minAdvanceMinutes: number;
+  language: string;
+  timezone: string;
+  weekStart: number;
 }
 
 // ─── Days of week ────────────────────────────────────────────────────────────
@@ -327,10 +376,37 @@ export interface ClinicalRecord {
   currentMedication?: string | null;
   notes?: string | null;
   customFields?: string | null; // JSON: profession-specific fields
+  // Anthropometry
+  heightCm?: number | null;
+  weightKg?: number | string | null; // Prisma Decimal serializes as string
+  // Habits
+  habitsTobacco?: string | null;
+  habitsAlcohol?: string | null;
+  habitsActivity?: string | null;
+  habitsDiet?: string | null;
+  // Structured allergies (JSON string of StructuredAllergy[])
+  structuredAllergies?: string | null;
+  // Profession-specific visual editors (JSON strings)
+  odontogram?: string | null;
+  genogram?: string | null;
   evolutions?: Evolution[];
   createdAt: string;
   updatedAt: string;
 }
+
+export type AllergySeverity = "alta" | "media" | "baja";
+
+export interface StructuredAllergy {
+  nombre: string;
+  severidad: AllergySeverity;
+  nota?: string | null;
+}
+
+export const ALLERGY_SEVERITY_LABELS: Record<AllergySeverity, string> = {
+  alta: "Alta",
+  media: "Media",
+  baja: "Baja",
+};
 
 export interface Evolution {
   id: string;
@@ -362,6 +438,7 @@ export interface Prescription {
   items: string; // JSON string of PrescriptionItem[]
   diagnosis?: string | null;
   notes?: string | null;
+  durationDays?: number;
   user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
   patient?: Patient;
   createdAt: string;
@@ -390,4 +467,484 @@ export interface ModuleConfig {
   module: string;
   name: string;
   enabled: boolean;
+}
+
+// ─── Medic Dashboard ────────────────────────────────────────────────────────
+
+export interface DashboardShift {
+  id: string;
+  start: string;
+  end: string;
+  status: ShiftStatus;
+  observations?: string | null;
+  isOverbook?: boolean;
+  durationMinutes: number;
+  patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    telephone?: string | null;
+    os?: { id: string; name: string; code?: string | null } | null;
+  } | null;
+  consultationType?: { id: string; name: string; color?: string | null } | null;
+}
+
+export interface DashboardTodayStats {
+  total: number;
+  atendidos: number;
+  porVenir: number;
+  confirmados: number;
+  ausentes: number;
+  pendientes: number;
+}
+
+export interface DashboardTodayData {
+  date: string;
+  shifts: DashboardShift[];
+  nextShift: DashboardShift | null;
+  stats: DashboardTodayStats;
+}
+
+export interface DashboardWeekDay {
+  date: string;
+  count: number;
+  dayLabel: string;
+  dayNumber: number;
+  isToday: boolean;
+}
+
+export interface DashboardWeekData {
+  totalShifts: number;
+  weekStart: string;
+  weekEnd: string;
+  byDay: DashboardWeekDay[];
+}
+
+export interface DashboardPendienteItem {
+  count: number;
+  summary: string;
+}
+
+export interface DashboardPendientes {
+  evolucionesSinCerrar: DashboardPendienteItem;
+  recetasParaRenovar: DashboardPendienteItem;
+  estudiosPendientes: DashboardPendienteItem;
+}
+
+export interface DashboardRecentPatient {
+  id: string;
+  firstName: string;
+  lastName: string;
+  initials: string;
+  lastShiftType: string | null;
+  lastShiftTime: string;
+}
+
+export interface MedicDashboardData {
+  today: DashboardTodayData;
+  week: DashboardWeekData;
+  pendientes: DashboardPendientes;
+  recentPatients: DashboardRecentPatient[];
+}
+
+// ─── Secretary Dashboard ────────────────────────────────────────────────────
+
+export type ReminderStatus = "PENDING" | "SENT" | "FAILED";
+
+export interface SecretaryHeaderData {
+  secretaryName: string;
+  now: string; // ISO timestamp
+  activeProfessionalsCount: number;
+}
+
+export interface SecretaryStatsData {
+  enSalaDeEspera: number;
+  enConsulta: number;
+  esperandoMas15: number;
+  huecosHoy: number;
+}
+
+export interface WaitingRoomItemPatient {
+  id: string | null;
+  firstName: string;
+  lastName: string;
+  telephone?: string | null;
+  osShort?: string | null;
+}
+
+export interface WaitingRoomItemShift {
+  id: string;
+  start: string;
+  durationMinutes: number;
+  medicId: string;
+  medicShortName: string;
+  medicColor?: string | null;
+  consultationTypeName?: string | null;
+}
+
+export interface WaitingRoomItem {
+  id: string;
+  kind: "scheduled" | "walkin";
+  arrivedAt: string;
+  minutesWaiting: number;
+  isNext: boolean;
+  note?: string | null;
+  patient: WaitingRoomItemPatient;
+  shift?: WaitingRoomItemShift | null;
+}
+
+export interface NextToCallData {
+  waitingRoomId: string;
+  kind: "scheduled" | "walkin";
+  patient: { firstName: string; lastName: string };
+  medicShortName: string;
+  medicColor?: string | null;
+  room?: string | null;
+  shiftStart?: string | null;
+  minutesWaiting: number;
+}
+
+export interface ReminderItem {
+  id: string;
+  shiftId: string;
+  time: string; // HH:mm
+  patientShortName: string;
+  medicShortName: string;
+  medicColor?: string | null;
+  status: ReminderStatus;
+}
+
+export interface SecretaryRemindersData {
+  context: "today" | "tomorrow";
+  total: number;
+  pending: number;
+  sent: number;
+  items: ReminderItem[];
+}
+
+export interface MedicSlotsGroup {
+  medicId: string;
+  medicShortName: string;
+  dotColor?: string | null;
+  count: number;
+  slots: Array<{ time: string; durationMinutes: number }>;
+}
+
+export type AgendaAutoMode = "columns-detailed" | "columns-compact" | "rails";
+
+export interface AgendaShiftMini {
+  id: string;
+  start: string;
+  end: string;
+  status: ShiftStatus;
+  patientShortName: string;
+  consultationTypeName?: string | null;
+  isWalkIn?: boolean;
+}
+
+export interface AgendaProfessional {
+  id: string;
+  shortName: string;
+  especialidad?: string | null;
+  room?: string | null;
+  dotColor?: string | null;
+  isPinned: boolean;
+  turnSegments: Array<"AM" | "PM">;
+  hasWaitingPatients?: boolean;
+  hasFreeSlots?: boolean;
+  shifts: AgendaShiftMini[];
+}
+
+export interface SecretaryAgendaData {
+  autoMode: AgendaAutoMode;
+  profesionales: AgendaProfessional[];
+  totalShifts: number;
+}
+
+export interface SecretaryDashboardData {
+  header: SecretaryHeaderData;
+  stats: SecretaryStatsData;
+  salaDeEspera: WaitingRoomItem[];
+  proximoALlamar: NextToCallData | null;
+  recordatorios: SecretaryRemindersData;
+  huecosHoy: MedicSlotsGroup[];
+  agenda: SecretaryAgendaData;
+}
+
+export interface WalkInArrival {
+  id: string;
+  patientId?: string | null;
+  firstName: string;
+  lastName: string;
+  telephone?: string | null;
+  note?: string | null;
+  arrivedAt: string;
+  leftAt?: string | null;
+  assignedShiftId?: string | null;
+}
+
+export interface ShiftReminder {
+  id: string;
+  shiftId: string;
+  scheduledFor: string;
+  status: ReminderStatus;
+  channel: string;
+  sentAt?: string | null;
+}
+
+// ─── Admin Dashboard ────────────────────────────────────────────────────────
+
+export type AuditAction =
+  | "CREATE"
+  | "UPDATE"
+  | "DELETE"
+  | "VIEW_SENSITIVE"
+  | "LOGIN_SUCCESS"
+  | "LOGIN_FAILED"
+  | "LOGIN_BLOCKED"
+  | "LOGOUT"
+  | "PASSWORD_CHANGED";
+
+export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
+  CREATE: "Creación",
+  UPDATE: "Edición",
+  DELETE: "Eliminación",
+  VIEW_SENSITIVE: "Acceso a datos sensibles",
+  LOGIN_SUCCESS: "Login",
+  LOGIN_FAILED: "Login fallido",
+  LOGIN_BLOCKED: "Login bloqueado",
+  LOGOUT: "Cierre de sesión",
+  PASSWORD_CHANGED: "Cambio de contraseña",
+};
+
+export type AuditSeverity = "info" | "warn" | "critical";
+
+export interface AuditEvent {
+  id: string;
+  createdAt: string;
+  userId?: string | null;
+  userName?: string | null;
+  userRole?: string | null;
+  action: AuditAction;
+  resource: string;
+  resourceId: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  details?: string | null;
+  severity: AuditSeverity;
+}
+
+export interface AdminHeader {
+  adminName: string;
+  now: string;
+  totalUsers: number;
+  totalPatients: number;
+}
+
+export interface AdminStatTodayShifts {
+  value: number;
+  deltaPctVsYesterday: number | null;
+}
+
+export interface AdminStatOccupancy {
+  used: number;
+  total: number;
+  pct: number;
+}
+
+export interface AdminStatFailedLogins {
+  value: number;
+  blockedCount: number;
+  deltaPctVs7dAvg: number | null;
+}
+
+export interface AdminStatNoShow {
+  month: string; // YYYY-MM
+  pct: number;
+  absent: number;
+  total: number;
+  deltaPctVsPrevMonth: number | null;
+}
+
+export interface AdminStats {
+  todayShifts: AdminStatTodayShifts;
+  occupancyToday: AdminStatOccupancy;
+  failedLogins24h: AdminStatFailedLogins;
+  noShowRateMonth: AdminStatNoShow;
+}
+
+export interface CatalogPatientsIncomplete {
+  missingDni: number;
+  missingPhone: number;
+  missingHealthInsurance: number;
+  total: number;
+}
+
+export interface CatalogMedicWithoutPreferences {
+  id: string;
+  name: string;
+}
+
+export interface CatalogHealth {
+  patientsIncomplete: CatalogPatientsIncomplete;
+  medicsWithoutPreferences: {
+    count: number;
+    items: CatalogMedicWithoutPreferences[];
+  };
+  healthInsurancesUnused90d: { count: number };
+  specializationsWithoutColor: { count: number };
+  modules: { module: string; name: string; enabled: boolean }[];
+}
+
+export interface TrendWeekPoint {
+  weekStart: string;
+  label: string;
+  count: number;
+}
+
+export interface TrendMonthPoint {
+  month: string;
+  label: string;
+  total: number;
+  cancelled: number;
+  absent: number;
+  noShowPct: number;
+}
+
+export interface TrendTopSpecialty {
+  id: string | null;
+  name: string;
+  color: string | null;
+  count: number;
+}
+
+export interface TrendTopInsurance {
+  id: string | null;
+  name: string;
+  count: number;
+}
+
+export interface AdminTrends {
+  shiftsByWeek: TrendWeekPoint[];
+  cancellationByMonth: TrendMonthPoint[];
+  topSpecialties: TrendTopSpecialty[];
+  topHealthInsurances: TrendTopInsurance[];
+}
+
+export interface RecentLoginItem {
+  userId: string;
+  name: string;
+  role: string | null;
+  loggedAt: string;
+  ipAddress: string | null;
+}
+
+export interface InactiveUserItem {
+  id: string;
+  name: string;
+  lastLoginAt: string | null;
+}
+
+export interface UsersBreakdown {
+  activeByRole: {
+    medic: number;
+    secretary: number;
+    admin: number;
+    inactive: number;
+  };
+  recentLogins: RecentLoginItem[];
+  inactiveUsers30d: {
+    count: number;
+    items: InactiveUserItem[];
+  };
+}
+
+export interface AdminDashboardData {
+  header: AdminHeader;
+  stats: AdminStats;
+  activityFeed: AuditEvent[];
+  catalogHealth: CatalogHealth;
+  trends: AdminTrends;
+  users: UsersBreakdown;
+}
+
+export interface AuditRecentResponse {
+  items: AuditEvent[];
+  nextCursor: string | null;
+}
+
+// ─── Clinic public site ───────────────────────────────────────────────────────
+
+export interface ClinicSettings {
+  id: string;
+  name: string | null;
+  tagline: string | null;
+  contactEmail: string | null;
+  whatsappPrimary: string | null;
+  whatsappSecondary: string | null;
+  phoneDisplay: string | null;
+  prefillWhatsappMessage: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  mapLat: number | null;
+  mapLng: number | null;
+  mapZoom: number | null;
+  showTeam: boolean;
+  showHours: boolean;
+  showMap: boolean;
+  showContactForm: boolean;
+  yearsOfService: number | null;
+  patientsServedDisplay: string | null;
+}
+
+export interface ClinicHoursDay {
+  id: string;
+  dayOfWeek: number; // 0=Lun..6=Dom (Monday-start)
+  closed: boolean;
+  amOpen: string | null;
+  amClose: string | null;
+  pmOpen: string | null;
+  pmClose: string | null;
+}
+
+export interface PublicMedic {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  name: string | null;
+  image: string | null;
+  bio: string | null;
+  licenseNumber: string | null;
+  specialization: { id: string; name: string; color: string | null } | null;
+}
+
+export interface PublicSpecialization {
+  id: string;
+  name: string;
+  color: string | null;
+  medicCount: number;
+}
+
+export interface ClinicContactRequest {
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+  healthInsurance: string | null;
+  specializationId: string | null;
+  specialization: { id: string; name: string } | null;
+  preferredDay: string | null;
+  message: string | null;
+  status: "new" | "read" | "archived";
+  whatsappOpened: boolean;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface ClinicInfoResponse {
+  settings: ClinicSettings | null;
+  hours: ClinicHoursDay[];
+  medics: PublicMedic[];
+  specializations: PublicSpecialization[];
+  healthInsurances: { id: string; name: string }[];
 }

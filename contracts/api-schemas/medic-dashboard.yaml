@@ -1,0 +1,180 @@
+openapi: 3.0.3
+info:
+  title: Medic Dashboard API
+  version: 1.0.0
+  description: |
+    Aggregated read-model endpoint that powers the doctor's dashboard.
+    All data is computed from existing models (Shift, Evolution, Prescription, StudyOrder, Patient).
+    No new schema is required — only consumption.
+
+paths:
+  /api/dashboard/medic:
+    get:
+      summary: Get aggregated dashboard data for the authenticated medic
+      description: |
+        Returns everything needed to render the medic dashboard in a single call:
+        today's shifts, next upcoming shift, weekly distribution, pending counts,
+        and recent patients. Restricted to the authenticated medic's own data.
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    $ref: "#/components/schemas/MedicDashboardData"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden — only medics can access this endpoint
+
+components:
+  schemas:
+    MedicDashboardData:
+      type: object
+      required:
+        - today
+        - week
+        - pendientes
+        - recentPatients
+      properties:
+        today:
+          $ref: "#/components/schemas/TodayData"
+        week:
+          $ref: "#/components/schemas/WeekData"
+        pendientes:
+          $ref: "#/components/schemas/PendientesData"
+        recentPatients:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecentPatient"
+
+    TodayData:
+      type: object
+      required:
+        - date
+        - shifts
+        - stats
+      properties:
+        date:
+          type: string
+          format: date-time
+          description: Server's "today" in user timezone (start of day)
+        shifts:
+          type: array
+          description: All today's shifts sorted by start time
+          items:
+            $ref: "#/components/schemas/ShiftWithDetails"
+        nextShift:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ShiftWithDetails"
+          description: |
+            The next upcoming shift today (status PENDING or CONFIRMED, start > now).
+            Null if no upcoming shifts today.
+        stats:
+          $ref: "#/components/schemas/TodayStats"
+
+    TodayStats:
+      type: object
+      required: [total, atendidos, porVenir, confirmados, ausentes, pendientes]
+      properties:
+        total: { type: integer, description: "All today's shifts (any status)" }
+        atendidos: { type: integer, description: "FINISHED" }
+        porVenir: { type: integer, description: "PENDING + CONFIRMED with start > now" }
+        confirmados: { type: integer, description: "CONFIRMED total today" }
+        ausentes: { type: integer, description: "ABSENT" }
+        pendientes: { type: integer, description: "PENDING total today" }
+
+    WeekData:
+      type: object
+      required: [totalShifts, byDay, weekStart, weekEnd]
+      properties:
+        totalShifts: { type: integer }
+        weekStart: { type: string, format: date-time }
+        weekEnd: { type: string, format: date-time }
+        byDay:
+          type: array
+          minItems: 7
+          maxItems: 7
+          description: Mon → Sun (or per user weekStart) shift counts
+          items:
+            type: object
+            required: [date, count, dayLabel, dayNumber, isToday]
+            properties:
+              date: { type: string, format: date-time }
+              count: { type: integer }
+              dayLabel: { type: string, description: "LU, MA, MI..." }
+              dayNumber: { type: integer, description: "Day of month" }
+              isToday: { type: boolean }
+
+    PendientesData:
+      type: object
+      required: [evolucionesSinCerrar, recetasParaRenovar, estudiosPendientes]
+      properties:
+        evolucionesSinCerrar:
+          type: object
+          required: [count, summary]
+          properties:
+            count: { type: integer }
+            summary: { type: string, description: "Human-readable summary like 'De los turnos del lunes y martes'" }
+        recetasParaRenovar:
+          type: object
+          required: [count, summary]
+          properties:
+            count: { type: integer }
+            summary: { type: string, description: "e.g. 'Pacientes crónicos · esta semana'" }
+        estudiosPendientes:
+          type: object
+          required: [count, summary]
+          properties:
+            count: { type: integer }
+            summary: { type: string, description: "e.g. 'Holter — M. García · vence 12/03'" }
+
+    RecentPatient:
+      type: object
+      required: [id, firstName, lastName, lastShiftType, lastShiftTime]
+      properties:
+        id: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        initials: { type: string, description: "Two-letter initials" }
+        lastShiftType: { type: string, nullable: true }
+        lastShiftTime: { type: string, format: date-time }
+
+    ShiftWithDetails:
+      type: object
+      properties:
+        id: { type: string }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, ABSENT, FINISHED, CANCELLED]
+        observations: { type: string, nullable: true }
+        isOverbook: { type: boolean }
+        durationMinutes: { type: integer }
+        patient:
+          type: object
+          properties:
+            id: { type: string }
+            firstName: { type: string }
+            lastName: { type: string }
+            telephone: { type: string, nullable: true }
+            os:
+              type: object
+              nullable: true
+              properties:
+                id: { type: string }
+                name: { type: string }
+                code: { type: string, nullable: true }
+        consultationType:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string }
+            color: { type: string, nullable: true }

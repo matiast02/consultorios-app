@@ -187,7 +187,14 @@ export default function EspecialidadesPage() {
                     >
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                          <div
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary"
+                            style={
+                              item.color
+                                ? { backgroundColor: `${item.color}1a`, color: item.color }
+                                : undefined
+                            }
+                          >
                             {item.name.charAt(0).toUpperCase()}
                           </div>
                           {item.name}
