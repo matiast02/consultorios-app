@@ -43,6 +43,10 @@ export const prismaMock = {
   rateLimit: createModelMock(),
   clinicalEntryVersion: createModelMock(),
   auditLog: createModelMock(),
+  // Better Auth
+  account: createModelMock(),
+  session: createModelMock(),
+  verification: createModelMock(),
   $queryRawUnsafe: vi.fn().mockResolvedValue([]),
   $transaction: vi.fn().mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {
@@ -67,7 +71,8 @@ export const authMock = vi.fn().mockResolvedValue({
 });
 
 vi.mock("@/auth", () => ({
-  auth: authMock,
+  getSession: authMock,
+  auth: { api: {} },
 }));
 
 // ─── Mock Auth Utils ────────────────────────────────────────────────────────

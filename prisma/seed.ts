@@ -1,6 +1,7 @@
 import { PrismaClient, ShiftStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { seedBase } from "./seed-base";
+import { setUserPassword } from "../lib/credentials";
 
 const prisma = new PrismaClient();
 
@@ -33,10 +34,10 @@ async function main() {
       name: "Martín Gervilla",
       firstName: "Martín",
       lastName: "Gervilla",
-      password: hashedPassword,
       specializationId: specMedGen.id,
     },
   });
+  await setUserPassword(prisma, drGervilla.id, { hash: hashedPassword });
 
   const draLopez = await prisma.user.upsert({
     where: { email: "dra.lopez@consultorio.com" },
@@ -46,10 +47,10 @@ async function main() {
       name: "Carolina López",
       firstName: "Carolina",
       lastName: "López",
-      password: hashedPassword,
       specializationId: specPediatria.id,
     },
   });
+  await setUserPassword(prisma, draLopez.id, { hash: hashedPassword });
 
   const secMaria = await prisma.user.upsert({
     where: { email: "maria@consultorio.com" },
@@ -59,9 +60,9 @@ async function main() {
       name: "María González",
       firstName: "María",
       lastName: "González",
-      password: hashedPassword,
     },
   });
+  await setUserPassword(prisma, secMaria.id, { hash: hashedPassword });
 
   const adminUser = await prisma.user.upsert({
     where: { email: "admin@consultorio.com" },
@@ -71,9 +72,9 @@ async function main() {
       name: "Admin Sistema",
       firstName: "Admin",
       lastName: "Sistema",
-      password: hashedPassword,
     },
   });
+  await setUserPassword(prisma, adminUser.id, { hash: hashedPassword });
 
   console.log("✅ Users created");
 
@@ -1178,12 +1179,12 @@ async function main() {
         firstName: m.firstName,
         lastName: m.lastName,
         name: `${m.firstName} ${m.lastName}`,
-        password: hashedPassword,
-        specializationId: m.specId,
+          specializationId: m.specId,
         defaultRoom: m.defaultRoom,
         isActive: true,
       },
     });
+    await setUserPassword(prisma, u.id, { hash: hashedPassword });
     // Asignar role medic idempotente
     await prisma.userRole.upsert({
       where: { userId_roleId: { userId: u.id, roleId: medicRole.id } },

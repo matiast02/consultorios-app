@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/study-orders/[id] — Get a single study order
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 // PUT /api/study-orders/[id] — Update status and/or resultNotes
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -155,7 +155,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/study-orders/[id] — Delete a study order
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

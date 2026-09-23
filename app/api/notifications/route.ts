@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMedic } from "@/lib/auth-utils";
 
@@ -16,7 +16,7 @@ interface ComputedNotification {
 // GET /api/notifications — Compute on-demand notifications for the current user
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

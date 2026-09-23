@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { signIn } from "next-auth/react";
+import { signIn } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -70,13 +70,9 @@ export function RegisterForm() {
       toast.success("Account created! Signing you in...");
 
       // Automatically sign in after successful registration
-      const result = await signIn("credentials", {
-        email: values.email,
-        password: values.password,
-        redirect: false,
-      });
+      const { error } = await signIn(values.email, values.password);
 
-      if (result?.error) {
+      if (error) {
         toast.error("Account created but sign-in failed. Please sign in manually.");
         router.push("/login");
         return;

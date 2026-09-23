@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/user/export — Export all data for the current user (profile + patients + shifts + clinical)
 // Returns a JSON dump. The file is downloaded as an attachment with a date-stamped name.
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }

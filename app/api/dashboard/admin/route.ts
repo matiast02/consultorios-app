@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
@@ -101,7 +101,7 @@ function slotsForRange(
 
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -676,7 +676,7 @@ export async function GET() {
         r.user?.name ||
         "Usuario";
       return {
-        userId: r.userId,
+        userId: r.userId ?? "",
         name,
         role: r.user?.roles?.[0]?.role?.name ?? null,
         loggedAt: r.createdAt.toISOString(),
@@ -717,7 +717,7 @@ export async function GET() {
         _max: { createdAt: true },
       });
       for (const l of lasts) {
-        lastLoginsByUser.set(l.userId, l._max.createdAt ?? null);
+        if (l.userId) lastLoginsByUser.set(l.userId, l._max.createdAt ?? null);
       }
     }
     const inactiveItems: InactiveUserItem[] = firstInactive.map((u) => ({

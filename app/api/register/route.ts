@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { getUserRole } from "@/lib/auth-utils";
+import { setUserPassword } from "@/lib/credentials";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -20,7 +20,7 @@ const registerSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // Auth required: only admin can register users
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -70,15 +70,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hash password with bcrypt (cost factor 12)
-    const hashedPassword = await bcrypt.hash(password, 12);
-
     const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-      },
+      data: { name, email },
       select: {
         id: true,
         name: true,
@@ -86,6 +79,9 @@ export async function POST(request: NextRequest) {
         createdAt: true,
       },
     });
+
+    // La credencial vive en Account (providerId "credential"), hash bcrypt.
+    await setUserPassword(prisma, user.id, { plain: password });
 
     logAudit({
       userId: session.user.id,

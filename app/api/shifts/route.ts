@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createShiftSchema, shiftsQuerySchema } from "@/lib/validations";
 import { isMedic } from "@/lib/auth-utils";
@@ -8,7 +8,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 // GET /api/shifts — List shifts filtered by month/year/userId
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
 // POST /api/shifts — Create shift with conflict checking
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

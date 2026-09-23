@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateEvolutionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ id: string; evolutionId: string }> };
 // GET /api/patients/[id]/evolutions/[evolutionId] — Get single evolution
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -81,7 +81,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 // PUT /api/patients/[id]/evolutions/[evolutionId] — Update evolution (only by creator)
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -209,7 +209,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // Inalterabilidad: no se borra físicamente; se marca como anulada y queda en el ledger.
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

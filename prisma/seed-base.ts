@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { setUserPassword } from "../lib/credentials";
 
 /**
  * Seed base — datos maestros para produccion y desarrollo.
@@ -258,17 +258,16 @@ export async function seedBase(prisma: PrismaClient) {
     });
 
     if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash(adminPassword, 12);
-
       const adminUser = await prisma.user.create({
         data: {
           email: adminEmail,
           name: "Administrador",
           firstName: "Admin",
           lastName: "Sistema",
-          password: hashedPassword,
         },
       });
+      // Credencial en Account (providerId "credential"), hash bcrypt.
+      await setUserPassword(prisma, adminUser.id, { plain: adminPassword });
 
       const adminRole = await prisma.role.findUnique({
         where: { name: "admin" },

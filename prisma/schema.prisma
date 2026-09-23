@@ -7,15 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Auth.js Required Models ──────────────────────────────────────────────────
+// ─── Better Auth Models ──────────────────────────────────────────────────
 
 model User {
   id               String    @id @default(cuid())
-  name             String?
-  email            String?   @unique
-  emailVerified    DateTime?
+  name             String    @default("")
+  email            String    @unique
+  emailVerified    Boolean   @default(false)
   image            String?
-  password         String?   @db.Text
   firstName        String?
   lastName         String?
   licenseNumber    String? // Matricula profesional
@@ -71,33 +70,34 @@ model User {
 }
 
 model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String? @db.Text
-  session_state     String?
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String // Para providerId "credential": el id del usuario
+  providerId            String // "credential" (email + password) o proveedor OAuth
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  idToken               String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?   @db.Text // hash bcrypt (solo providerId = "credential")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([provider, providerAccountId])
+  @@unique([providerId, accountId])
   @@index([userId])
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?  @db.Text
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -107,12 +107,16 @@ model Session {
   @@index([userId])
 }
 
-model VerificationToken {
+model Verification {
+  id         String   @id @default(cuid())
   identifier String
-  token      String
-  expires    DateTime
+  value      String   @db.Text
+  expiresAt  DateTime
 
-  @@unique([identifier, token])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([identifier])
 }
 
 // ─── Profession Configs ──────────────────────────────────────────────────────
@@ -461,7 +465,7 @@ model Evolution {
 
 model AuditLog {
   id         String  @id @default(cuid())
-  userId     String
+  userId     String? // null = actor desconocido (p.ej. login fallido con email inexistente)
   action     String // CREATE, UPDATE, DELETE, VIEW_SENSITIVE
   resource   String // patient, shift, evolution, clinical_record, etc.
   resourceId String
@@ -473,7 +477,7 @@ model AuditLog {
   hash     String? @db.Text
   prevHash String? @db.Text
 
-  user User @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
 

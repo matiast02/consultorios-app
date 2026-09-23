@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updatePreferencesConfigSchema } from "@/lib/validations";
 
 // GET /api/user/preferences-config — Scheduling + regional preferences
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -45,7 +45,7 @@ export async function GET() {
 // PUT /api/user/preferences-config — Update scheduling + regional config
 export async function PUT(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }

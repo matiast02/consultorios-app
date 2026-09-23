@@ -35,3 +35,4 @@ npm-debug.log*
 
 # Design handoff (local reference material, not part of source)
 design-handoff/
+migration-report.json

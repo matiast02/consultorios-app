@@ -1,13 +1,12 @@
 import crypto from "node:crypto";
-import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 // Tamper-evidence: hash encadenado por (resource, resourceId).
 function auditHash(
   prevHash: string | null,
-  c: { userId: string; action: string; resource: string; resourceId: string; details: string | null }
+  c: { userId: string | null; action: string; resource: string; resourceId: string; details: string | null }
 ): string {
-  const payload = [prevHash ?? "", c.userId, c.action, c.resource, c.resourceId, c.details ?? ""].join("\n");
+  const payload = [prevHash ?? "", c.userId ?? "", c.action, c.resource, c.resourceId, c.details ?? ""].join("\n");
   return crypto.createHash("sha256").update(payload, "utf8").digest("hex");
 }
 
@@ -37,12 +36,14 @@ export type AuditResource =
   | "auth";
 
 interface LogAuditParams {
-  userId: string;
+  /** null cuando el actor es desconocido (p.ej. login fallido con email inexistente). */
+  userId: string | null;
   action: AuditAction;
   resource: AuditResource;
   resourceId: string;
   details?: Record<string, unknown> | string;
-  req?: NextRequest;
+  /** NextRequest, Request (hooks de Better Auth) o cualquier objeto con headers. */
+  req?: Pick<Request, "headers"> | null;
 }
 
 /**

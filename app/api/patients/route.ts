@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createPatientSchema, paginationSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -8,7 +8,7 @@ import { buildPatientSearchWhere } from "@/lib/search";
 // GET /api/patients — List patients with optional search
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
 // POST /api/patients — Create patient
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

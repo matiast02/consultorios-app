@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateUserSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -10,7 +10,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/users/[id] — Get single user with roles
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -68,7 +68,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 // PUT /api/users/[id] — Update user and role
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -213,7 +213,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/users/[id] — Soft-delete user
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

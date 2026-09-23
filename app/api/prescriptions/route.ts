@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createPrescriptionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -10,7 +10,7 @@ import { recordClinicalVersion, prescriptionSnapshot } from "@/lib/clinical-ledg
 // GET /api/prescriptions — List prescriptions for a patient
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 // POST /api/prescriptions — Create a prescription (medics only)
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

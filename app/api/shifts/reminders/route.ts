@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { generateReminderMessage, type ShiftReminder } from "@/lib/reminders";
 
@@ -7,7 +7,7 @@ import { generateReminderMessage, type ShiftReminder } from "@/lib/reminders";
 // This endpoint would be called by a cron job, scheduled task, or manually from the dashboard
 export async function POST() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -105,7 +105,7 @@ export async function POST() {
 // GET /api/shifts/reminders — Preview shifts that would receive reminders (next 24h)
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

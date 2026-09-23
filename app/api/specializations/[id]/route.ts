@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateSpecializationSchema } from "@/lib/validations";
 
@@ -8,7 +8,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/specializations/[id] — Get single specialization
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -46,7 +46,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 // PUT /api/specializations/[id] — Update specialization
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -130,7 +130,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/specializations/[id] — Delete specialization
 export async function DELETE(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

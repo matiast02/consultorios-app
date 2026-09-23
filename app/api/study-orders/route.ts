@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -9,7 +9,7 @@ import { recordClinicalVersion, studyOrderSnapshot } from "@/lib/clinical-ledger
 // GET /api/study-orders — List study orders for a patient
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 // POST /api/study-orders — Create a study order
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

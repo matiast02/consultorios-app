@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
-import { SessionProvider } from "next-auth/react";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "next-themes";
 
@@ -50,10 +49,8 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SessionProvider>
-            {children}
-            <Toaster />
-          </SessionProvider>
+          {children}
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

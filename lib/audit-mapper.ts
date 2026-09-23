@@ -11,7 +11,7 @@ import type { AuditEvent, AuditAction, AuditSeverity } from "@/types";
 export interface AuditLogWithUser {
   id: string;
   createdAt: Date;
-  userId: string;
+  userId: string | null;
   action: string;
   resource: string;
   resourceId: string;

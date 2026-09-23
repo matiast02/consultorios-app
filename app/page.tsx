@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { dayShortLabel, formatRange } from "@/lib/clinic-hours-format";
 import { LandingNav } from "@/components/landing/landing-nav";
@@ -194,7 +194,7 @@ function shortWeekLabel(lines: string[]): string | null {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default async function Home() {
-  const session = await auth();
+  const session = await getSession();
   const { settings, hours, medics, specializations, healthInsurances, schedule } = await loadClinicInfo();
 
   const clinicName = settings.name?.trim() || "ConsultorioApp";

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createMealPlanSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -9,7 +9,7 @@ import { recordClinicalVersion, mealPlanSnapshot } from "@/lib/clinical-ledger";
 // GET /api/meal-plans — List meal plans for a patient
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
 // POST /api/meal-plans — Create a meal plan
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateClinicalRecordSchema } from "@/lib/validations";
 import { isMedic, isSecretary } from "@/lib/auth-utils";
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/patients/[id]/clinical-record — Get or create clinical record
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -151,7 +151,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 // PUT /api/patients/[id]/clinical-record — Update clinical record fields
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

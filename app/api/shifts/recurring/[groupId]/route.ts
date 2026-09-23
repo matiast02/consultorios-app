@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 interface RouteParams {
@@ -9,7 +9,7 @@ interface RouteParams {
 // GET /api/shifts/recurring/[groupId] — Get all shifts in a recurring series
 export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/shifts/recurring/[groupId] — Cancel all pending/confirmed shifts in a series
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

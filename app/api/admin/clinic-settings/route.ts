@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserRole } from "@/lib/auth-utils";
 import { clinicSettingsSchema } from "@/lib/validations";
 
 async function requireAdmin() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user?.id) {
     return { error: NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 }) };
   }

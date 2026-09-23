@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { verifyClinicalChain, type ClinicalEntityType } from "@/lib/clinical-ledger";
@@ -16,7 +16,7 @@ const VALID_TYPES = new Set<ClinicalEntityType>([
 // Devuelve el historial de versiones inmutables de un asiento + validez de la cadena.
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }

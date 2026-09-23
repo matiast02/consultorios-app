@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserRole } from "@/lib/auth-utils";
 
@@ -17,7 +17,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -66,7 +66,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }

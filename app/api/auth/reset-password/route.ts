@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { resetPasswordSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { setUserPassword } from "@/lib/credentials";
 
 // POST /api/auth/reset-password
 export async function POST(req: NextRequest) {
@@ -47,20 +47,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    // Update user password and mark token as used in a transaction
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { password: hashedPassword },
-      }),
-      prisma.resetToken.update({
+    // Update credential and mark token as used in a transaction
+    await prisma.$transaction(async (tx) => {
+      await setUserPassword(tx, user.id, { plain: password });
+      await tx.resetToken.update({
         where: { id: resetToken.id },
         data: { used: true },
-      }),
-    ]);
+      });
+    });
 
     logAudit({
       userId: user.id,

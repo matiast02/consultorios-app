@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/auth-utils";
 import { toAuditEvent } from "@/lib/audit-mapper";
@@ -19,7 +19,7 @@ function parseCsv(value: string | null): string[] | undefined {
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

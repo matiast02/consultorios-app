@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { signIn } from "next-auth/react";
+import { signIn } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -79,11 +79,13 @@ export function LoginForm() {
 
   async function performLogin(email: string, password: string) {
     try {
-      const result = await signIn("credentials", { email, password, redirect: false });
+      const { error } = await signIn(email, password);
 
-      if (result?.error) {
-        if (result.error.includes("deshabilitada")) {
-          toast.error("Tu cuenta esta deshabilitada. Contacta al administrador.", { duration: 6000 });
+      if (error) {
+        // 403 = cuenta deshabilitada, 429 = bloqueo por intentos fallidos:
+        // en esos casos el mensaje del servidor es informativo para el usuario.
+        if (error.status === 403 || error.status === 429) {
+          toast.error(error.message, { duration: 6000 });
         } else {
           toast.error("Email o contrasena incorrectos");
         }

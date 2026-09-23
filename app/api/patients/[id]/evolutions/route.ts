@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createEvolutionSchema } from "@/lib/validations";
 import { isMedic, isSecretary } from "@/lib/auth-utils";
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/patients/[id]/evolutions — List evolutions (paginated)
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -116,7 +116,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 // POST /api/patients/[id]/evolutions — Create evolution (medics only)
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
