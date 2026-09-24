@@ -89,12 +89,17 @@ export const auth = betterAuth({
   },
 
   // Rate limit persistente (sobrevive reinicios y sirve con varias instancias).
-  // Reglas por defecto de Better Auth: 100 req/10 s por IP y 3/10 s en sign-in;
-  // el lockout por email de lib/login-protection sigue aplicando encima.
+  // Regla general de Better Auth: 100 req/10 s por IP. Para el login subimos el
+  // default (3/10 s) a 6/10 s: una recepción con varias PCs detrás del mismo IP
+  // no tiene que chocar con el límite; el lockout por email de
+  // lib/login-protection sigue aplicando encima contra fuerza bruta.
   rateLimit: {
     enabled: true,
     storage: "database",
     modelName: "authRateLimit",
+    customRules: {
+      "/sign-in/email": { window: 10, max: 6 },
+    },
   },
 
   // Endpoints de Better Auth que la app no usa: se deshabilitan para reducir

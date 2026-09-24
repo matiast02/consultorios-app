@@ -30,6 +30,7 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 | B7 | CSP con nonces (hoy `unsafe-inline` en scripts) | ☐ | |
 | B8 | 8 vulnerabilidades altas transitivas (undici, vite, postcss, deepmerge-ts) | ☐ | `pnpm.overrides` o actualizar. |
 | B9 | `user/export` (portabilidad del profesional): revisar alcance | ☐ | |
+| B10 | Rate limit de login: 6 intentos cada 10 s por IP (Better Auth, `customRules` en `auth.ts`) + lockout por email (5 fallos → 5 min). Ajustar si una recepción con muchas PCs detrás de un mismo IP lo alcanza | ☑ | Subido de 3 a 6 el 24-sep-2026. |
 
 ## C. Cumplimiento y gestión
 
