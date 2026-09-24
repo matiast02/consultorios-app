@@ -107,17 +107,29 @@ export function fmtTime(d: Date) {
   ).padStart(2, "0")}`;
 }
 
+/**
+ * Distancia en palabras respecto a `ref`: "hoy", "ayer", "hace 3 días",
+ * "hace 2 sem", "hace 1 mes", "hace 2 años", "en 5 días", "mañana".
+ */
 export function relTime(d: Date, ref: Date = new Date()): string {
   const diff = Math.round((d.getTime() - ref.getTime()) / (1000 * 60 * 60 * 24));
   if (diff === 0) return "hoy";
   if (diff === 1) return "mañana";
   if (diff === -1) return "ayer";
-  if (diff > 0 && diff < 7) return `en ${diff} días`;
-  if (diff < 0 && diff > -7) return `hace ${-diff} días`;
-  if (diff > 0 && diff < 30) return `en ${Math.round(diff / 7)} sem`;
-  if (diff < 0 && diff > -30) return `hace ${Math.round(-diff / 7)} sem`;
-  if (diff > 0) return `en ${Math.round(diff / 30)} meses`;
-  return `hace ${Math.round(-diff / 30)} meses`;
+  const abs = Math.abs(diff);
+  const amount =
+    abs < 7
+      ? plural(abs, "día", "días")
+      : abs < 30
+        ? plural(Math.round(abs / 7), "sem", "sem")
+        : abs < 345
+          ? plural(Math.round(abs / 30), "mes", "meses")
+          : plural(Math.round(abs / 365), "año", "años");
+  return diff > 0 ? `en ${amount}` : `hace ${amount}`;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 export function calcAge(birth?: string | null): number | null {

@@ -147,6 +147,12 @@ export function EvolucionesTab({
                           <Clock className="h-3.5 w-3.5" />
                           {fmtTime(date)}
                         </span>
+                        <span
+                          className="rounded-full bg-muted px-2 py-px text-[11px] font-medium text-muted-foreground"
+                          title={`${fmtDateAR(date)} ${fmtTime(date)}`}
+                        >
+                          {relTime(date)}
+                        </span>
                         <span className="inline-flex items-center gap-1.5">
                           <Stethoscope className="h-3.5 w-3.5" />
                           {getDocName(e)}
