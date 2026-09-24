@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateUserSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { getUserRole } from "@/lib/auth-utils";
+import { revokeUserSessions } from "@/lib/sessions";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -148,6 +149,11 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       data: updateData,
     });
 
+    // Usuario deshabilitado: cerrar todas sus sesiones abiertas.
+    if (isActive === false) {
+      await revokeUserSessions(id);
+    }
+
     // Update role if provided
     if (role) {
       const roleRecord = await prisma.role.findUnique({
@@ -274,6 +280,9 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       where: { id },
       data: { deletedAt: new Date() },
     });
+
+    // Baja lógica: cerrar todas sus sesiones abiertas.
+    await revokeUserSessions(id);
 
     logAudit({
       userId: session.user.id!,

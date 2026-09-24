@@ -36,12 +36,27 @@ function emailFromBody(body: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-async function roleOf(userId: string): Promise<string | null> {
-  const userRole = await prisma.userRole.findFirst({
-    where: { userId },
-    include: { role: true },
+interface UserStatus {
+  role: string | null;
+  isActive: boolean;
+  deletedAt: Date | null;
+}
+
+/** Rol + estado del usuario en una sola query (se ejecuta en cada getSession). */
+async function statusOf(userId: string): Promise<UserStatus> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      isActive: true,
+      deletedAt: true,
+      roles: { select: { role: { select: { name: true } } }, take: 1 },
+    },
   });
-  return userRole?.role?.name ?? null;
+  return {
+    role: user?.roles[0]?.role?.name ?? null,
+    isActive: user?.isActive ?? false,
+    deletedAt: user?.deletedAt ?? null,
+  };
 }
 
 export const auth = betterAuth({
@@ -63,12 +78,38 @@ export const auth = betterAuth({
   },
 
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 días
-    updateAge: 60 * 60 * 24, // se renueva con uso (expiración deslizante)
+    // Inactividad máxima 12 h (PCs compartidas en recepción/consultorio) con
+    // renovación por uso cada hora. El tope ABSOLUTO (SESSION_MAX_AGE_MS) se
+    // aplica en getSession(): pasada esa edad la sesión se revoca aunque esté activa.
+    expiresIn: 60 * 60 * 12,
+    updateAge: 60 * 60,
     // Sin cache en cookie: cada getSession lee la DB, así los cambios de
     // perfil/rol se reflejan al instante (el costo es una query por request).
     cookieCache: { enabled: false },
   },
+
+  // Rate limit persistente (sobrevive reinicios y sirve con varias instancias).
+  // Reglas por defecto de Better Auth: 100 req/10 s por IP y 3/10 s en sign-in;
+  // el lockout por email de lib/login-protection sigue aplicando encima.
+  rateLimit: {
+    enabled: true,
+    storage: "database",
+    modelName: "authRateLimit",
+  },
+
+  // Endpoints de Better Auth que la app no usa: se deshabilitan para reducir
+  // superficie (verify-password permitiría probar contraseñas con una sesión
+  // robada sin pasar por el lockout; update-user saltea la validación propia).
+  disabledPaths: [
+    "/verify-password",
+    "/update-user",
+    "/update-session",
+    "/change-email",
+    "/delete-user",
+    "/request-password-reset",
+    "/reset-password",
+    "/change-password",
+  ],
 
   hooks: {
     // Antes del login: lockout por intentos fallidos y bloqueo de cuentas
@@ -147,11 +188,20 @@ export const auth = betterAuth({
   },
 
   plugins: [
-    customSession(async ({ user, session }) => ({
-      user: { ...user, role: await roleOf(user.id) },
-      session,
-    })),
-    bearer(),
+    customSession(async ({ user, session }) => {
+      const status = await statusOf(user.id);
+      return {
+        user: {
+          ...user,
+          role: status.role,
+          isActive: status.isActive,
+          isDeleted: status.deletedAt != null,
+        },
+        session,
+      };
+    }),
+    // Token firmado: un dump de la tabla Session no alcanza para usar un bearer.
+    bearer({ requireSignature: true }),
     nextCookies(), // debe ser el último plugin
   ],
 });
@@ -170,6 +220,9 @@ export interface AppSession {
   user: AppSessionUser;
 }
 
+/** Tope absoluto de vida de una sesión, independiente de la actividad. */
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
  * Sesión actual (cookie o bearer). Devuelve null si no hay usuario autenticado.
  * Reemplaza al antiguo `auth()` de Auth.js manteniendo la misma forma.
@@ -177,7 +230,26 @@ export interface AppSession {
 export async function getSession(): Promise<AppSession | null> {
   const result = await auth.api.getSession({ headers: await headers() });
   if (!result) return null;
-  const user = result.user as typeof result.user & { role?: string | null };
+  const user = result.user as typeof result.user & {
+    role?: string | null;
+    isActive?: boolean;
+    isDeleted?: boolean;
+  };
+
+  // Usuario deshabilitado o borrado después de iniciar sesión: la sesión deja
+  // de valer y se revocan todas las suyas (fire-and-forget).
+  if (user.isActive === false || user.isDeleted) {
+    void prisma.session.deleteMany({ where: { userId: user.id } }).catch(() => {});
+    return null;
+  }
+
+  // Tope absoluto: la expiración deslizante no puede extender una sesión para siempre.
+  const createdAt = new Date(result.session.createdAt).getTime();
+  if (Number.isFinite(createdAt) && Date.now() - createdAt > SESSION_MAX_AGE_MS) {
+    void prisma.session.deleteMany({ where: { id: result.session.id } }).catch(() => {});
+    return null;
+  }
+
   return {
     user: {
       id: user.id,

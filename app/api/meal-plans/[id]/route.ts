@@ -5,11 +5,12 @@ import { updateMealPlanSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, mealPlanSnapshot } from "@/lib/clinical-ledger";
+import { CLINICAL_FORBIDDEN, canAccessEntry, getClinicalActor } from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/meal-plans/[id] — Get a single meal plan
-export async function GET(_req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -17,6 +18,12 @@ export async function GET(_req: NextRequest, context: RouteContext) {
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
+    }
+
+    // Lista blanca: solo roles clínicos.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     if (!(await checkModuleAccess("prescriptions", session.user.id))) {
@@ -40,12 +47,22 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       },
     });
 
-    if (!mealPlan) {
+    // 404 (no 403) para no revelar la existencia de planes ajenos.
+    if (!mealPlan || !canAccessEntry(actor, mealPlan)) {
       return NextResponse.json(
         { success: false, error: "Plan alimentario no encontrado" },
         { status: 404 }
       );
     }
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "meal_plan",
+      resourceId: mealPlan.id,
+      details: { patientId: mealPlan.patientId },
+      req,
+    });
 
     return NextResponse.json({ success: true, data: mealPlan });
   } catch (error) {
@@ -68,6 +85,11 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+
     if (!(await checkModuleAccess("prescriptions", session.user.id))) {
       return NextResponse.json(
         { success: false, error: "Modulo de planes alimentarios no habilitado" },
@@ -78,7 +100,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
 
     const existing = await prisma.mealPlan.findUnique({ where: { id } });
-    if (!existing) {
+    if (!existing || !canAccessEntry(actor, existing)) {
       return NextResponse.json(
         { success: false, error: "Plan alimentario no encontrado" },
         { status: 404 }
@@ -118,7 +140,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const authorId = session.user.id!;
+    const authorId = actor.userId;
     const mealPlan = await prisma.$transaction(async (tx) => {
       const next = await tx.mealPlan.update({
         where: { id },
@@ -143,9 +165,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     });
 
     logAudit({
-      userId: session.user.id!,
+      userId: actor.userId,
       action: "UPDATE",
-      resource: "meal_plan" as never,
+      resource: "meal_plan",
       resourceId: id,
       details: { patientId: existing.patientId, fields: Object.keys(updateData) },
       req,
@@ -165,11 +187,16 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await getSession();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
+    }
+
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     const { id } = await context.params;
@@ -182,13 +209,14 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       where: { id },
     });
 
-    if (!mealPlan) {
+    if (!mealPlan || !canAccessEntry(actor, mealPlan)) {
       return NextResponse.json(
         { success: false, error: "Plan alimentario no encontrado" },
         { status: 404 }
       );
     }
 
+    // Solo el autor anula (el admin lo ve, pero no lo anula).
     if (mealPlan.userId !== session.user.id) {
       return NextResponse.json(
         { success: false, error: "Solo el creador puede anular este plan alimentario" },
@@ -211,7 +239,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     }
 
     // Inalterabilidad: se anula (no se borra).
-    const authorId = session.user.id!;
+    const authorId = actor.userId;
     await prisma.$transaction(async (tx) => {
       await tx.mealPlan.update({
         where: { id },
@@ -229,11 +257,12 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     });
 
     logAudit({
-      userId: session.user.id!,
+      userId: actor.userId,
       action: "DELETE",
-      resource: "meal_plan" as never,
+      resource: "meal_plan",
       resourceId: id,
-      details: { patientId: mealPlan.patientId, annulled: true, reason: annulReason },
+      // El motivo queda en el ledger; en audit, sin texto libre clínico.
+      details: { patientId: mealPlan.patientId, annulled: true },
       req,
     });
 

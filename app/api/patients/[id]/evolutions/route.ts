@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createEvolutionSchema } from "@/lib/validations";
-import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
+import { CLINICAL_FORBIDDEN, entryScope, getClinicalActor } from "@/lib/clinical-access";
 import { recordClinicalVersion, evolutionSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -19,12 +19,10 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Secretaries cannot read evolutions (clinical data).
-    if (await isSecretary(session.user.id)) {
-      return NextResponse.json(
-        { success: false, error: "Sin acceso a historia clínica" },
-        { status: 403 }
-      );
+    // Lista blanca: solo roles clínicos leen evoluciones.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     const { id: patientId } = await context.params;
@@ -58,15 +56,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
       });
     }
 
+    // Médicos: solo sus evoluciones. Admin: todas.
     const where: Record<string, unknown> = {
       clinicalRecordId: clinicalRecord.id,
+      ...entryScope(actor),
     };
-
-    // Medics can only see their own evolutions
-    const currentUserId = session.user?.id;
-    if (currentUserId && await isMedic(currentUserId)) {
-      where.userId = currentUserId;
-    }
 
     if (search) {
       where.OR = [
@@ -93,6 +87,15 @@ export async function GET(req: NextRequest, context: RouteContext) {
       }),
       prisma.evolution.count({ where }),
     ]);
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "evolution",
+      resourceId: patientId,
+      details: { list: true, count: evolutions.length },
+      req,
+    });
 
     return NextResponse.json({
       success: true,
@@ -124,8 +127,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Only medics can create evolutions (clinical record).
-    if (!(await isMedic(session.user.id))) {
+    // Solo médicos registran evoluciones (el admin custodia, no escribe HC).
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+    if (!actor.isMedic) {
       return NextResponse.json(
         { success: false, error: "Solo profesionales médicos pueden registrar evoluciones" },
         { status: 403 }
@@ -231,7 +238,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       action: "CREATE",
       resource: "evolution",
       resourceId: evolution.id,
-      details: { patientId, diagnosis: parsed.data.diagnosis ?? null },
+      // Sin contenido clínico en audit: el diagnóstico queda en el ledger cifrado.
+      details: { patientId },
       req,
     });
 

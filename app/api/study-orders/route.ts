@@ -5,19 +5,26 @@ import { createStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, studyOrderSnapshot } from "@/lib/clinical-ledger";
+import { CLINICAL_FORBIDDEN, entryScope, getClinicalActor } from "@/lib/clinical-access";
 
 // GET /api/study-orders — List study orders for a patient
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
 
-    const moduleEnabled = await checkModuleAccess("study_orders", session.user.id!);
+    // Lista blanca: solo roles clínicos leen órdenes de estudio.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+
+    const moduleEnabled = await checkModuleAccess("study_orders", session.user.id);
     if (!moduleEnabled) {
       return NextResponse.json(
         { success: false, error: "Modulo de ordenes de estudio no habilitado" },
@@ -35,8 +42,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Médicos: solo sus órdenes. Admin: todas.
     const studyOrders = await prisma.studyOrder.findMany({
-      where: { patientId },
+      where: { patientId, ...entryScope(actor) },
       include: {
         patient: {
           select: { id: true, firstName: true, lastName: true },
@@ -46,6 +54,15 @@ export async function GET(req: NextRequest) {
         },
       },
       orderBy: { createdAt: "desc" },
+    });
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "study_order",
+      resourceId: patientId,
+      details: { list: true, count: studyOrders.length },
+      req,
     });
 
     return NextResponse.json({ success: true, data: studyOrders });
@@ -62,14 +79,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
 
-    const moduleEnabled = await checkModuleAccess("study_orders", session.user.id!);
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+
+    const moduleEnabled = await checkModuleAccess("study_orders", session.user.id);
     if (!moduleEnabled) {
       return NextResponse.json(
         { success: false, error: "Modulo de ordenes de estudio no habilitado" },
@@ -89,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     const { patientId, shiftId, items } = parsed.data;
 
-    const authorId = session.user.id!;
+    const authorId = actor.userId;
     const studyOrder = await prisma.$transaction(async (tx) => {
       const created = await tx.studyOrder.create({
         data: {
@@ -121,9 +143,9 @@ export async function POST(req: NextRequest) {
     });
 
     logAudit({
-      userId: session.user.id!,
+      userId: actor.userId,
       action: "CREATE",
-      resource: "study_order" as never,
+      resource: "study_order",
       resourceId: studyOrder.id,
       details: { patientId, itemCount: items.length },
       req,

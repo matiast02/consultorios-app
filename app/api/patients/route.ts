@@ -89,14 +89,27 @@ export async function POST(req: NextRequest) {
 
     const data = parsed.data;
 
-    // Check unique DNI if provided
+    // Check unique DNI if provided. `dni` es @unique en DB, así que un paciente
+    // archivado también lo ocupa: se informa aparte para ofrecer restaurarlo.
     if (data.dni) {
       const existing = await prisma.patient.findFirst({
-        where: { dni: data.dni, deletedAt: null },
+        where: { dni: data.dni },
+        select: { id: true, deletedAt: true },
       });
+      if (existing?.deletedAt) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "ARCHIVED_DUPLICATE",
+            archivedPatientId: existing.id,
+            error: "Ya existe un paciente archivado con ese DNI",
+          },
+          { status: 409 }
+        );
+      }
       if (existing) {
         return NextResponse.json(
-          { success: false, error: "Ya existe un paciente con ese DNI" },
+          { success: false, code: "DUPLICATE", error: "Ya existe un paciente con ese DNI" },
           { status: 409 }
         );
       }
@@ -106,6 +119,7 @@ export async function POST(req: NextRequest) {
       data: {
         ...data,
         birthDate: data.birthDate ? new Date(data.birthDate) : null,
+        createdById: session.user.id,
       },
       include: { os: true },
     });
@@ -115,7 +129,6 @@ export async function POST(req: NextRequest) {
       action: "CREATE",
       resource: "patient",
       resourceId: patient.id,
-      details: { name: `${data.firstName} ${data.lastName}` },
       req,
     });
 

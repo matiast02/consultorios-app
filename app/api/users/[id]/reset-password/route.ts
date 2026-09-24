@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { getUserRole } from "@/lib/auth-utils";
 import { setUserPassword } from "@/lib/credentials";
+import { revokeUserSessions } from "@/lib/sessions";
 
 const resetPasswordSchema = z.object({
   newPassword: z
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     await setUserPassword(prisma, id, { plain: parsed.data.newPassword });
+    // Reset por admin: se invalidan todas las sesiones del usuario afectado.
+    await revokeUserSessions(id);
 
     logAudit({
       userId: session.user.id,

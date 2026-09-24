@@ -119,6 +119,15 @@ model Verification {
   @@index([identifier])
 }
 
+// ─── Better Auth: rate limit persistente (storage: "database") ───────────────
+
+model AuthRateLimit {
+  id          String @id @default(cuid())
+  key         String @unique // ip o ip+ruta
+  count       Int
+  lastRequest BigInt // epoch ms
+}
+
 // ─── Profession Configs ──────────────────────────────────────────────────────
 
 model ProfessionConfig {
@@ -218,6 +227,10 @@ model Patient {
   emergencyContactName  String?
   emergencyContactPhone String?
 
+  // Autoría: quién dio de alta y quién archivó (ids de User; null en datos migrados)
+  createdById String?
+  deletedById String?
+
   os             HealthInsurance?   @relation(fields: [osId], references: [id])
   shifts         Shift[]
   clinicalRecord ClinicalRecord?
@@ -233,6 +246,7 @@ model Patient {
 
   @@index([dni])
   @@index([osId])
+  @@index([createdById])
 }
 
 // ─── Health Insurance (Obra Social) ───────────────────────────────────────────
@@ -471,7 +485,7 @@ model AuditLog {
   resourceId String
   details    String? @db.Text // JSON con cambios o contexto
   ipAddress  String?
-  userAgent  String?
+  userAgent  String?  @db.Text
 
   // Tamper-evidence: hash encadenado por (resource, resourceId).
   hash     String? @db.Text

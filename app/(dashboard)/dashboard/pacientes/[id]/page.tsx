@@ -537,6 +537,10 @@ export default function PacienteDetailPage() {
           setEditOpen(false);
           fetchAll();
         }}
+        onDeleted={() => {
+          setEditOpen(false);
+          router.push("/dashboard/pacientes");
+        }}
       />
 
       {isClinical && (

@@ -5,6 +5,7 @@ import { changePasswordSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { setUserPassword, verifyUserPassword } from "@/lib/credentials";
+import { revokeOtherSessions } from "@/lib/sessions";
 
 // POST /api/auth/change-password
 export async function POST(req: NextRequest) {
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
     }
 
     await setUserPassword(prisma, user.id, { plain: newPassword });
+    // Cierra las demás sesiones (otro dispositivo / posible atacante); conserva la actual.
+    await revokeOtherSessions(req.headers);
 
     logAudit({
       userId: user.id,

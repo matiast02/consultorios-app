@@ -64,7 +64,9 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  // Solo rutas internas: evita open redirect vía ?callbackUrl=https://evil
+  const rawCallback = searchParams.get("callbackUrl") ?? "";
+  const callbackUrl = /^\/(?!\/)/.test(rawCallback) ? rawCallback : "/dashboard";
 
   const {
     register,

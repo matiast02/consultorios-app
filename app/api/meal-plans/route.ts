@@ -5,19 +5,26 @@ import { createMealPlanSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, mealPlanSnapshot } from "@/lib/clinical-ledger";
+import { CLINICAL_FORBIDDEN, entryScope, getClinicalActor } from "@/lib/clinical-access";
 
 // GET /api/meal-plans — List meal plans for a patient
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
 
-    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id!);
+    // Lista blanca: solo roles clínicos leen planes alimentarios.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+
+    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id);
     if (!moduleEnabled) {
       return NextResponse.json(
         { success: false, error: "Modulo de planes alimentarios no habilitado" },
@@ -35,14 +42,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Médicos: solo sus planes. Admin: todos.
     const mealPlans = await prisma.mealPlan.findMany({
-      where: { patientId },
+      where: { patientId, ...entryScope(actor) },
       include: {
         user: {
           select: { id: true, name: true, email: true, firstName: true, lastName: true },
         },
       },
       orderBy: { createdAt: "desc" },
+    });
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "meal_plan",
+      resourceId: patientId,
+      details: { list: true, count: mealPlans.length },
+      req,
     });
 
     return NextResponse.json({ success: true, data: mealPlans });
@@ -59,14 +76,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
 
-    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id!);
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+
+    const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id);
     if (!moduleEnabled) {
       return NextResponse.json(
         { success: false, error: "Modulo de planes alimentarios no habilitado" },
@@ -86,7 +108,7 @@ export async function POST(req: NextRequest) {
 
     const data = parsed.data;
 
-    const authorId = session.user.id!;
+    const authorId = actor.userId;
     const mealPlan = await prisma.$transaction(async (tx) => {
       const created = await tx.mealPlan.create({
         data: {
@@ -124,11 +146,12 @@ export async function POST(req: NextRequest) {
     });
 
     logAudit({
-      userId: session.user.id!,
+      userId: actor.userId,
       action: "CREATE",
-      resource: "meal_plan" as never,
+      resource: "meal_plan",
       resourceId: mealPlan.id,
-      details: { patientId: data.patientId, title: data.title },
+      // Sin texto libre en audit (el título puede describir la condición clínica).
+      details: { patientId: data.patientId },
       req,
     });
 

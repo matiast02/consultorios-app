@@ -30,7 +30,9 @@ import {
   Shield,
   Mail,
   CalendarIcon,
+  Trash2,
 } from "lucide-react";
+import { useSession } from "@/lib/auth-client";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -67,7 +69,20 @@ interface PatientFormDialogProps {
   onOpenChange: (open: boolean) => void;
   patient?: Patient | null;
   onSaved: () => void;
+  /** Tras eliminar/archivar (solo en edición). Si no se pasa, se usa onSaved. */
+  onDeleted?: () => void;
 }
+
+// Respuesta 409 de DELETE /api/patients/[id] (ver contracts/api-schemas/patients-lifecycle.yaml)
+interface DeletionBlockers {
+  clinicalEntries: number;
+  otherProfessionals: { id: string; name: string }[];
+  futureShiftsWithOthers: number;
+  canArchive: boolean;
+}
+
+// Error ya comunicado al usuario (evita un segundo toast genérico).
+class HandledError extends Error {}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function formatDniDisplay(raw: string): string {
@@ -86,12 +101,16 @@ export function PatientFormDialog({
   onOpenChange,
   patient,
   onSaved,
+  onDeleted,
 }: PatientFormDialogProps) {
   const isEdit = !!patient;
+  const { data: session } = useSession();
+  const role = session?.user.role ?? null;
 
   const [step, setStep] = useState<1 | 2>(1);
   const [healthInsurances, setHealthInsurances] = useState<HealthInsurance[]>([]);
   const [savingMinimal, setSavingMinimal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Additional insurances (multi-OS)
   interface AdditionalInsurance {
@@ -273,6 +292,10 @@ export function PatientFormDialog({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        if (!isEdit && res.status === 409 && err.code === "ARCHIVED_DUPLICATE") {
+          notifyArchivedDuplicate(err.archivedPatientId);
+          throw new HandledError(err.error);
+        }
         throw new Error(err.error ?? `Error al ${isEdit ? "actualizar" : "crear"} el paciente`);
       }
 
@@ -320,9 +343,128 @@ export function PatientFormDialog({
       toast.success(`Paciente ${isEdit ? "actualizado" : "creado"} exitosamente`);
       onSaved();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      if (!(error instanceof HandledError)) {
+        toast.error(error instanceof Error ? error.message : "Error al guardar");
+      }
       throw error;
     }
+  }
+
+  // Alta con DNI de un paciente archivado: el admin puede restaurarlo.
+  function notifyArchivedDuplicate(archivedPatientId?: string) {
+    if (role === "admin" && archivedPatientId) {
+      toast("Existe un paciente archivado con ese DNI", {
+        description: "Podés restaurarlo en lugar de crear uno nuevo.",
+        duration: 15000,
+        action: {
+          label: "Restaurar",
+          onClick: () => {
+            void restorePatient(archivedPatientId);
+          },
+        },
+      });
+      return;
+    }
+    toast.error(
+      "Existe un paciente archivado con ese DNI. Pedile al administrador que lo restaure."
+    );
+  }
+
+  async function restorePatient(archivedPatientId: string) {
+    try {
+      const res = await fetch(`/api/patients/${archivedPatientId}/restore`, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "No se pudo restaurar el paciente");
+        return;
+      }
+      toast.success("Paciente restaurado");
+      onSaved();
+    } catch {
+      toast.error("No se pudo restaurar el paciente");
+    }
+  }
+
+  // Eliminar: intenta borrado físico; si hay historia clínica / turnos de
+  // otros profesionales y el usuario puede, ofrece archivar.
+  async function handleDelete() {
+    if (!patient) return;
+    const name = `${patient.firstName} ${patient.lastName}`.trim();
+    if (!window.confirm(`¿Eliminar a ${name}? Esta acción no se puede deshacer.`)) return;
+
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/patients/${patient.id}?mode=purge`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        toast.success("Paciente eliminado");
+        finishDeletion();
+        return;
+      }
+
+      if (res.status === 409 && json.code === "PURGE_BLOCKED") {
+        const blockers: DeletionBlockers | undefined = json.blockers;
+        if (blockers?.canArchive) {
+          const confirmed = window.confirm(
+            `${name} tiene historia clínica o turnos registrados, por eso no se puede borrar.\n\n` +
+              "En su lugar se va a ARCHIVAR: deja de aparecer en listados y búsquedas, " +
+              "su historia clínica se conserva por 10 años y el administrador puede restaurarlo.\n\n" +
+              "¿Archivar al paciente?"
+          );
+          if (!confirmed) return;
+          await archivePatient(patient.id);
+          return;
+        }
+        toast.error(json.error ?? "No se puede eliminar el paciente", {
+          description: deletionBlockedHint(blockers),
+          duration: 10000,
+        });
+        return;
+      }
+
+      toast.error(json.error ?? "Error al eliminar el paciente");
+    } catch {
+      toast.error("Error al eliminar el paciente");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function archivePatient(patientId: string) {
+    const res = await fetch(`/api/patients/${patientId}?mode=archive`, { method: "DELETE" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error ?? "No se pudo archivar el paciente");
+      return;
+    }
+    const warnings: string[] = Array.isArray(json.data?.warnings) ? json.data.warnings : [];
+    toast.success(
+      "Paciente archivado",
+      warnings.length > 0 ? { description: warnings.join(" "), duration: 10000 } : undefined
+    );
+    finishDeletion();
+  }
+
+  function deletionBlockedHint(blockers?: DeletionBlockers): string | undefined {
+    const parts: string[] = [];
+    if (blockers?.otherProfessionals?.length) {
+      parts.push(
+        `Profesionales involucrados: ${blockers.otherProfessionals.map((p) => p.name).join(", ")}.`
+      );
+    }
+    if (blockers?.futureShiftsWithOthers) {
+      parts.push("Primero hay que cancelar sus turnos futuros con otros profesionales.");
+    }
+    if (role !== "admin") {
+      parts.push("Pedile al administrador que lo archive.");
+    }
+    return parts.length > 0 ? parts.join(" ") : undefined;
+  }
+
+  function finishDeletion() {
+    onOpenChange(false);
+    (onDeleted ?? onSaved)();
   }
 
   // Step 1 → Step 2 (validate step 1 first)
@@ -749,26 +891,43 @@ export function PatientFormDialog({
 
           {/* ─── Footer ────────────────────────────────────────────────── */}
           <div className="flex items-center justify-between gap-2 border-t bg-muted/20 px-6 py-3">
-            {step === 1 ? (
-              <button
-                type="button"
-                onClick={handleCreateMinimal}
-                disabled={savingMinimal || isSubmitting}
-                className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
-              >
-                {savingMinimal && <Loader2 className="mr-1.5 inline h-3 w-3 animate-spin" />}
-                Crear con datos mínimos
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                Atrás
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {isEdit && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting || savingMinimal || isSubmitting}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-destructive hover:underline disabled:opacity-50"
+                >
+                  {deleting ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  Eliminar
+                </button>
+              )}
+              {step === 1 ? (
+                <button
+                  type="button"
+                  onClick={handleCreateMinimal}
+                  disabled={savingMinimal || isSubmitting}
+                  className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                >
+                  {savingMinimal && <Loader2 className="mr-1.5 inline h-3 w-3 animate-spin" />}
+                  Crear con datos mínimos
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Atrás
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 type="button"

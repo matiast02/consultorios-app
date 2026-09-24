@@ -131,4 +131,60 @@ describe("POST /api/register", () => {
     expect(res.status).toBe(400);
     expect(body.error).toBeDefined();
   });
+
+  // 5 ─ Crea usuario + credencial + rol en una sola transacción
+  it("asigna el rol en el alta, dentro de la transacción", async () => {
+    prismaMock.role.findUnique.mockResolvedValue({ id: "role-medic" });
+    prismaMock.user.create.mockResolvedValue({
+      id: "new-user-1",
+      name: "Juan Perez",
+      email: "juan@example.com",
+      createdAt: new Date(),
+    });
+
+    const res = await POST(createRequest({ ...VALID_BODY, role: "medic" }));
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.$transaction).toHaveBeenCalledOnce();
+    expect(prismaMock.role.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { name: "medic" } })
+    );
+    expect(prismaMock.userRole.create).toHaveBeenCalledWith({
+      data: { userId: "new-user-1", roleId: "role-medic" },
+    });
+    // Credencial (Account) creada con hash bcrypt, nunca en texto plano.
+    const upsertArg = prismaMock.account.upsert.mock.calls[0][0];
+    expect(upsertArg.create.password).toMatch(/^\$2[aby]\$\d{2}\$/);
+    expect(upsertArg.create.password).not.toBe(VALID_BODY.password);
+  });
+
+  // 6 ─ Sin rol: comportamiento previo (no crea UserRole)
+  it("sin rol no crea UserRole", async () => {
+    prismaMock.user.create.mockResolvedValue({
+      id: "new-user-1",
+      name: "Juan Perez",
+      email: "juan@example.com",
+      createdAt: new Date(),
+    });
+
+    const res = await POST(createRequest(VALID_BODY));
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.userRole.create).not.toHaveBeenCalled();
+  });
+
+  // 7 ─ Rol fuera del enum
+  it("rechaza un rol inválido", async () => {
+    const res = await POST(createRequest({ ...VALID_BODY, role: "superuser" }));
+    expect(res.status).toBe(400);
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  // 8 ─ Rol válido pero inexistente en la base (seed incompleto)
+  it("rechaza si el rol no existe en la base, sin crear el usuario", async () => {
+    prismaMock.role.findUnique.mockResolvedValue(null);
+    const res = await POST(createRequest({ ...VALID_BODY, role: "admin" }));
+    expect(res.status).toBe(400);
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
 });

@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import * as authUtils from "@/lib/auth-utils";
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ export const prismaMock = {
   rateLimit: createModelMock(),
   clinicalEntryVersion: createModelMock(),
   auditLog: createModelMock(),
+  resetToken: createModelMock(),
   // Better Auth
   account: createModelMock(),
   session: createModelMock(),
@@ -113,6 +115,13 @@ export function resetAllMocks() {
       }
     }
   }
+
+  // Re-set auth-utils mocks to their defaults (un rol mockeado en un test no
+  // debe filtrarse al siguiente: las rutas clínicas dependen de getUserRole).
+  vi.mocked(authUtils.getUserRole).mockResolvedValue("secretary");
+  vi.mocked(authUtils.isMedic).mockResolvedValue(false);
+  vi.mocked(authUtils.isSecretary).mockResolvedValue(false);
+  vi.mocked(authUtils.isSecretaryOrAdmin).mockResolvedValue(true);
 
   // Re-set $queryRawUnsafe mock
   prismaMock.$queryRawUnsafe.mockResolvedValue([]);

@@ -42,6 +42,9 @@ App Router with route groups:
 - `auth.ts` — Better Auth server config + `getSession()` helper
 - `lib/auth-client.ts` — Better Auth client (`useSession`, `signIn`, `signOut`)
 - `lib/credentials.ts` — Único punto que escribe/verifica hashes de contraseña (bcrypt, tabla Account)
+- `lib/clinical-access.ts` — Política de acceso a datos clínicos (lista blanca medic/admin, aislamiento por autor); TODA ruta clínica pasa por acá
+- `lib/sessions.ts` — Revocación de sesiones (cambio/reset de contraseña, baja de usuario)
+- `instrumentation.ts` — Validación de entorno al arrancar: en producción exige HC_ENC_KEY, AUTH_SECRET ≥ 32 y NEXTAUTH_URL https
 - `middleware.ts` — Auth middleware for route protection
 - `docker-compose.yml` — MySQL + phpMyAdmin containers
 
@@ -75,6 +78,10 @@ pnpm run docker:down  # Stop MySQL container
 - Client components usan `useSession()` / `signOut()` de `lib/auth-client.ts`
 - La contraseña NO vive en `User`: está en `Account.password` (`providerId: "credential"`), hash bcrypt vía `lib/credentials.ts`
 - Login: lockout anti fuerza bruta + audit logs `LOGIN_*` implementados como hooks de Better Auth en `auth.ts`
+- Sesiones: inactividad 12 h, renovación por uso, tope absoluto 7 días; `getSession()` rechaza usuarios inactivos/borrados y revoca sus sesiones
+- Datos clínicos: secretaria nunca (salvo alergias en solo lectura); médico solo asientos propios; admin todo, siempre auditado con `VIEW_SENSITIVE`. Nunca poner contenido clínico en `AuditLog.details` ni en `Shift.observations` (eso es nota administrativa visible por recepción)
+- Pacientes: `DELETE ?mode=purge` solo sin asientos clínicos ni turnos de otros (admin, secretaria o médico creador); `?mode=archive` conserva la HC 10 años (médico creador sin terceros, o admin); `POST /restore` solo admin
+- Headers de seguridad (CSP, HSTS, nosniff, frame-ancestors) en `next.config.ts`
 - Route groups: `(auth)` for public, `(dashboard)` for protected pages
 - Role-based access: medic, secretary, admin
 - Soft deletes on User and Patient (deletedAt field)

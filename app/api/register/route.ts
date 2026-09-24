@@ -5,7 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/auth";
 import { getUserRole } from "@/lib/auth-utils";
-import { setUserPassword } from "@/lib/credentials";
+import { hashPassword, setUserPassword } from "@/lib/credentials";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -15,6 +15,8 @@ const registerSchema = z.object({
     .min(8, "Password must be at least 8 characters")
     .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
     .regex(/[0-9]/, "Password must contain at least one number"),
+  // Opcional: si viene, el usuario se crea ya con su rol (nunca queda sin rol).
+  role: z.enum(["medic", "secretary", "admin"]).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -37,7 +39,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Rate limit: 5 requests per minute per IP
-    const ip = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "unknown";
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
     const { allowed } = await checkRateLimit(`register:${ip}`, { maxRequests: 5, windowMs: 60000 });
     if (!allowed) {
       return NextResponse.json(
@@ -56,7 +61,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email, password } = parsed.data;
+    const { name, email, password, role } = parsed.data;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -70,25 +75,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await prisma.user.create({
-      data: { name, email },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true,
-      },
-    });
+    const roleRecord = role
+      ? await prisma.role.findUnique({ where: { name: role }, select: { id: true } })
+      : null;
+    if (role && !roleRecord) {
+      return NextResponse.json(
+        { error: "El rol indicado no existe" },
+        { status: 400 }
+      );
+    }
 
-    // La credencial vive en Account (providerId "credential"), hash bcrypt.
-    await setUserPassword(prisma, user.id, { plain: password });
+    // bcrypt fuera de la transacción: no mantenerla abierta durante el hash.
+    const passwordHash = await hashPassword(password);
+
+    // User + credencial + rol atómicos: si algo falla, no queda un usuario a medias.
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { name, email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          createdAt: true,
+        },
+      });
+
+      // La credencial vive en Account (providerId "credential"), hash bcrypt.
+      await setUserPassword(tx, created.id, { hash: passwordHash });
+
+      if (roleRecord) {
+        await tx.userRole.create({
+          data: { userId: created.id, roleId: roleRecord.id },
+        });
+      }
+
+      return created;
+    });
 
     logAudit({
       userId: session.user.id,
       action: "CREATE",
       resource: "user",
       resourceId: user.id,
-      details: { name, email, createdBy: session.user.id },
+      details: { name, email, role: role ?? null, createdBy: session.user.id },
       req: request,
     });
 

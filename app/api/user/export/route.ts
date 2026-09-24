@@ -1,10 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { logAudit } from "@/lib/audit";
+import { canAccessEntry, getClinicalActor, medicHasRelationship } from "@/lib/clinical-access";
 
 // GET /api/user/export — Export all data for the current user (profile + patients + shifts + clinical)
 // Returns a JSON dump. The file is downloaded as an attachment with a date-stamped name.
-export async function GET() {
+//
+// Datos clínicos: misma política que el resto de las rutas clínicas
+// (lib/clinical-access). Roles no clínicos exportan sin HC; el médico solo sus
+// asientos y la ficha de pacientes con los que tiene relación clínica.
+export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
     if (!session?.user) {
@@ -72,9 +78,20 @@ export async function GET() {
       },
     });
 
+    const actor = await getClinicalActor(userId);
+
+    // Asientos clínicos: solo los accesibles según la política (el turno puede
+    // tener recetas/órdenes de otro autor).
+    const safeShifts = shifts.map(({ evolution, prescriptions, studyOrders, ...shift }) => ({
+      ...shift,
+      evolution: actor && evolution && canAccessEntry(actor, evolution) ? evolution : null,
+      prescriptions: actor ? prescriptions.filter((p) => canAccessEntry(actor, p)) : [],
+      studyOrders: actor ? studyOrders.filter((o) => canAccessEntry(actor, o)) : [],
+    }));
+
     // Patients seen by this professional (distinct from shifts)
     const patientIds = Array.from(new Set(shifts.map((s) => s.patientId)));
-    const patients = patientIds.length
+    const rawPatients = patientIds.length
       ? await prisma.patient.findMany({
           where: { id: { in: patientIds } },
           include: {
@@ -84,6 +101,21 @@ export async function GET() {
           },
         })
       : [];
+
+    // Ficha clínica solo si el actor tiene relación clínica con el paciente.
+    // Secuencial a propósito: medicHasRelationship hace 4 counts por paciente y
+    // en paralelo sobre cientos de pacientes agotaría el pool de conexiones.
+    type RawPatient = (typeof rawPatients)[number];
+    const patients: (Omit<RawPatient, "clinicalRecord"> & {
+      clinicalRecord: RawPatient["clinicalRecord"];
+    })[] = [];
+    for (const { clinicalRecord, ...patient } of rawPatients) {
+      const visible =
+        actor !== null &&
+        clinicalRecord !== null &&
+        (await medicHasRelationship(actor, patient.id));
+      patients.push({ ...patient, clinicalRecord: visible ? clinicalRecord : null });
+    }
 
     // Preferences + block days + accepted insurances
     const [preferences, blockDays, acceptedInsurances] = await Promise.all([
@@ -103,8 +135,21 @@ export async function GET() {
       blockDays,
       acceptedInsurances,
       patients,
-      shifts,
+      shifts: safeShifts,
     };
+
+    logAudit({
+      userId,
+      action: "VIEW_SENSITIVE",
+      resource: "export",
+      resourceId: userId,
+      details: {
+        patients: patients.length,
+        shifts: safeShifts.length,
+        clinicalRecords: patients.filter((p) => p.clinicalRecord).length,
+      },
+      req,
+    });
 
     const today = new Date().toISOString().split("T")[0];
     const filename = `consultorio-export-${today}.json`;

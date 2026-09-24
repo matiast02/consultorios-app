@@ -758,12 +758,10 @@ export async function GET() {
     };
 
     // Fire-and-forget audit log for accessing the admin dashboard.
-    // `resource` "admin_dashboard" is outside the typed AuditResource union,
-    // so we cast through `as never` (same pattern as prescription endpoints).
     logAudit({
       userId,
       action: "VIEW_SENSITIVE",
-      resource: "admin_dashboard" as never,
+      resource: "admin_dashboard",
       resourceId: "dashboard",
     });
 

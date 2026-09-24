@@ -1,12 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateClinicalRecordSchema } from "@/lib/validations";
-import { isMedic, isSecretary } from "@/lib/auth-utils";
+import { getUserRole } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
 import { recordClinicalVersion, clinicalRecordSnapshot } from "@/lib/clinical-ledger";
+import {
+  CLINICAL_FORBIDDEN,
+  entryScope,
+  getClinicalActor,
+  medicHasRelationship,
+} from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+// Vista redactada por LISTA BLANCA: solo estos campos salen con su valor real.
+// Todo otro campo de ClinicalRecord (incluidos los que se agreguen en el futuro)
+// se devuelve en null. Las alergias estructuradas se exponen por seguridad del
+// paciente (alerta en recepción / médico sin relación): decisión de producto.
+const REDACTED_SELECT = {
+  id: true,
+  patientId: true,
+  structuredAllergies: true,
+  createdAt: true,
+  updatedAt: true,
+} as const satisfies Prisma.ClinicalRecordSelect;
+
+type RedactedRecord = Prisma.ClinicalRecordGetPayload<{ select: typeof REDACTED_SELECT }>;
+
+function redactedView(rec: RedactedRecord): Record<string, unknown> {
+  const view: Record<string, unknown> = {};
+  for (const field of Object.values(Prisma.ClinicalRecordScalarFieldEnum)) {
+    view[field] = null;
+  }
+  // Se copian solo las claves de la lista blanca (no se esparce `rec`), así un
+  // select mal armado nunca filtra columnas extra.
+  for (const key of Object.keys(REDACTED_SELECT) as (keyof RedactedRecord)[]) {
+    view[key] = rec[key];
+  }
+  view.evolutions = [];
+  return view;
+}
 
 // GET /api/patients/[id]/clinical-record — Get or create clinical record
 export async function GET(req: NextRequest, context: RouteContext) {
@@ -19,11 +54,16 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const userId = session.user.id;
     const { id } = await context.params;
+    const actor = await getClinicalActor(userId);
 
-    // Secretaries get a redacted view: ONLY structured allergies (safety info),
-    // no diagnoses, no medication, no evolutions.
-    if (await isSecretary(session.user.id)) {
+    if (!actor) {
+      // Secretarias: vista redactada (solo alergias estructuradas, dato de
+      // seguridad). Cualquier otro rol no clínico: sin acceso.
+      if ((await getUserRole(userId)) !== "secretary") {
+        return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+      }
       const patient = await prisma.patient.findFirst({
         where: { id, deletedAt: null },
         select: { id: true },
@@ -36,28 +76,15 @@ export async function GET(req: NextRequest, context: RouteContext) {
       }
       const rec = await prisma.clinicalRecord.findUnique({
         where: { patientId: id },
-        select: { id: true, patientId: true, structuredAllergies: true, createdAt: true, updatedAt: true },
+        select: REDACTED_SELECT,
       });
-      return NextResponse.json({
-        success: true,
-        data: rec
-          ? {
-              ...rec,
-              bloodType: null,
-              allergies: null,
-              personalHistory: null,
-              familyHistory: null,
-              currentMedication: null,
-              notes: null,
-              evolutions: [],
-            }
-          : null,
-      });
+      return NextResponse.json({ success: true, data: rec ? redactedView(rec) : null });
     }
 
     // Verify patient exists
     const patient = await prisma.patient.findFirst({
       where: { id, deletedAt: null },
+      select: { id: true },
     });
 
     if (!patient) {
@@ -67,8 +94,16 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const currentUserId = session.user.id;
-    const userIsMedic = await isMedic(currentUserId);
+    // Médico sin relación clínica con el paciente: ficha vacía (lista blanca).
+    if (!(await medicHasRelationship(actor, id))) {
+      const rec = await prisma.clinicalRecord.upsert({
+        where: { patientId: id },
+        update: {},
+        create: { patientId: id },
+        select: REDACTED_SELECT,
+      });
+      return NextResponse.json({ success: true, data: redactedView(rec) });
+    }
 
     // Upsert: get existing or create empty record
     const clinicalRecord = await prisma.clinicalRecord.upsert({
@@ -77,8 +112,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
       create: { patientId: id },
       include: {
         evolutions: {
-          // Medics only see their own evolutions
-          ...(userIsMedic ? { where: { userId: currentUserId } } : {}),
+          // Médicos: solo sus evoluciones. Admin: todas.
+          where: entryScope(actor),
           orderBy: { createdAt: "desc" },
           include: {
             user: {
@@ -92,32 +127,6 @@ export async function GET(req: NextRequest, context: RouteContext) {
       },
     });
 
-    // For medics: hide clinical record fields they didn't author
-    // They can only see the ficha if they have at least one evolution
-    if (userIsMedic && clinicalRecord.evolutions.length === 0) {
-      // Check if this medic has ever created an evolution for this patient
-      const hasEvolutions = await prisma.evolution.count({
-        where: { clinicalRecordId: clinicalRecord.id, userId: currentUserId },
-      });
-      if (hasEvolutions === 0) {
-        // Return empty record — medic hasn't written anything for this patient
-        return NextResponse.json({
-          success: true,
-          data: {
-            ...clinicalRecord,
-            bloodType: null,
-            allergies: null,
-            personalHistory: null,
-            familyHistory: null,
-            currentMedication: null,
-            notes: null,
-            odontogram: null,
-            genogram: null,
-          },
-        });
-      }
-    }
-
     // Log VIEW_SENSITIVE if record has meaningful data
     const hasData =
       clinicalRecord.evolutions.length > 0 ||
@@ -130,7 +139,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
     if (hasData) {
       logAudit({
-        userId: session.user.id!,
+        userId,
         action: "VIEW_SENSITIVE",
         resource: "clinical_record",
         resourceId: clinicalRecord.id,
@@ -159,12 +168,10 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Secretaries cannot edit the clinical record.
-    if (await isSecretary(session.user.id)) {
-      return NextResponse.json(
-        { success: false, error: "Sin permisos para editar historia clínica" },
-        { status: 403 }
-      );
+    // Solo roles clínicos (lista blanca) editan la historia clínica.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     const { id } = await context.params;
@@ -181,6 +188,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     // Verify patient exists
     const patient = await prisma.patient.findFirst({
       where: { id, deletedAt: null },
+      select: { id: true },
     });
 
     if (!patient) {
@@ -190,23 +198,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Medics can only edit if they have evolutions for this patient
-    const currentUserId = session.user.id;
-    if (await isMedic(currentUserId)) {
-      const existingRecord = await prisma.clinicalRecord.findUnique({
-        where: { patientId: id },
-      });
-      if (existingRecord) {
-        const hasEvolutions = await prisma.evolution.count({
-          where: { clinicalRecordId: existingRecord.id, userId: currentUserId },
-        });
-        if (hasEvolutions === 0) {
-          return NextResponse.json(
-            { success: false, error: "No tenés permisos para editar esta historia clínica" },
-            { status: 403 }
-          );
-        }
-      }
+    // Médicos: solo con relación clínica con el paciente (admin siempre).
+    if (!(await medicHasRelationship(actor, id))) {
+      return NextResponse.json(
+        { success: false, error: "No tenés permisos para editar esta historia clínica" },
+        { status: 403 }
+      );
     }
 
     // Transform schema-level shapes into Prisma-compatible shapes

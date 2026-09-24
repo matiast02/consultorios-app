@@ -3,6 +3,15 @@ import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updatePatientSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { getUserRole } from "@/lib/auth-utils";
+import {
+  evaluatePatientDeletion,
+  gatherPatientDeletionFacts,
+  isPatientDeletionMode,
+  patientDeletionForbiddenReason,
+  resolveProfessionalNames,
+  type PatientDeletionEvaluation,
+} from "@/lib/patient-deletion";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -76,14 +85,27 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     const data = parsed.data;
 
-    // Check unique DNI if changing it
+    // Check unique DNI if changing it. `dni` es @unique en DB: un paciente
+    // archivado también lo ocupa (sin este chequeo el update daría 500).
     if (data.dni && data.dni !== existing.dni) {
       const duplicate = await prisma.patient.findFirst({
-        where: { dni: data.dni, deletedAt: null, id: { not: id } },
+        where: { dni: data.dni, id: { not: id } },
+        select: { id: true, deletedAt: true },
       });
+      if (duplicate?.deletedAt) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "ARCHIVED_DUPLICATE",
+            archivedPatientId: duplicate.id,
+            error: "Ya existe un paciente archivado con ese DNI",
+          },
+          { status: 409 }
+        );
+      }
       if (duplicate) {
         return NextResponse.json(
-          { success: false, error: "Ya existe un paciente con ese DNI" },
+          { success: false, code: "DUPLICATE", error: "Ya existe un paciente con ese DNI" },
           { status: 409 }
         );
       }
@@ -122,21 +144,34 @@ export async function PUT(req: NextRequest, context: RouteContext) {
   }
 }
 
-// DELETE /api/patients/[id] — Soft delete patient
+// DELETE /api/patients/[id]?mode=purge|archive (default: archive)
+// - purge: borrado físico, solo sin asientos clínicos ni turnos con otros profesionales.
+// - archive: baja lógica (deletedAt/deletedById); la historia clínica se conserva.
+// Reglas completas en lib/patient-deletion.ts.
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const session = await getSession();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
+    const actorId = session.user.id;
 
     const { id } = await context.params;
 
+    const mode = req.nextUrl.searchParams.get("mode") ?? "archive";
+    if (!isPatientDeletionMode(mode)) {
+      return NextResponse.json(
+        { success: false, error: "Modo inválido (purge | archive)" },
+        { status: 400 }
+      );
+    }
+
     const existing = await prisma.patient.findFirst({
       where: { id, deletedAt: null },
+      select: { id: true, createdById: true },
     });
 
     if (!existing) {
@@ -146,20 +181,109 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
-    await prisma.patient.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    const role = await getUserRole(actorId);
+
+    // Permiso por rol/autoría antes de mirar datos clínicos.
+    const forbidden = patientDeletionForbiddenReason(mode, role, actorId, existing.createdById);
+    if (forbidden) {
+      return NextResponse.json(
+        { success: false, code: "FORBIDDEN", error: forbidden },
+        { status: 403 }
+      );
+    }
+
+    // Evaluación + mutación en la misma transacción: acota la ventana en la que
+    // un asiento clínico nuevo podría borrarse por cascada en un purge.
+    const evaluation: PatientDeletionEvaluation = await prisma.$transaction(async (tx) => {
+      const facts = await gatherPatientDeletionFacts(tx, existing);
+      const ev = evaluatePatientDeletion({ mode, role, actorId, facts });
+      if (ev.outcome !== "allow") return ev;
+
+      if (mode === "purge") {
+        await tx.patient.delete({ where: { id } });
+      } else {
+        await tx.patient.update({
+          where: { id },
+          data: { deletedAt: new Date(), deletedById: actorId },
+        });
+      }
+      return ev;
     });
 
+    // Roles no clínicos (secretaria) no ven la autoría de asientos clínicos:
+    // solo los profesionales que surgen de turnos (que ya ven en la agenda).
+    const isClinicalRole = role === "medic" || role === "admin";
+    const visibleProfessionalIds = isClinicalRole
+      ? evaluation.otherProfessionalIds
+      : evaluation.otherShiftProfessionalIds;
+
+    if (evaluation.outcome === "forbidden") {
+      return NextResponse.json(
+        { success: false, code: "FORBIDDEN", error: evaluation.error },
+        { status: 403 }
+      );
+    }
+
+    if (evaluation.outcome === "blocked") {
+      const otherProfessionals = await resolveProfessionalNames(visibleProfessionalIds);
+      return NextResponse.json(
+        {
+          success: false,
+          code: evaluation.code,
+          error: evaluation.error,
+          blockers: {
+            clinicalEntries: evaluation.clinicalEntries,
+            otherProfessionals,
+            futureShiftsWithOthers: evaluation.futureShiftsWithOthers,
+            canArchive: evaluation.canArchive,
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     logAudit({
-      userId: session.user.id!,
+      userId: actorId,
       action: "DELETE",
       resource: "patient",
       resourceId: id,
+      details:
+        mode === "archive" && evaluation.otherProfessionalIds.length > 0
+          ? { mode, otherProfessionalIds: evaluation.otherProfessionalIds }
+          : { mode },
       req,
     });
 
-    return NextResponse.json({ success: true, data: { id } });
+    if (mode === "purge") {
+      return NextResponse.json({ success: true, data: { id, mode } });
+    }
+
+    const otherProfessionals = await resolveProfessionalNames(visibleProfessionalIds);
+    const warnings: string[] = [];
+    if (otherProfessionals.length > 0) {
+      warnings.push(
+        `Otros profesionales con historia clínica o turnos de este paciente: ${otherProfessionals
+          .map((p) => p.name)
+          .join(", ")}.`
+      );
+    }
+    if (evaluation.clinicalEntries > 0) {
+      warnings.push(
+        "La historia clínica se conserva; el administrador puede restaurar al paciente."
+      );
+    }
+    if (evaluation.ownFutureShifts > 0) {
+      warnings.push(
+        evaluation.ownFutureShifts === 1
+          ? "Tenés 1 turno futuro con este paciente que sigue en la agenda."
+          : `Tenés ${evaluation.ownFutureShifts} turnos futuros con este paciente que siguen en la agenda.`
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: { id, mode, warnings, otherProfessionals },
+    });
   } catch (error) {
     console.error("DELETE /api/patients/[id] error:", error);
     return NextResponse.json(

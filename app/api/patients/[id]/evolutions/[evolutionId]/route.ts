@@ -3,13 +3,18 @@ import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateEvolutionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
-import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { recordClinicalVersion, evolutionSnapshot } from "@/lib/clinical-ledger";
+import {
+  CLINICAL_FORBIDDEN,
+  canAccessEntry,
+  entryScope,
+  getClinicalActor,
+} from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string; evolutionId: string }> };
 
 // GET /api/patients/[id]/evolutions/[evolutionId] — Get single evolution
-export async function GET(_req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -19,12 +24,10 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Secretaries cannot read evolutions (clinical data) — mirror the list route.
-    if (await isSecretary(session.user.id)) {
-      return NextResponse.json(
-        { success: false, error: "Sin acceso a historia clínica" },
-        { status: 403 }
-      );
+    // Lista blanca: solo roles clínicos leen evoluciones.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     const { id: patientId, evolutionId } = await context.params;
@@ -45,8 +48,8 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       where: {
         id: evolutionId,
         clinicalRecord: { patientId },
-        // Medics can only read their own evolutions (admins see all).
-        ...((await isMedic(session.user.id)) ? { userId: session.user.id } : {}),
+        // Médicos: solo sus evoluciones (admin: todas).
+        ...entryScope(actor),
       },
       include: {
         user: {
@@ -61,12 +64,22 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       },
     });
 
-    if (!evolution) {
+    // 404 (no 403) para no revelar la existencia de asientos ajenos.
+    if (!evolution || !canAccessEntry(actor, evolution)) {
       return NextResponse.json(
         { success: false, error: "Evolución no encontrada" },
         { status: 404 }
       );
     }
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "evolution",
+      resourceId: evolution.id,
+      details: { patientId },
+      req,
+    });
 
     return NextResponse.json({ success: true, data: evolution });
   } catch (error) {
@@ -87,6 +100,11 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
+    }
+
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     const { id: patientId, evolutionId } = await context.params;
@@ -110,14 +128,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       },
     });
 
-    if (!evolution) {
+    if (!evolution || !canAccessEntry(actor, evolution)) {
       return NextResponse.json(
         { success: false, error: "Evolución no encontrada" },
         { status: 404 }
       );
     }
 
-    // Only the creator can update
+    // Only the creator can update (el admin la ve, pero no la corrige).
     if (evolution.userId !== session.user.id) {
       return NextResponse.json(
         { success: false, error: "Solo el médico que creó la evolución puede editarla" },
@@ -217,6 +235,11 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+
     const { id: patientId, evolutionId } = await context.params;
     const body = await req.json().catch(() => ({}));
     const annulReason =
@@ -229,7 +252,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       },
     });
 
-    if (!evolution) {
+    if (!evolution || !canAccessEntry(actor, evolution)) {
       return NextResponse.json(
         { success: false, error: "Evolución no encontrada" },
         { status: 404 }
@@ -285,7 +308,8 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       action: "DELETE",
       resource: "evolution",
       resourceId: evolutionId,
-      details: { annulled: true, reason: annulReason },
+      // El motivo queda en el ledger (cifrado); en audit, sin texto libre clínico.
+      details: { patientId, annulled: true },
       req,
     });
 

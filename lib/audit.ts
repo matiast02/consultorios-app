@@ -32,8 +32,29 @@ export type AuditResource =
   | "user_preference"
   | "block_day"
   | "prescription"
+  | "study_order"
+  | "meal_plan"
+  | "clinical_ledger"
+  | "export"
+  | "admin_dashboard"
   | "medication"
   | "auth";
+
+/** Largo máximo de columnas String sin @db.Text en MySQL (VARCHAR(191)). */
+const MAX_VARCHAR = 191;
+
+/**
+ * IP del cliente: primer valor de x-forwarded-for (el cliente original; el
+ * resto son proxies), o x-real-ip. Recortada para que un header enorme o
+ * manipulado no haga fallar el insert.
+ */
+function clientIp(req: Pick<Request, "headers"> | null | undefined): string | null {
+  if (!req) return null;
+  const forwarded = req.headers.get("x-forwarded-for");
+  const first = forwarded?.split(",")[0]?.trim();
+  const ip = first || req.headers.get("x-real-ip")?.trim() || null;
+  return ip ? ip.slice(0, MAX_VARCHAR) : null;
+}
 
 interface LogAuditParams {
   /** null cuando el actor es desconocido (p.ej. login fallido con email inexistente). */
@@ -54,14 +75,14 @@ export function logAudit({
   userId,
   action,
   resource,
-  resourceId,
+  resourceId: rawResourceId,
   details,
   req,
 }: LogAuditParams): void {
-  const ipAddress =
-    req?.headers.get("x-forwarded-for") ??
-    req?.headers.get("x-real-ip") ??
-    null;
+  // resourceId puede venir de input del usuario (p.ej. email en login fallido):
+  // se acota para que el insert no falle y el evento no se pierda.
+  const resourceId = rawResourceId.slice(0, MAX_VARCHAR);
+  const ipAddress = clientIp(req);
   const userAgent = req?.headers.get("user-agent") ?? null;
   const detailsStr =
     details != null ? (typeof details === "string" ? details : JSON.stringify(details)) : null;
