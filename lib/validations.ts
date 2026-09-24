@@ -780,3 +780,54 @@ export const onlineBookingStaffActionSchema = z.object({
 
 export type PublicBookingCreateParsed = z.infer<typeof publicBookingCreateSchema>;
 export type PublicBookingAvailabilityQuery = z.infer<typeof publicBookingAvailabilityQuerySchema>;
+
+// ─── Adjuntos de la historia clínica ─────────────────────────────────────────
+// entityType: el contrato usa minúsculas (evolution | study_order |
+// clinical_record); se aceptan ambas formas y se normaliza al enum de Prisma
+// (MAYÚSCULAS), que es lo que devuelven las respuestas.
+
+export const ATTACHMENT_ENTITY_TYPES = ["EVOLUTION", "STUDY_ORDER", "CLINICAL_RECORD"] as const;
+
+const attachmentEntityTypeSchema = z.preprocess(
+  (v) => (typeof v === "string" ? v.trim().toUpperCase() : v),
+  z.enum(ATTACHMENT_ENTITY_TYPES, {
+    errorMap: () => ({ message: "Tipo de asociación inválido (evolution, study_order o clinical_record)" }),
+  }),
+);
+
+/** "" / null / ausente → undefined (los campos de multipart llegan como string o null). */
+const blankToUndefined = (v: unknown) =>
+  v == null || (typeof v === "string" && v.trim() === "") ? undefined : v;
+
+const attachmentEntityIdSchema = z.preprocess(
+  blankToUndefined,
+  z.string().trim().min(1).max(64).optional(),
+);
+
+/** Campos de texto del multipart de POST /api/patients/[id]/attachments (el archivo va aparte). */
+export const uploadAttachmentFieldsSchema = z.object({
+  entityType: attachmentEntityTypeSchema,
+  entityId: attachmentEntityIdSchema,
+  description: z.preprocess(
+    blankToUndefined,
+    z.string().trim().max(300, "La descripción admite hasta 300 caracteres").optional(),
+  ),
+});
+
+/** GET /api/patients/[id]/attachments?entityType=&entityId= */
+export const attachmentsQuerySchema = z.object({
+  entityType: z.preprocess(blankToUndefined, attachmentEntityTypeSchema.optional()),
+  entityId: attachmentEntityIdSchema,
+});
+
+/** DELETE /api/attachments/[id] — anulación lógica (motivo obligatorio). */
+export const annulAttachmentSchema = z.object({
+  reason: z
+    .string({ required_error: "Indicá el motivo de la anulación" })
+    .trim()
+    .min(3, "Indicá el motivo de la anulación (mínimo 3 caracteres)")
+    .max(300, "El motivo admite hasta 300 caracteres"),
+});
+
+export type UploadAttachmentFields = z.infer<typeof uploadAttachmentFieldsSchema>;
+export type AttachmentsQuery = z.infer<typeof attachmentsQuerySchema>;

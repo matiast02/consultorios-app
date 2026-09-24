@@ -21,6 +21,12 @@
 // - ESCRITURA: `canAccessEntry` y `medicHasRelationship` NO consideran
 //   concesiones a propósito: editar/anular sigue siendo solo del autor y editar
 //   la ficha solo del tratante (o admin).
+//
+// Adjuntos (`ClinicalAttachment`, kind "attachment"): mismo perímetro que un
+// asiento. Leen el autor (`uploadedById`), el admin y quien tenga una concesión
+// vigente que cubra "estudios", o la sección / el id del asiento al que el
+// adjunto está asociado (evolución u orden), o el id del adjunto en
+// `entryIds`. Sube solo un médico; anula solo el autor (lib/attachments/service.ts).
 
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -39,6 +45,9 @@ import {
 } from "@/lib/clinical-grants-shared";
 
 export type { EntryKind, GrantSection, RecordSection } from "@/lib/clinical-grants-shared";
+
+/** Tipos de asiento cuyo autor está en la columna `userId` (todos menos adjuntos). */
+export type AuthoredEntryKind = Exclude<EntryKind, "attachment">;
 
 export const CLINICAL_ROLES = ["medic", "admin"] as const;
 export type ClinicalRole = (typeof CLINICAL_ROLES)[number];
@@ -75,15 +84,16 @@ export async function medicHasRelationship(
   patientId: string,
 ): Promise<boolean> {
   if (actor.isAdmin) return true;
-  const [evo, rx, order, plan] = await Promise.all([
+  const [evo, rx, order, plan, att] = await Promise.all([
     prisma.evolution.count({
       where: { userId: actor.userId, clinicalRecord: { patientId } },
     }),
     prisma.prescription.count({ where: { userId: actor.userId, patientId } }),
     prisma.studyOrder.count({ where: { userId: actor.userId, patientId } }),
     prisma.mealPlan.count({ where: { userId: actor.userId, patientId } }),
+    prisma.clinicalAttachment.count({ where: { uploadedById: actor.userId, patientId, annulledAt: null } }),
   ]);
-  return evo + rx + order + plan > 0;
+  return evo + rx + order + plan + att > 0;
 }
 
 /**
@@ -98,6 +108,7 @@ export function treatedPatientWhere(userId: string): Prisma.PatientWhereInput {
       { prescriptions: { some: { userId } } },
       { studyOrders: { some: { userId } } },
       { mealPlans: { some: { userId } } },
+      { attachments: { some: { uploadedById: userId, annulledAt: null } } },
     ],
   };
 }
@@ -243,6 +254,33 @@ export interface EntryReadResult {
   grantId?: string;
 }
 
+/** Asiento "padre" de un adjunto (la evolución u orden a la que se asoció). */
+export interface EntryParentRef {
+  kind: AuthoredEntryKind;
+  id: string;
+}
+
+/** Asiento al que está asociado un adjunto, o null (general de la ficha / sin id). */
+export function attachmentParent(
+  entityType: string,
+  entityId: string | null | undefined,
+): EntryParentRef | null {
+  if (!entityId) return null;
+  if (entityType === "EVOLUTION") return { kind: "evolution", id: entityId };
+  if (entityType === "STUDY_ORDER") return { kind: "study_order", id: entityId };
+  return null;
+}
+
+/** Fila de ClinicalAttachment → forma que esperan `canAccessEntry` / `canReadEntry`. */
+export function attachmentEntryRef(a: {
+  id: string;
+  uploadedById: string;
+  entityType: string;
+  entityId: string | null;
+}): { id: string; userId: string; parent: EntryParentRef | null } {
+  return { id: a.id, userId: a.uploadedById, parent: attachmentParent(a.entityType, a.entityId) };
+}
+
 /**
  * ¿Puede el actor LEER este asiento? Admin || autor || concesión vigente sobre
  * `patientId` que cubra el tipo (`kind`) o el `entry.id`.
@@ -251,20 +289,24 @@ export interface EntryReadResult {
  * de una query ya filtrada por paciente), nunca uno arbitrario del cliente: así
  * una concesión sobre el paciente A no abre asientos del paciente B aunque su
  * id figure en `entryIds`.
+ *
+ * `entry.parent` (solo adjuntos, ver `attachmentEntryRef`): el adjunto también
+ * se lee si la concesión cubre el asiento al que está asociado.
  */
 export async function canReadEntry(
   actor: ClinicalActor,
-  entry: { id: string; userId: string },
+  entry: { id: string; userId: string; parent?: EntryParentRef | null },
   patientId: string | null | undefined,
   kind: EntryKind,
 ): Promise<EntryReadResult> {
   if (canAccessEntry(actor, entry)) return { ok: true };
   if (!actor.isMedic || !patientId) return { ok: false };
   const grant = await findActiveGrant(actor.userId, patientId);
-  if (grant && grantCoversEntry(grant, kind, entry.id)) {
-    return { ok: true, grantId: grant.id };
-  }
-  return { ok: false };
+  if (!grant) return { ok: false };
+  const covered =
+    grantCoversEntry(grant, kind, entry.id) ||
+    (entry.parent != null && grantCoversEntry(grant, entry.parent.kind, entry.parent.id));
+  return covered ? { ok: true, grantId: grant.id } : { ok: false };
 }
 
 /** Filtro por autor / id que se esparce en el `where` de un listado. */
@@ -297,7 +339,7 @@ export interface ListReadScope {
 export function listScopeFromGrant(
   actor: ClinicalActor,
   grant: ActiveGrant | null,
-  kind: EntryKind,
+  kind: AuthoredEntryKind,
 ): ListReadScope {
   if (actor.isAdmin) return { where: {} };
   const own = { userId: actor.userId };
@@ -319,14 +361,70 @@ export function listScopeFromGrant(
  *
  * Si la ruta además filtra con `OR` (p. ej. búsqueda), debe combinarlo con
  * `AND` para no pisar el `OR` del alcance.
+ *
+ * Con `kind = "attachment"` devuelve un filtro de ClinicalAttachment (autor en
+ * `uploadedById`; ver `attachmentScopeFromGrant`).
  */
+export function readScopeForList(
+  actor: ClinicalActor,
+  patientId: string,
+  kind: "attachment",
+): Promise<AttachmentListScope>;
+export function readScopeForList(
+  actor: ClinicalActor,
+  patientId: string,
+  kind: AuthoredEntryKind,
+): Promise<ListReadScope>;
 export async function readScopeForList(
   actor: ClinicalActor,
   patientId: string,
   kind: EntryKind,
-): Promise<ListReadScope> {
+): Promise<ListReadScope | AttachmentListScope> {
   if (actor.isAdmin) return { where: {} };
-  return listScopeFromGrant(actor, await findActiveGrant(actor.userId, patientId), kind);
+  const grant = await findActiveGrant(actor.userId, patientId);
+  if (kind === "attachment") return attachmentScopeFromGrant(actor, grant);
+  return listScopeFromGrant(actor, grant, kind);
+}
+
+/** Alcance de LECTURA de un listado de adjuntos de un paciente. */
+export interface AttachmentListScope {
+  /** Esparcir en el where JUNTO a `patientId` (obligatorio). */
+  where: Prisma.ClinicalAttachmentWhereInput;
+  /** Presente si el listado puede incluir adjuntos ajenos por una concesión (auditar). */
+  grantId?: string;
+}
+
+/**
+ * Versión pura para adjuntos (misma regla que `canReadEntry` con `parent`):
+ *
+ * | actor                                    | where                                     |
+ * |------------------------------------------|-------------------------------------------|
+ * | admin                                    | {}                                        |
+ * | médico sin concesión                     | { uploadedById }                          |
+ * | FULL o PARTIAL con "estudios"            | {}                         (+ grantId)    |
+ * | PARTIAL con "evoluciones"                | OR propios / asociados a evoluciones      |
+ * | PARTIAL con entryIds                     | OR propios / id listado / asiento listado |
+ * | PARTIAL que no cubre nada de lo anterior | { uploadedById }                          |
+ *
+ * No filtra anulados: eso lo decide el servicio (los ajenos anulados no se muestran).
+ */
+export function attachmentScopeFromGrant(
+  actor: ClinicalActor,
+  grant: ActiveGrant | null,
+): AttachmentListScope {
+  if (actor.isAdmin) return { where: {} };
+  const own: Prisma.ClinicalAttachmentWhereInput = { uploadedById: actor.userId };
+  if (!actor.isMedic || !grant) return { where: own };
+  if (grantCoversKind(grant, "attachment")) return { where: {}, grantId: grant.id };
+  const or: Prisma.ClinicalAttachmentWhereInput[] = [own];
+  if (grantCoversKind(grant, "evolution")) {
+    or.push({ entityType: "EVOLUTION", entityId: { not: null } });
+  }
+  if (grant.entryIds.length > 0) {
+    or.push({ id: { in: grant.entryIds } });
+    or.push({ entityType: { in: ["EVOLUTION", "STUDY_ORDER"] }, entityId: { in: grant.entryIds } });
+  }
+  return or.length > 1 ? { where: { OR: or }, grantId: grant.id } : { where: own };
 }
 
 /** `{ grantId }` para esparcir en `details` del audit (o `{}` si no hubo concesión). */

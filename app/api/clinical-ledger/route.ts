@@ -5,6 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { verifyClinicalChain, type ClinicalEntityType } from "@/lib/clinical-ledger";
 import {
   CLINICAL_FORBIDDEN,
+  attachmentEntryRef,
   canReadEntry,
   findActiveGrant,
   getClinicalActor,
@@ -20,6 +21,7 @@ const VALID_TYPES = new Set<ClinicalEntityType>([
   "prescription",
   "study_order",
   "meal_plan",
+  "attachment",
 ]);
 
 const DENY: EntryReadResult = { ok: false };
@@ -57,6 +59,23 @@ async function canViewLedger(
     case "meal_plan": {
       const e = await prisma.mealPlan.findUnique(byId);
       return e ? canReadEntry(actor, e, e.patientId, "meal_plan") : DENY;
+    }
+    case "attachment": {
+      const a = await prisma.clinicalAttachment.findUnique({
+        where: { id: entityId },
+        select: {
+          id: true,
+          uploadedById: true,
+          entityType: true,
+          entityId: true,
+          patientId: true,
+          annulledAt: true,
+        },
+      });
+      if (!a) return DENY;
+      // Un adjunto anulado ajeno no existe para quien lee por concesión.
+      if (a.annulledAt && a.uploadedById !== actor.userId) return DENY;
+      return canReadEntry(actor, attachmentEntryRef(a), a.patientId, "attachment");
     }
     case "clinical_record": {
       const r = await prisma.clinicalRecord.findUnique({

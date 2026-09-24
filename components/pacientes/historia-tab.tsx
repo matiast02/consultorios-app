@@ -16,6 +16,7 @@ import {
   Cigarette,
   Droplet,
   Loader2,
+  Paperclip,
   Plus,
   StickyNote,
   Trash2,
@@ -30,6 +31,7 @@ import type {
 } from "@/types";
 import { ALLERGY_SEVERITY_LABELS, BLOOD_TYPES } from "@/types";
 import { SectionHead, fmtDateAR, fmtTime, safeParseJSON } from "./shared";
+import { AttachmentsPanel } from "./attachments-panel";
 import { cn } from "@/lib/utils";
 
 interface HistoriaTabProps {
@@ -42,6 +44,11 @@ interface HistoriaTabProps {
   full?: boolean;
   /** Si no es `full`: secciones de ficha concedidas (antecedentes | alergias | medicacion). */
   sections?: string[];
+  /**
+   * Puede adjuntar documentos generales de la ficha: médico tratante (mismo
+   * criterio que la edición) y nunca en modo concesión. El backend lo revalida.
+   */
+  canUploadAttachments?: boolean;
 }
 
 interface FormState {
@@ -113,6 +120,7 @@ export function HistoriaTab({
   readOnly = false,
   full = true,
   sections = [],
+  canUploadAttachments = false,
 }: HistoriaTabProps) {
   // Las alergias estructuradas se ven siempre (dato de seguridad del paciente).
   const showAntecedentes = full || sections.includes("antecedentes");
@@ -439,6 +447,22 @@ export function HistoriaTab({
         )}
       </div>
       </fieldset>
+
+      {/* Fuera del fieldset: en solo lectura igual se puede ver/descargar. */}
+      <Card className="mt-[18px] overflow-hidden pb-5 pt-0 shadow-xs">
+        <SectionHead
+          icon={Paperclip}
+          title="Documentos de la ficha"
+          description="Estudios previos, informes y otros documentos generales del paciente (PDF o imagen)."
+        />
+        <div className="px-6 pt-4">
+          <AttachmentsPanel
+            patientId={patientId}
+            entityType="CLINICAL_RECORD"
+            canUpload={canUploadAttachments && !readOnly}
+          />
+        </div>
+      </Card>
 
       {/* Floating save bar */}
       {dirty && !readOnly && (

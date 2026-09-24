@@ -280,3 +280,105 @@ describe("renderHcCopyPdf / hcCopyFileName", () => {
     expect(hcCopyFileName("", d("2026-09-24T12:00:00Z"))).toBe("HC-paciente-2026-09-24.pdf");
   });
 });
+
+describe("copia de HC — adjuntos", () => {
+  const ATT_SHA = "a".repeat(64);
+  const meta = {
+    requestId: "req-1",
+    clinicName: "Consultorio Central",
+    issuedAt: d("2026-09-23T15:00:00Z"),
+    issuedBy: { name: "Laura Gómez" },
+    requester: { type: "PATIENT" as const, name: "Ana Pérez", dni: "30111222" },
+    requestedAt: d("2026-09-22T15:00:00Z"),
+  };
+
+  beforeEach(() => {
+    resetAllMocks();
+    seedPatientHc();
+  });
+
+  it("sin adjuntos: la clave no aparece (el hash de copias ya entregadas no cambia)", async () => {
+    const copy = (await assembleHcCopy("p1"))!;
+    expect(copy).not.toHaveProperty("attachments");
+    expect(canonicalJson(copy)).not.toContain("attachments");
+  });
+
+  it("lista los adjuntos con autor, sha256, ledger y anulación; nunca pide la DEK ni la clave de objeto", async () => {
+    prismaMock.clinicalAttachment.findMany.mockResolvedValue([
+      {
+        id: "att1",
+        uploadedById: "medic-a",
+        entityType: "STUDY_ORDER",
+        entityId: "o1",
+        fileName: "Hemograma.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 2048,
+        sha256: ATT_SHA,
+        description: "Resultado laboratorio",
+        annulledAt: null,
+        annulledById: null,
+        annulReason: null,
+        createdAt: d("2026-02-11T10:00:00Z"),
+      },
+      {
+        id: "att2",
+        uploadedById: "medic-b",
+        entityType: "CLINICAL_RECORD",
+        entityId: null,
+        fileName: "rx.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        sha256: "b".repeat(64),
+        description: null,
+        annulledAt: d("2026-03-06T10:00:00Z"),
+        annulledById: "medic-b",
+        annulReason: "Paciente equivocado",
+        createdAt: d("2026-03-06T09:00:00Z"),
+      },
+    ]);
+    prismaMock.clinicalEntryVersion.findMany.mockResolvedValue([
+      { entityType: "attachment", entityId: "att1", version: 1, action: "created", contentHash: "h-att1", createdAt: d("2026-02-11T10:00:00Z") },
+    ]);
+
+    const copy = (await assembleHcCopy("p1"))!;
+    const select = prismaMock.clinicalAttachment.findMany.mock.calls[0][0].select;
+    expect(select.wrappedDek).toBeUndefined();
+    expect(select.storageKey).toBeUndefined();
+    expect(prismaMock.clinicalEntryVersion.findMany.mock.calls[0][0].where.entityId.in).toContain("att1");
+
+    expect(copy.attachments).toHaveLength(2);
+    expect(copy.attachments![0]).toEqual({
+      id: "att1",
+      entityType: "STUDY_ORDER",
+      entityId: "o1",
+      fileName: "Hemograma.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+      sha256: ATT_SHA,
+      description: "Resultado laboratorio",
+      createdAt: "2026-02-11T10:00:00.000Z",
+      author: { id: "medic-a", name: "Laura Gómez", licenseNumber: "MN 1111" },
+      annulment: null,
+      ledger: { version: 1, action: "created", contentHash: "h-att1", recordedAt: "2026-02-11T10:00:00.000Z" },
+    });
+    expect(copy.attachments![1].annulment).toEqual({
+      at: "2026-03-06T10:00:00.000Z",
+      reason: "Paciente equivocado",
+      by: { id: "medic-b", name: "Pedro Ruiz", licenseNumber: null },
+    });
+
+    // Entra en el JSON canónico: cambia el hash.
+    const without: HcCopy = JSON.parse(JSON.stringify(copy));
+    delete without.attachments;
+    expect(hashHcCopy(copy)).not.toBe(hashHcCopy(without));
+
+    const text = renderHcCopyPdf(copy, meta).toString("latin1");
+    // Secciones: 4 = concesiones (hay una), 5 = adjuntos, 6 = integridad.
+    expect(text).toContain("5. Adjuntos");
+    expect(text).toContain("6. Integridad");
+    expect(text).toContain("Hemograma.pdf");
+    expect(text).toContain(ATT_SHA);
+    expect(text).toContain("h-att1");
+    expect(text).toContain("Paciente equivocado");
+  });
+});

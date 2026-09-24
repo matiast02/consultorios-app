@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Calendar,
   FileText,
+  FlaskConical,
   HeartPulse,
   Salad,
   Smile,
@@ -24,6 +25,7 @@ import { DatosTab } from "@/components/pacientes/datos-tab";
 import { HistoriaTab } from "@/components/pacientes/historia-tab";
 import { EvolucionesTab } from "@/components/pacientes/evoluciones-tab";
 import { RecetasTab } from "@/components/pacientes/recetas-tab";
+import { EstudiosTab, type StudyOrderRow } from "@/components/pacientes/estudios-tab";
 import { NutricionTab } from "@/components/pacientes/nutricion-tab";
 import { OdontogramaTab } from "@/components/pacientes/odontograma-tab";
 import { GenogramaTab } from "@/components/pacientes/genograma-tab";
@@ -34,6 +36,7 @@ import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { HcCopyDialog } from "@/components/pacientes/hc-copy-dialog";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
 import { CreatePrescriptionDialog } from "@/components/prescriptions/create-prescription-dialog";
+import { CreateStudyOrderDialog } from "@/components/study-orders/create-study-order-dialog";
 import { PrescriptionView } from "@/components/prescriptions/prescription-view";
 import { CreateMealPlanDialog } from "@/components/nutrition/create-meal-plan-dialog";
 import { MealPlanView } from "@/components/nutrition/meal-plan-view";
@@ -58,6 +61,7 @@ const VALID_TABS = [
   "historia",
   "evoluciones",
   "recetas",
+  "estudios",
   "nutricion",
   "odontograma",
   "genograma",
@@ -71,6 +75,7 @@ const CLINICAL_TABS: readonly TabId[] = [
   "historia",
   "evoluciones",
   "recetas",
+  "estudios",
   "nutricion",
   "odontograma",
   "genograma",
@@ -114,6 +119,8 @@ export default function PacienteDetailPage() {
   const [evolutions, setEvolutions] = useState<Evolution[]>([]);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [prescriptionsEnabled, setPrescriptionsEnabled] = useState(false);
+  const [studyOrders, setStudyOrders] = useState<StudyOrderRow[]>([]);
+  const [studyOrdersEnabled, setStudyOrdersEnabled] = useState(false);
   const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
   const [nutritionEnabled, setNutritionEnabled] = useState(false);
   const [odontogramEnabled, setOdontogramEnabled] = useState(false);
@@ -126,6 +133,7 @@ export default function PacienteDetailPage() {
   const [hcCopyOpen, setHcCopyOpen] = useState(false);
   const [evolutionOpen, setEvolutionOpen] = useState(false);
   const [prescriptionOpen, setPrescriptionOpen] = useState(false);
+  const [studyOrderOpen, setStudyOrderOpen] = useState(false);
   const [viewingPrescription, setViewingPrescription] = useState<Prescription | null>(null);
   const [mealPlanOpen, setMealPlanOpen] = useState(false);
   const [editingMealPlan, setEditingMealPlan] = useState<MealPlan | null>(null);
@@ -200,6 +208,21 @@ export default function PacienteDetailPage() {
               setPrescriptions(prJson.data ?? []);
             }
           }
+
+          // Órdenes de estudio: el endpoint además chequea el módulo por
+          // profesión; si responde 403 la tab no se muestra.
+          const study = modules.find((m) => m.module === "study_orders");
+          let studyVisible = false;
+          if (study?.enabled) {
+            const soRes = await fetch(`/api/study-orders?patientId=${patientId}`);
+            if (soRes.ok) {
+              const soJson = await soRes.json();
+              setStudyOrders(Array.isArray(soJson.data) ? soJson.data : []);
+              studyVisible = true;
+            }
+          }
+          setStudyOrdersEnabled(studyVisible);
+          if (!studyVisible) setStudyOrders([]);
         }
 
         // Nutrition: only for professionals whose profession enables the
@@ -228,6 +251,8 @@ export default function PacienteDetailPage() {
         setEvolutions([]);
         setPrescriptions([]);
         setPrescriptionsEnabled(false);
+        setStudyOrders([]);
+        setStudyOrdersEnabled(false);
         setMealPlans([]);
         setNutritionEnabled(false);
         setOdontogramEnabled(false);
@@ -326,6 +351,9 @@ export default function PacienteDetailPage() {
     !!access && !access.record.full && !access.record.sections.includes("medicacion");
   const showAccessBanner =
     isClinical && !!access && !access.hasRelationship && CLINICAL_TABS.includes(tab);
+  // Adjuntos de la HC: solo médicos (el admin ve pero no sube) y nunca en modo
+  // concesión / sin relación. Por asiento, además, solo el autor (en cada tab).
+  const canUploadAttachments = userRole === "medic" && !recordReadOnly;
 
   // Tabs config ──────────────────────────────────────────────────────────
   const tabs: { id: TabId; label: string; icon: typeof UserIcon; count?: number }[] = [
@@ -357,6 +385,16 @@ export default function PacienteDetailPage() {
             label: "Recetas",
             icon: FileText,
             count: prescriptions.length,
+          },
+        ]
+      : []),
+    ...(isClinical && studyOrdersEnabled
+      ? [
+          {
+            id: "estudios" as TabId,
+            label: "Estudios",
+            icon: FlaskConical,
+            count: studyOrders.length,
           },
         ]
       : []),
@@ -485,14 +523,17 @@ export default function PacienteDetailPage() {
                 readOnly={recordReadOnly}
                 full={recordFull}
                 sections={recordSectionsAllowed}
+                canUploadAttachments={canUploadAttachments}
               />
             </TabsContent>
 
             <TabsContent value="evoluciones" className="mt-5">
               <EvolucionesTab
+                patientId={patientId}
                 evolutions={evolutions}
                 onNew={() => setEvolutionOpen(true)}
                 currentUserId={sessionUserId}
+                canUploadAttachments={canUploadAttachments}
                 onAnnul={(e) =>
                   setAnnulTarget({
                     endpoint: `/api/patients/${patientId}/evolutions/${e.id}`,
@@ -529,6 +570,18 @@ export default function PacienteDetailPage() {
                       title: "Historial de la receta",
                     })
                   }
+                />
+              </TabsContent>
+            )}
+
+            {studyOrdersEnabled && (
+              <TabsContent value="estudios" className="mt-5">
+                <EstudiosTab
+                  patientId={patientId}
+                  orders={studyOrders}
+                  onNew={() => setStudyOrderOpen(true)}
+                  currentUserId={sessionUserId}
+                  canUploadAttachments={canUploadAttachments}
                 />
               </TabsContent>
             )}
@@ -672,6 +725,19 @@ export default function PacienteDetailPage() {
             </DialogContent>
           </Dialog>
         </>
+      )}
+
+      {isClinical && studyOrdersEnabled && (
+        <CreateStudyOrderDialog
+          open={studyOrderOpen}
+          onOpenChange={setStudyOrderOpen}
+          patientId={patientId}
+          patientName={`${patient.lastName}, ${patient.firstName}`}
+          onCreated={() => {
+            setStudyOrderOpen(false);
+            fetchAll();
+          }}
+        />
       )}
 
       {isClinical && nutritionEnabled && (

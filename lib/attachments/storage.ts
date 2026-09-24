@@ -21,6 +21,12 @@ export interface AttachmentStorage {
   /** Tamaño en disco del objeto cifrado (para Content-Length aproximado). */
   size(key: string): Promise<number>;
   exists(key: string): Promise<boolean>;
+  /**
+   * Borra el objeto (idempotente). Solo para COMPENSAR una subida que falló
+   * después de escribir el archivo: los adjuntos registrados no se borran
+   * nunca (anulación lógica, se conservan con la HC).
+   */
+  remove(key: string): Promise<void>;
 }
 
 export function attachmentsMaxBytes(): number {
@@ -50,8 +56,14 @@ class LocalDiskStorage implements AttachmentStorage {
     const full = this.resolve(key);
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     const tmp = `${full}.tmp`;
-    await pipeline(encrypted, fs.createWriteStream(tmp, { mode: 0o600 }));
-    await fs.promises.rename(tmp, full);
+    try {
+      await pipeline(encrypted, fs.createWriteStream(tmp, { mode: 0o600 }));
+      await fs.promises.rename(tmp, full);
+    } catch (e) {
+      // No dejar un .tmp a medio escribir (p. ej. subida cortada por tamaño).
+      await fs.promises.rm(tmp, { force: true }).catch(() => {});
+      throw e;
+    }
   }
 
   async get(key: string): Promise<Readable> {
@@ -72,6 +84,12 @@ class LocalDiskStorage implements AttachmentStorage {
     } catch {
       return false;
     }
+  }
+
+  async remove(key: string): Promise<void> {
+    const full = this.resolve(key);
+    await fs.promises.rm(full, { force: true });
+    await fs.promises.rm(`${full}.tmp`, { force: true });
   }
 }
 

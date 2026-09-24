@@ -9,6 +9,7 @@ un backup perdido es un incumplimiento, no solo un problema técnico.
 | Activo | Dónde vive | Sin él… |
 |---|---|---|
 | Base de datos MySQL (`consultorio`) | contenedor `mysql` (volumen Docker) | se pierde todo |
+| Adjuntos de la HC (`ATTACHMENTS_DIR`, default `./storage/attachments`) | volumen Docker de la app | se pierden los archivos (PDF/imágenes) de las historias clínicas |
 | `HC_ENC_KEY` (y `HC_ENC_KEY_2…` si hubo rotación) | `.env` del servidor | la HC es **irrecuperable**: los campos clínicos están cifrados con AES-256-GCM |
 | `AUTH_SECRET` | `.env` del servidor | se invalidan todas las sesiones (molesto, no grave) |
 
@@ -38,6 +39,10 @@ rm "$OUT/consultorio_$STAMP.sql.gz"
 # 3. Copiar fuera del servidor (S3, Backblaze, otro host). Ejemplo con rclone:
 rclone copy "$OUT/consultorio_$STAMP.sql.gz.age" remoto:consultorio-backups/
 
+# 3b. Adjuntos de la HC: ya están cifrados por archivo (clave envuelta con HC_ENC_KEY),
+#     alcanza con sincronizarlos tal cual (rclone sync incremental)
+rclone sync /opt/consultorio/storage/attachments remoto:consultorio-backups/attachments/
+
 # 4. Retención local: 14 días (la copia remota conserva 10 años)
 find "$OUT" -name "*.age" -mtime +14 -delete
 ```
@@ -55,7 +60,8 @@ find "$OUT" -name "*.age" -mtime +14 -delete
 docker compose up -d mysql
 age -d -i backup-private-key.txt consultorio_2026-09-23_0300.sql.gz.age | gunzip \
   | docker compose exec -T mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" consultorio'
-# Configurar .env con la MISMA HC_ENC_KEY y AUTH_SECRET
+# Restaurar también los adjuntos en ATTACHMENTS_DIR (mismo layout <patientId>/<id>.hca)
+# Configurar .env con la MISMA HC_ENC_KEY y AUTH_SECRET (sin ella, los adjuntos tampoco se abren)
 pnpm db:migrate:deploy        # no debería aplicar nada si el dump es actual
 pnpm start
 ```

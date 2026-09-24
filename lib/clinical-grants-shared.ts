@@ -36,15 +36,24 @@ export const RECORD_SECTION_FIELDS: Record<RecordSection, readonly string[]> = {
   medicacion: ["currentMedication"],
 };
 
-/** Tipos de asiento clínico con autor. */
-export type EntryKind = "evolution" | "prescription" | "study_order" | "meal_plan";
+/**
+ * Tipos de asiento clínico con autor. `attachment` = adjunto de la HC
+ * (ClinicalAttachment): su autor está en `uploadedById`, no en `userId`.
+ */
+export type EntryKind = "evolution" | "prescription" | "study_order" | "meal_plan" | "attachment";
 
-/** Mapa tipo de asiento → sección de la concesión que lo cubre entero. */
+/**
+ * Mapa tipo de asiento → sección de la concesión que lo cubre entero.
+ * Los adjuntos (resultados, imágenes, informes) van con "estudios"; además,
+ * un adjunto asociado a una evolución u orden queda cubierto por lo que cubra
+ * a ese asiento (ver `canReadEntry` / `attachmentScopeFromGrant`).
+ */
 export const ENTRY_KIND_SECTION: Record<EntryKind, GrantSection> = {
   evolution: "evoluciones",
   prescription: "recetas",
   study_order: "estudios",
   meal_plan: "planes",
+  attachment: "estudios",
 };
 
 export const GRANT_SECTION_LABELS: Record<GrantSection, string> = {
@@ -53,7 +62,7 @@ export const GRANT_SECTION_LABELS: Record<GrantSection, string> = {
   medicacion: "Medicación habitual",
   evoluciones: "Evoluciones",
   recetas: "Recetas",
-  estudios: "Órdenes de estudio",
+  estudios: "Órdenes de estudio y adjuntos",
   planes: "Planes alimentarios",
 };
 

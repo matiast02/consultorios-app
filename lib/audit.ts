@@ -43,7 +43,8 @@ export type AuditResource =
   | "medication"
   | "auth"
   | "clinical_access_grant"
-  | "hc_copy_request";
+  | "hc_copy_request"
+  | "attachment"; // adjunto de la HC (details: solo ids, nunca el nombre del archivo)
 
 /** Largo máximo de columnas String sin @db.Text en MySQL (VARCHAR(191)). */
 const MAX_VARCHAR = 191;

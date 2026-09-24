@@ -35,6 +35,7 @@ export const ENCRYPTED_FIELDS: Record<string, string[]> = {
   ClinicalAccessGrant: ["reason", "consentEvidence", "decisionNote"],
   HcCopyRequest: ["authorizationNote", "reason", "deliveryNote"],
   Patient: ["consentNote"],
+  ClinicalAttachment: ["fileName", "description", "annulReason"],
 };
 
 function encryptInto(data: unknown, fields: string[]): void {

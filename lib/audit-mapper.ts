@@ -47,6 +47,7 @@ const SENSITIVE_DELETE_RESOURCES = new Set([
   "clinical_record",
   "evolution",
   "prescription",
+  "attachment",
   "study_order",
   "meal_plan",
 ]);

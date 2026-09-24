@@ -61,6 +61,7 @@ model User {
   moduleAccess       UserModuleAccess[]
   acceptedInsurances UserInsurance[]
   grantsReceived     ClinicalAccessGrant[] @relation("grantsReceived")
+  attachmentsUploaded ClinicalAttachment[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -253,6 +254,7 @@ model Patient {
   accessGrants   ClinicalAccessGrant[]
   hcCopyRequests HcCopyRequest[]
   onlineBookings OnlineBookingRequest[]
+  attachments    ClinicalAttachment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -542,6 +544,44 @@ model ClinicalEntryVersion {
   @@unique([entityType, entityId, version])
   @@index([entityType, entityId])
   @@index([patientId])
+}
+
+// ─── Adjuntos de la historia clínica ─────────────────────────────────────────
+// Archivos (PDF/imagen) cifrados por archivo en reposo (ver lib/attachments/*).
+// La DEK va envuelta con HC_ENC_KEY; nombre y descripción cifrados como campos.
+// Nunca se borran físicamente: anulación lógica, se conservan con la HC.
+
+enum AttachmentEntityType {
+  EVOLUTION
+  STUDY_ORDER
+  CLINICAL_RECORD
+}
+
+model ClinicalAttachment {
+  id           String               @id @default(cuid())
+  patientId    String
+  uploadedById String
+  entityType   AttachmentEntityType
+  entityId     String? // id de la evolución / orden; null si es general de la ficha
+  fileName     String               @db.Text // nombre original (cifrado)
+  mimeType     String // tipo real detectado por magic bytes
+  sizeBytes    Int
+  sha256       String // del contenido en claro
+  storageKey   String               @unique // <patientId>/<id>.hca
+  wrappedDek   String               @db.Text // DEK envuelta (token enc:…)
+  description  String?              @db.Text // (cifrado)
+  annulledAt   DateTime?
+  annulledById String?
+  annulReason  String?              @db.Text // (cifrado)
+
+  patient    Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId, entityType, entityId])
+  @@index([uploadedById])
 }
 
 // ─── Concesiones de acceso a la HC entre profesionales ───────────────────────

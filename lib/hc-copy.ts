@@ -5,7 +5,10 @@
 //   La HC es única por establecimiento: incluye los asientos de TODOS los
 //   profesionales, en orden cronológico, con autor y fecha; los anulados se
 //   conservan con fecha, autor y motivo. Cada asiento lleva el contentHash de
-//   su última versión en el ledger clínico (lib/clinical-ledger.ts).
+//   su última versión en el ledger clínico (lib/clinical-ledger.ts). Los
+//   adjuntos (archivos) se listan con nombre, tipo, tamaño y sha256 del
+//   contenido: la copia los identifica de forma verificable (los archivos se
+//   entregan aparte).
 // - hashHcCopy(copy): sha256 del JSON canónico. No incluye metadatos de la
 //   emisión (fecha, emisor, solicitud): dos emisiones con el mismo contenido
 //   dan el mismo hash, así una copia entregada se puede verificar regenerándola.
@@ -96,12 +99,34 @@ export interface HcCopyAccessGrant {
   createdAt: string;
 }
 
+/** Adjunto de la HC (ClinicalAttachment): metadatos + sha256 del contenido en claro. */
+export interface HcCopyAttachment {
+  id: string;
+  /** EVOLUTION | STUDY_ORDER | CLINICAL_RECORD */
+  entityType: string;
+  entityId: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  description: string | null;
+  createdAt: string;
+  author: HcCopyPerson;
+  annulment: { at: string; reason: string | null; by: HcCopyPerson | null } | null;
+  ledger: HcCopyLedgerRef | null;
+}
+
 export interface HcCopy {
   format: "hc-copy/v1";
   patient: HcCopyPatient;
   clinicalRecord: HcCopyClinicalRecord | null;
   entries: HcCopyEntry[];
   accessGrants: HcCopyAccessGrant[];
+  /**
+   * Solo presente si el paciente tiene adjuntos: así el JSON canónico (y el
+   * hash) de las copias sin adjuntos no cambia respecto de las ya entregadas.
+   */
+  attachments?: HcCopyAttachment[];
 }
 
 // ─── Normalización a JSON estable ────────────────────────────────────────────
@@ -227,7 +252,7 @@ export async function assembleHcCopy(patientId: string): Promise<HcCopy | null> 
   if (!patient) return null;
 
   const byDate = [{ createdAt: "asc" as const }, { id: "asc" as const }];
-  const [record, evolutions, prescriptions, studyOrders, mealPlans, grants] = await Promise.all([
+  const [record, evolutions, prescriptions, studyOrders, mealPlans, grants, attachmentRows] = await Promise.all([
     prisma.clinicalRecord.findUnique({ where: { patientId } }),
     prisma.evolution.findMany({ where: { clinicalRecord: { patientId } }, orderBy: byDate }),
     prisma.prescription.findMany({ where: { patientId }, orderBy: byDate }),
@@ -245,7 +270,28 @@ export async function assembleHcCopy(patientId: string): Promise<HcCopy | null> 
       },
       orderBy: byDate,
     }),
+    // Nunca storageKey ni wrappedDek: la copia describe el archivo, no lo abre.
+    prisma.clinicalAttachment.findMany({
+      where: { patientId },
+      select: {
+        id: true,
+        uploadedById: true,
+        entityType: true,
+        entityId: true,
+        fileName: true,
+        mimeType: true,
+        sizeBytes: true,
+        sha256: true,
+        description: true,
+        annulledAt: true,
+        annulledById: true,
+        annulReason: true,
+        createdAt: true,
+      },
+      orderBy: byDate,
+    }),
   ]);
+  const attachments = attachmentRows ?? [];
 
   // Última versión del ledger por asiento (no se leen `data`/`reason`: no hacen falta).
   const entityIds = [
@@ -254,6 +300,7 @@ export async function assembleHcCopy(patientId: string): Promise<HcCopy | null> 
     ...prescriptions.map((p) => p.id),
     ...studyOrders.map((s) => s.id),
     ...mealPlans.map((m) => m.id),
+    ...attachments.map((a) => a.id),
   ];
   const ledgerRows =
     entityIds.length > 0
@@ -292,6 +339,10 @@ export async function assembleHcCopy(patientId: string): Promise<HcCopy | null> 
     if (row.annulledById) userIds.add(row.annulledById);
   }
   for (const g of grants) userIds.add(g.grantedToUserId);
+  for (const a of attachments) {
+    userIds.add(a.uploadedById);
+    if (a.annulledById) userIds.add(a.annulledById);
+  }
   const userRows: UserRow[] =
     userIds.size > 0
       ? await prisma.user.findMany({
@@ -445,6 +496,30 @@ export async function assembleHcCopy(patientId: string): Promise<HcCopy | null> 
       expiresAt: iso(g.expiresAt),
       createdAt: isoRequired(g.createdAt),
     })),
+    ...(attachments.length > 0
+      ? {
+          attachments: attachments.map((a) => ({
+            id: a.id,
+            entityType: a.entityType,
+            entityId: a.entityId ?? null,
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            sha256: a.sha256,
+            description: a.description ?? null,
+            createdAt: isoRequired(a.createdAt),
+            author: personFrom(users, a.uploadedById),
+            annulment: a.annulledAt
+              ? {
+                  at: isoRequired(a.annulledAt),
+                  reason: a.annulReason ?? null,
+                  by: a.annulledById ? personFrom(users, a.annulledById) : null,
+                }
+              : null,
+            ledger: ledgerOf("attachment", a.id),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -543,6 +618,24 @@ const RELATION_LABELS: Record<string, string> = {
   distant: "distante",
 };
 const SEVERITY_LABELS: Record<string, string> = { alta: "alta", media: "media", baja: "baja" };
+const ATTACHMENT_ENTITY_TITLES: Record<string, string> = {
+  EVOLUTION: "Evolución",
+  STUDY_ORDER: "Orden de estudio",
+  CLINICAL_RECORD: "Ficha clínica",
+};
+const ATTACHMENT_MIME_LABELS: Record<string, string> = {
+  "application/pdf": "PDF",
+  "image/jpeg": "Imagen JPEG",
+  "image/png": "Imagen PNG",
+  "image/webp": "Imagen WebP",
+};
+
+function fmtBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1).replace(".", ",")} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
 
 function fmtDateTime(value: string | Date | null | undefined): string {
   if (!value) return "—";
@@ -1053,9 +1146,12 @@ export function renderHcCopyPdf(copy: HcCopy, meta: HcCopyRenderMeta): Buffer {
     w.rule();
   });
 
-  // ── 4. Concesiones de acceso ──
+  // Numeración de las secciones opcionales (concesiones, adjuntos).
+  let sectionNo = 3;
+
+  // ── Concesiones de acceso ──
   if (copy.accessGrants.length > 0) {
-    w.section("4. Concesiones de acceso a la historia clínica");
+    w.section(`${++sectionNo}. Concesiones de acceso a la historia clínica`);
     w.text(
       "Profesionales a los que se concedió (o solicitó) acceso a esta historia clínica con autorización del paciente.",
       { size: 8.5, color: GRAY, after: 1.5 },
@@ -1069,8 +1165,45 @@ export function renderHcCopyPdf(copy: HcCopy, meta: HcCopyRenderMeta): Buffer {
     }
   }
 
+  // ── Adjuntos ──
+  const attachments = copy.attachments ?? [];
+  if (attachments.length > 0) {
+    w.section(`${++sectionNo}. Adjuntos (${attachments.length})`);
+    w.text(
+      "Archivos incorporados a la historia clínica (resultados, imágenes, informes). Se identifican por su " +
+        "hash SHA-256: el archivo entregado debe producir el mismo hash. Los anulados se conservan marcados.",
+      { size: 8.5, color: GRAY, after: 2 },
+    );
+    attachments.forEach((a, idx) => {
+      w.ensure(20);
+      const annulled = a.annulment != null;
+      const title = `${idx + 1}. ${fmtDateTime(a.createdAt)} · ${a.fileName}`;
+      w.text(annulled ? `${title}  [ANULADO]` : title, {
+        size: 10,
+        bold: true,
+        color: annulled ? RED : BLACK,
+      });
+      w.text(`Profesional: ${personLine(a.author)}`, { size: 9, color: GRAY, indent: 4, after: 0.5 });
+      w.field("Tipo", ATTACHMENT_MIME_LABELS[a.mimeType] ?? a.mimeType, { indent: 4 });
+      w.field("Tamaño", fmtBytes(a.sizeBytes), { indent: 4 });
+      w.field("Asociado a", ATTACHMENT_ENTITY_TITLES[a.entityType] ?? a.entityType, { indent: 4 });
+      if (a.description?.trim()) w.field("Descripción", a.description, { indent: 4 });
+      w.text(`SHA-256 del archivo: ${a.sha256}`, { size: 7.5, mono: true, indent: 4 });
+      if (a.annulment) {
+        const by = a.annulment.by ? ` por ${personLine(a.annulment.by)}` : "";
+        w.text(
+          `ANULADO el ${fmtDateTime(a.annulment.at)}${by}. Motivo: ${a.annulment.reason?.trim() || "—"}`,
+          { size: 9, bold: true, color: RED, indent: 4 },
+        );
+      }
+      w.gap(0.5);
+      w.text(ledgerLine(a.ledger), { size: 7, mono: true, color: GRAY, indent: 4, after: 1 });
+      w.rule();
+    });
+  }
+
   // ── Integridad y autenticación ──
-  w.section(`${copy.accessGrants.length > 0 ? "5" : "4"}. Integridad y autenticación`);
+  w.section(`${++sectionNo}. Integridad y autenticación`);
   w.text(
     "Hash SHA-256 del contenido canónico de esta copia (no incluye los datos de emisión). " +
       "Regenerar la copia con el mismo contenido produce el mismo hash. Cada asiento indica el hash " +

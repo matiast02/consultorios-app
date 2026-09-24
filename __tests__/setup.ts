@@ -56,6 +56,8 @@ export const prismaMock = {
   // Sitio público / recepción
   clinicHours: createModelMock(),
   walkInArrival: createModelMock(),
+  // Adjuntos de la HC
+  clinicalAttachment: createModelMock(),
   // Better Auth
   account: createModelMock(),
   session: createModelMock(),
