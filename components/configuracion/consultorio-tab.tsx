@@ -22,7 +22,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { clinicHoursWeekSchema } from "@/lib/validations";
-import type { ClinicHoursDay, ClinicSettings, ClinicContactRequest, ReminderSettings } from "@/types";
+import type {
+  ClinicHoursDay,
+  ClinicSettings,
+  ClinicContactRequest,
+  OnlineBookingSettings,
+  ReminderSettings,
+} from "@/types";
 import { dayLongLabel } from "@/lib/clinic-hours-format";
 import { buildWhatsappLink } from "@/lib/whatsapp";
 import {
@@ -32,10 +38,16 @@ import {
   reminderValuesFromSettings,
   type ClinicSettingsFormValues,
 } from "./reminder-settings-card";
+import {
+  ONLINE_BOOKING_FORM_DEFAULTS,
+  OnlineBookingSettingsCard,
+  onlineBookingValuesFromSettings,
+} from "./online-booking-settings-card";
 
-/** GET /api/admin/clinic-settings: fila de ClinicSettings (+ recordatorios y, si el backend lo expone, emailConfigured). */
+/** GET /api/admin/clinic-settings: fila de ClinicSettings (+ recordatorios, reservas online y, si el backend lo expone, emailConfigured). */
 type ClinicSettingsResponse = ClinicSettings &
-  Partial<Record<keyof ReminderSettings, unknown>> & { emailConfigured?: boolean };
+  Partial<Record<keyof ReminderSettings, unknown>> &
+  Partial<Record<keyof OnlineBookingSettings, unknown>> & { emailConfigured?: boolean };
 
 // ────────────────────────────────────────────────────────────────────────────
 // Settings sub-card
@@ -44,8 +56,8 @@ type ClinicSettingsResponse = ClinicSettings &
 function SettingsCard() {
   const [loading, setLoading] = useState(true);
   const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
-  // Un solo form (y un solo PUT) para "Datos del consultorio" y "Recordatorios":
-  // el PUT reescribe la fila completa, así que ambas cards se guardan juntas.
+  // Un solo form (y un solo PUT) para "Datos del consultorio", "Recordatorios" y
+  // "Reservas online": el PUT reescribe la fila completa, así que las cards se guardan juntas.
   const form = useForm<ClinicSettingsFormValues>({
     resolver: zodResolver(clinicSettingsFormSchema),
     defaultValues: {
@@ -69,6 +81,7 @@ function SettingsCard() {
       patientsServedDisplay: "",
       ...REMINDER_FORM_DEFAULTS,
       reminderChannels: [...REMINDER_FORM_DEFAULTS.reminderChannels],
+      ...ONLINE_BOOKING_FORM_DEFAULTS,
     },
   });
   const {
@@ -109,6 +122,7 @@ function SettingsCard() {
           yearsOfService: s.yearsOfService,
           patientsServedDisplay: s.patientsServedDisplay ?? "",
           ...reminderValuesFromSettings(s),
+          ...onlineBookingValuesFromSettings(s),
         });
       })
       .finally(() => !cancelled && setLoading(false));
@@ -121,6 +135,7 @@ function SettingsCard() {
     const payload: ClinicSettingsFormValues = {
       ...values,
       reminderTemplate: values.reminderTemplate?.trim() ? values.reminderTemplate : null,
+      onlineBookingNotes: values.onlineBookingNotes?.trim() ? values.onlineBookingNotes.trim() : null,
     };
     try {
       const res = await fetch("/api/admin/clinic-settings", {
@@ -329,6 +344,7 @@ function SettingsCard() {
         </CardContent>
       </Card>
       {!loading && <ReminderSettingsCard form={form} emailConfigured={emailConfigured} />}
+      {!loading && <OnlineBookingSettingsCard form={form} />}
     </form>
   );
 }

@@ -51,11 +51,19 @@ export const prismaMock = {
   clinicSettings: createModelMock(),
   // Recordatorios de turnos
   shiftReminder: createModelMock(),
+  // Reservas online
+  onlineBookingRequest: createModelMock(),
+  // Sitio público / recepción
+  clinicHours: createModelMock(),
+  walkInArrival: createModelMock(),
   // Better Auth
   account: createModelMock(),
   session: createModelMock(),
   verification: createModelMock(),
   $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+  // Tagged template (p.ej. SELECT … FOR UPDATE en la reserva online)
+  $queryRaw: vi.fn().mockResolvedValue([]),
+  $executeRaw: vi.fn().mockResolvedValue(0),
   $transaction: vi.fn().mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {
       return arg(prismaMock);
@@ -129,8 +137,10 @@ export function resetAllMocks() {
   vi.mocked(authUtils.isSecretary).mockResolvedValue(false);
   vi.mocked(authUtils.isSecretaryOrAdmin).mockResolvedValue(true);
 
-  // Re-set $queryRawUnsafe mock
+  // Re-set raw query mocks
   prismaMock.$queryRawUnsafe.mockResolvedValue([]);
+  prismaMock.$queryRaw.mockResolvedValue([]);
+  prismaMock.$executeRaw.mockResolvedValue(0);
 
   // Re-set $transaction mock
   prismaMock.$transaction.mockImplementation(async (arg: unknown) => {

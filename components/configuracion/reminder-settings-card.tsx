@@ -17,6 +17,7 @@ import { clinicSettingsSchema } from "@/lib/validations";
 // Puro TS (sin dependencias de Node): la vista previa usa exactamente el mismo render que el servidor.
 import { DEFAULT_REMINDER_TEMPLATE, renderReminderText } from "@/lib/reminders/message";
 import type { ReminderChannel, ReminderSettings } from "@/types";
+import { onlineBookingFormShape } from "./online-booking-settings-card";
 
 // Configuración de recordatorios (ClinicSettings). Contrato:
 // contracts/api-schemas/reminders.yaml → ReminderSettings, guardado con el PUT
@@ -46,7 +47,7 @@ const hoursNumber = (max: number, maxMsg: string) =>
     .min(1, "Mínimo 1 hora")
     .max(max, maxMsg);
 
-/** Schema del formulario de Configuración → Consultorio (datos + recordatorios). */
+/** Schema del formulario de Configuración → Consultorio (datos + recordatorios + reservas online). */
 export const clinicSettingsFormSchema = clinicSettingsSchema
   .extend({
     remindersEnabled: z.boolean(),
@@ -55,6 +56,7 @@ export const clinicSettingsFormSchema = clinicSettingsSchema
     reminderChannels: z.array(z.enum(REMINDER_CHANNELS)),
     reminderTemplate: z.string().max(TEMPLATE_MAX, `Máx. ${TEMPLATE_MAX} caracteres`).nullable(),
   })
+  .extend(onlineBookingFormShape)
   .superRefine((v, ctx) => {
     if (v.remindersEnabled && !v.reminderChannels.some((c) => c !== "SMS")) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["reminderChannels"], message: "Elegí al menos un canal" });

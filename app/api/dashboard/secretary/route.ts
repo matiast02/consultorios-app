@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { staffSummary } from "@/lib/online-booking";
 import {
   REMINDER_ITEM_INCLUDE,
   loadReminderConfig,
@@ -442,6 +443,13 @@ export async function GET() {
       secretaryUser?.name ||
       "Recepción";
 
+    // ─── Reservas online pendientes de confirmar ─────────────────────────────
+    // Opcional: si falla, el resto del dashboard se sirve igual.
+    const reservasOnline = await staffSummary(now).catch((e: unknown) => {
+      console.error("[dashboard/secretary] reservas online:", e);
+      return undefined;
+    });
+
     const payload: SecretaryDashboardData = {
       header: {
         secretaryName: fullName,
@@ -459,6 +467,7 @@ export async function GET() {
       recordatorios,
       huecosHoy,
       agenda,
+      ...(reservasOnline ? { reservasOnline } : {}),
     };
 
     return NextResponse.json({ success: true, data: payload });

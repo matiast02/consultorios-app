@@ -5,9 +5,18 @@ interface Props {
   specCount: number;
   weeklyShortLabel: string | null; // "Lun a Vie · Sáb por la mañana" — derived
   hasInsurances: boolean;
+  /** Reserva online activa: el CTA principal lleva a /reservar. */
+  onlineBookingEnabled?: boolean;
 }
 
-export function LandingHero({ medicCount, specCount, weeklyShortLabel, hasInsurances }: Props) {
+export function LandingHero({
+  medicCount,
+  specCount,
+  weeklyShortLabel,
+  hasInsurances,
+  onlineBookingEnabled = false,
+}: Props) {
+  const bookingHref = onlineBookingEnabled ? "/reservar" : "#contacto";
   return (
     <section className="overflow-hidden px-7 py-[70px] md:py-20" id="inicio">
       <div className="mx-auto grid max-w-[1180px] items-center gap-14 md:grid-cols-[1.05fr_0.95fr]">
@@ -40,7 +49,7 @@ export function LandingHero({ medicCount, specCount, weeklyShortLabel, hasInsura
 
           <div className="flex flex-wrap gap-[13px]">
             <a
-              href="#contacto"
+              href={bookingHref}
               className="inline-flex items-center gap-2.5 rounded-full px-[22px] py-[13px] text-[15px] font-semibold text-white shadow-[0_8px_20px_rgba(10,138,158,0.28)] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(10,138,158,0.34)]"
               style={{ background: "var(--primary)" }}
             >
@@ -116,7 +125,7 @@ export function LandingHero({ medicCount, specCount, weeklyShortLabel, hasInsura
                 Reservá tu turno
               </strong>
               <span className="text-[13px]" style={{ color: "var(--muted)" }}>
-                Te respondemos el mismo día
+                {onlineBookingEnabled ? "Elegí día y horario online" : "Te respondemos el mismo día"}
               </span>
             </div>
           </div>

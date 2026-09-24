@@ -47,8 +47,8 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 
 | # | Ítem | Estado | Notas |
 |---|---|---|---|
-| D1 | Turnos online para pacientes | ◐ siguiente | Sobre `available-slots`; identidad por DNI + código de verificación; el turno entra como solicitud (`source: ONLINE`) que recepción confirma; anti-abuso. |
-| D2 | Adjuntos en la historia clínica (PDF, imágenes) | ☐ siguiente | Cifrados en reposo por archivo (clave envuelta con `HC_ENC_KEY`), acceso por `lib/clinical-access.ts`, descarga auditada, límite de tamaño y tipo, hash en el ledger y en la copia de HC. |
+| D1 | Turnos online para pacientes | ☑ | v1 sin OTP: el turno entra PENDING `source: ONLINE` y recepción confirma; sin texto libre (minimización); anti-abuso; link de gestión. Pendiente menor: `POST /api/shifts` (recepción) no toma el mismo bloqueo por médico que la reserva online, queda una carrera mínima. |
+| D2 | Adjuntos en la historia clínica (PDF, imágenes) | ◐ | Cifrados en reposo por archivo (clave envuelta con `HC_ENC_KEY`), acceso por `lib/clinical-access.ts`, descarga auditada, límite de tamaño y tipo, hash en el ledger y en la copia de HC. |
 | D3 | Cobros y liquidación por obra social | ☐ | No hay modelo de pagos (copagos, caja diaria, liquidación). |
 | D4 | Pantalla de llamado para la sala de espera | ☐ | Cierra el circuito con el dashboard de recepción. |
 | D5 | App móvil Flutter | ☐ | Instancia por consultorio, `/api/mobile/v1`, endpoint de metadatos, FCM, directorio de consultorios, bearer firmado (ya configurado). |

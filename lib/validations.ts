@@ -418,6 +418,8 @@ export const updatePreferencesConfigSchema = z.object({
   language: z.string().min(2).max(10).optional(),
   timezone: z.string().min(2).max(60).optional(),
   weekStart: z.number().int().min(0).max(6).optional(),
+  // Aparece en la reserva online pública (/reservar)
+  acceptsOnlineBooking: z.boolean().optional(),
 });
 
 // ─── User Notification Preferences ───────────────────────────────────────────
@@ -521,6 +523,16 @@ export const clinicSettingsSchema = z.object({
     .optional(),
   reminderChannels: z.array(reminderChannelEnum).max(3).optional(),
   reminderTemplate: z.string().max(1000, "Máx. 1000 caracteres").nullable().optional(),
+  // Reservas online (sin .refine(): el PUT lee los campos presentes con .shape)
+  onlineBookingEnabled: z.boolean().optional(),
+  onlineBookingMinAdvanceHours: z
+    .number()
+    .int()
+    .min(0, "Mín. 0 horas")
+    .max(168, "Máx. 168 horas (7 días)")
+    .optional(),
+  onlineBookingMaxDaysAhead: z.number().int().min(1, "Mín. 1 día").max(180, "Máx. 180 días").optional(),
+  onlineBookingNotes: z.string().max(500, "Máx. 500 caracteres").nullable().optional(),
 });
 
 // Acciones de recepción sobre un recordatorio (PATCH /api/shifts/reminders/[id])
@@ -687,3 +699,84 @@ export const accessGrantsQuerySchema = z.object({
 
 export type CreateAccessGrantInput = z.infer<typeof createAccessGrantSchema>;
 export type AccessGrantActionInput = z.infer<typeof accessGrantActionSchema>;
+
+// ─── Reservas online (contracts/api-schemas/online-booking.yaml) ─────────────
+
+export const ONLINE_BOOKING_STATUSES = ["PENDING_CONFIRMATION", "CONFIRMED", "CANCELLED", "EXPIRED"] as const;
+export const onlineBookingStatusEnum = z.enum(ONLINE_BOOKING_STATUSES);
+
+const BOOKING_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const BOOKING_PHONE_RE = /^[0-9+()\-\s.]+$/;
+
+const bookingPersonName = (label: string) =>
+  z
+    .string({ required_error: `Ingresá tu ${label}` })
+    .trim()
+    .min(2, `Ingresá tu ${label}`)
+    .max(100, "Máx. 100 caracteres")
+    .transform((v) => v.replace(/\s+/g, " "));
+
+// POST /api/public/booking. Minimización: sin motivo de consulta ni texto libre
+// clínico. `_hp` / `_elapsedMs` (anti-bot) los lee la ruta antes de validar.
+export const publicBookingCreateSchema = z.object({
+  medicId: z.string({ required_error: "Elegí un profesional" }).trim().min(1, "Elegí un profesional").max(64),
+  start: z.string({ required_error: "Elegí un horario" }).datetime({ offset: true, message: "Horario inválido" }),
+  consultationTypeId: z
+    .string()
+    .trim()
+    .max(64)
+    .nullable()
+    .optional()
+    .transform((v) => v || null),
+  firstName: bookingPersonName("nombre"),
+  lastName: bookingPersonName("apellido"),
+  dni: z.preprocess(
+    (v) => (typeof v === "string" ? v.replace(/[.\s-]/g, "") : v),
+    z
+      .string({ required_error: "Ingresá tu DNI" })
+      .regex(/^[0-9]{6,10}$/, "Ingresá tu DNI sin puntos (6 a 10 números)"),
+  ),
+  phone: z
+    .string({ required_error: "Ingresá un celular" })
+    .trim()
+    .max(30, "Máx. 30 caracteres")
+    .refine((v) => BOOKING_PHONE_RE.test(v) && v.replace(/\D/g, "").length >= 8, {
+      message: "Ingresá un celular con código de área (ej.: 11 5555-5555)",
+    }),
+  email: z
+    .union([z.string().trim().toLowerCase().email("Revisá el email").max(191), z.literal(""), z.null()])
+    .optional()
+    .transform((v) => v || null),
+  healthInsurance: z
+    .union([z.string().trim().max(80, "Máx. 80 caracteres"), z.null()])
+    .optional()
+    .transform((v) => v || null),
+  privacyAccepted: z.literal(true, {
+    errorMap: () => ({ message: "Para reservar necesitamos que aceptes el uso de tus datos" }),
+  }),
+});
+
+export const publicBookingAvailabilityQuerySchema = z.object({
+  medicId: z.string().trim().min(1, "medicId es obligatorio").max(64),
+  from: z.string().regex(BOOKING_DATE_RE, "Fecha inválida (YYYY-MM-DD)").optional(),
+  days: z.coerce.number().int().min(1).max(14).default(7),
+  consultationTypeId: z.string().trim().min(1).max(64).optional(),
+});
+
+// POST /api/public/booking/[token]
+export const publicBookingActionSchema = z.object({
+  action: z.enum(["cancel"]),
+});
+
+// GET /api/online-bookings?status=
+export const onlineBookingsQuerySchema = z.object({
+  status: onlineBookingStatusEnum.optional(),
+});
+
+// PATCH /api/online-bookings/[id]
+export const onlineBookingStaffActionSchema = z.object({
+  action: z.enum(["confirm", "reject"]),
+});
+
+export type PublicBookingCreateParsed = z.infer<typeof publicBookingCreateSchema>;
+export type PublicBookingAvailabilityQuery = z.infer<typeof publicBookingAvailabilityQuerySchema>;

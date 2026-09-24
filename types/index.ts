@@ -96,6 +96,10 @@ export interface Shift {
   // Reception flow (secretary dashboard)
   arrivedAt?: string | null;
   consultationStartedAt?: string | null;
+  // Confirmación y origen
+  confirmedAt?: string | null;
+  confirmedVia?: "PATIENT_LINK" | "STAFF" | "PHONE" | null;
+  source?: "STAFF" | "ONLINE";
   createdAt: string;
   updatedAt: string;
 }
@@ -662,6 +666,139 @@ export interface ReminderDispatchSummary {
   skippedNoContact: number;
 }
 
+// ─── Adjuntos de la historia clínica ─────────────────────────────────────────
+
+export type AttachmentEntityType = "EVOLUTION" | "STUDY_ORDER" | "CLINICAL_RECORD";
+
+export const ATTACHMENT_ENTITY_LABELS: Record<AttachmentEntityType, string> = {
+  EVOLUTION: "Evolución",
+  STUDY_ORDER: "Orden de estudio",
+  CLINICAL_RECORD: "Ficha clínica",
+};
+
+export interface ClinicalAttachment {
+  id: string;
+  patientId: string;
+  entityType: AttachmentEntityType;
+  entityId: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  description: string | null;
+  uploadedBy: { id: string; shortName: string };
+  canAnnul: boolean;
+  annulledAt: string | null;
+  annulReason: string | null;
+  createdAt: string;
+  inlinePreviewable: boolean;
+}
+
+// ─── Reservas online ─────────────────────────────────────────────────────────
+
+export type OnlineBookingStatus = "PENDING_CONFIRMATION" | "CONFIRMED" | "CANCELLED" | "EXPIRED";
+
+export const ONLINE_BOOKING_STATUS_LABELS: Record<OnlineBookingStatus, string> = {
+  PENDING_CONFIRMATION: "Pendiente de confirmar",
+  CONFIRMED: "Confirmada",
+  CANCELLED: "Cancelada",
+  EXPIRED: "Vencida",
+};
+
+export interface OnlineBookingSettings {
+  onlineBookingEnabled: boolean;
+  onlineBookingMinAdvanceHours: number;
+  onlineBookingMaxDaysAhead: number;
+  onlineBookingNotes: string | null;
+}
+
+export interface PublicBookingMedic {
+  id: string;
+  shortName: string;
+  slotDurationMinutes: number;
+}
+
+export interface PublicBookingSpecialty {
+  id: string;
+  name: string;
+  color: string | null;
+  medics: PublicBookingMedic[];
+}
+
+export interface PublicBookingConfig {
+  enabled: boolean;
+  clinicName: string | null;
+  notes: string | null;
+  minAdvanceHours: number;
+  maxDaysAhead: number;
+  consultationTypes: Array<{ id: string; name: string; durationMinutes: number }>;
+  specialties: PublicBookingSpecialty[];
+}
+
+export interface PublicAvailabilityDay {
+  date: string; // YYYY-MM-DD
+  closed: boolean;
+  slots: Array<{ start: string; time: string }>;
+}
+
+export interface PublicBookingCreateInput {
+  medicId: string;
+  start: string;
+  consultationTypeId?: string | null;
+  firstName: string;
+  lastName: string;
+  dni: string;
+  phone: string;
+  email?: string | null;
+  healthInsurance?: string | null;
+  privacyAccepted: boolean;
+  _hp?: string;
+  _elapsedMs?: number;
+}
+
+export interface PublicBookingCreated {
+  requestId: string;
+  status: "PENDING_CONFIRMATION";
+  start: string;
+  medicShortName: string;
+  manageUrl: string;
+  emailSent: boolean;
+  message: string;
+}
+
+export interface PublicBookingView {
+  status: OnlineBookingStatus;
+  clinicName: string | null;
+  address: string | null;
+  patientFirstName: string;
+  start: string;
+  medicShortName: string;
+  consultationTypeName: string | null;
+  canCancel: boolean;
+}
+
+export interface OnlineBookingStaffItem {
+  id: string;
+  shiftId: string;
+  status: OnlineBookingStatus;
+  createdAt: string;
+  start: string;
+  medicShortName: string;
+  medicColor: string | null;
+  consultationTypeName: string | null;
+  requester: {
+    firstName: string;
+    lastName: string;
+    dni: string;
+    phone: string;
+    email: string | null;
+    healthInsuranceText: string | null;
+  };
+  patientId: string;
+  matchedExisting: boolean;
+  patientDataMismatch: boolean;
+}
+
 /** Vista pública mínima del turno para el link de confirmación (sin datos clínicos). */
 export interface PublicShiftConfirmation {
   clinicName: string | null;
@@ -721,6 +858,11 @@ export interface SecretaryAgendaData {
   totalShifts: number;
 }
 
+export interface SecretaryOnlineBookingsData {
+  pending: number;
+  items: OnlineBookingStaffItem[]; // las más antiguas primero, máx. 5
+}
+
 export interface SecretaryDashboardData {
   header: SecretaryHeaderData;
   stats: SecretaryStatsData;
@@ -729,6 +871,7 @@ export interface SecretaryDashboardData {
   recordatorios: SecretaryRemindersData;
   huecosHoy: MedicSlotsGroup[];
   agenda: SecretaryAgendaData;
+  reservasOnline?: SecretaryOnlineBookingsData;
 }
 
 export interface WalkInArrival {

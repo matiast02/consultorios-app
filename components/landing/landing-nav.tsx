@@ -8,10 +8,13 @@ interface Props {
   clinicName: string;
   tagline: string | null;
   isLoggedIn: boolean;
+  /** Reserva online activa: "Solicitar turno" lleva a /reservar. */
+  onlineBookingEnabled?: boolean;
 }
 
-export function LandingNav({ clinicName, tagline, isLoggedIn }: Props) {
+export function LandingNav({ clinicName, tagline, isLoggedIn, onlineBookingEnabled = false }: Props) {
   const [open, setOpen] = useState(false);
+  const bookingHref = onlineBookingEnabled ? "/reservar" : "#contacto";
 
   const links = [
     { href: "#inicio", label: "Inicio" },
@@ -72,7 +75,7 @@ export function LandingNav({ clinicName, tagline, isLoggedIn }: Props) {
             {isLoggedIn && <ArrowRight className="h-4 w-4" />}
           </Link>
           <a
-            href="#contacto"
+            href={bookingHref}
             className="inline-flex items-center gap-2 rounded-full px-4 py-[9px] text-[13.5px] font-semibold text-white shadow-[0_8px_20px_rgba(10,138,158,0.28)] transition-all hover:-translate-y-0.5"
             style={{ background: "var(--primary)" }}
           >

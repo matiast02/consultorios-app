@@ -30,6 +30,7 @@ model User {
   slotDurationMinutes Int @default(30)
   bufferMinutes       Int @default(0)
   minAdvanceMinutes   Int @default(60)
+  acceptsOnlineBooking Boolean @default(true) // aparece en la reserva web
 
   // Regional prefs
   language  String @default("es-AR")
@@ -251,6 +252,7 @@ model Patient {
   walkInArrivals WalkInArrival[]
   accessGrants   ClinicalAccessGrant[]
   hcCopyRequests HcCopyRequest[]
+  onlineBookings OnlineBookingRequest[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -353,6 +355,7 @@ model Shift {
   mealPlans        MealPlan[]
   reminders        ShiftReminder[]
   walkInArrivals   WalkInArrival[]
+  onlineBooking    OnlineBookingRequest?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -833,6 +836,53 @@ model ShiftReminder {
   @@index([scheduledFor])
 }
 
+// ─── Reservas online ─────────────────────────────────────────────────────────
+// Lo que el solicitante cargó en la web, separado del Patient para no pisar
+// datos existentes y para trazabilidad anti-abuso. Sin texto libre de motivo
+// (minimización: no se capturan datos de salud en el formulario público).
+
+enum OnlineBookingStatus {
+  PENDING_CONFIRMATION // creada; recepción la confirma (o el paciente la cancela)
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+model OnlineBookingRequest {
+  id                 String              @id @default(cuid())
+  shiftId            String              @unique
+  patientId          String
+  status             OnlineBookingStatus @default(PENDING_CONFIRMATION)
+  requesterFirstName String
+  requesterLastName  String
+  requesterDni       String
+  requesterPhone     String
+  requesterEmail     String?
+  healthInsuranceText String? // lo que escribió/eligió; no crea obras sociales
+  consultationTypeId String?
+  matchedExisting    Boolean             @default(false) // el DNI ya existía: se vinculó sin modificar
+  tokenHash          String              @unique // link público de gestión (ver / cancelar)
+  tokenExpiresAt     DateTime
+  privacyAcceptedAt  DateTime
+  confirmedAt        DateTime?
+  confirmedById      String? // usuario de recepción que confirmó
+  cancelledAt        DateTime?
+  cancelledBy        String? // "PATIENT" | "STAFF"
+  ipAddress          String?
+  userAgent          String?             @db.Text
+  emailSentAt        DateTime?
+
+  shift   Shift   @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([status, createdAt])
+  @@index([requesterDni])
+}
+
 // ─── Walk-In Arrivals (Pacientes sin turno previo) ──────────────────────────
 
 model WalkInArrival {
@@ -886,6 +936,12 @@ model ClinicSettings {
   reminderSecondHoursBefore  Int? // segundo recordatorio (p.ej. 2), opcional
   reminderChannels           String  @default("[\"EMAIL\",\"WHATSAPP\"]") // JSON ReminderChannel[]
   reminderTemplate           String? @db.Text // plantilla con {paciente} {fecha} {hora} {profesional} {consultorio} {direccion} {link}
+
+  // Reservas online (turnos pedidos por el paciente desde la web; entran PENDING y recepción confirma)
+  onlineBookingEnabled         Boolean @default(false)
+  onlineBookingMinAdvanceHours Int     @default(2) // anticipación mínima
+  onlineBookingMaxDaysAhead    Int     @default(30) // hasta cuántos días adelante
+  onlineBookingNotes           String? @db.Text // aviso que ve el paciente (p.ej. "Traé tu credencial")
 
   updatedAt              DateTime @updatedAt
 }

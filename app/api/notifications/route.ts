@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
       inactivePatients,
       todayShifts,
       newContactRequests,
+      stored,
     ] = await Promise.all([
       // a) Turnos reprogramados (last 48h)
       getRescheduledShifts(userId, userIsMedic, now),
@@ -47,6 +48,8 @@ export async function GET(req: NextRequest) {
       getTodayShifts(userId, userIsMedic, now),
       // e) Solicitudes de contacto nuevas (solo staff: admin/secretaria)
       getNewContactRequests(userIsMedic),
+      // f) Notificaciones persistidas sin leer (reservas online, cancelaciones del paciente)
+      getStoredUnread(userId, now),
     ]);
 
     // Build daily summary notification
@@ -137,6 +140,18 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    for (const n of stored) {
+      notifications.push({
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        resourceId: n.resourceId,
+        read: n.read,
+        createdAt: n.createdAt.toISOString(),
+      });
+    }
+
     // Sort: daily_summary first, then by createdAt desc
     notifications.sort((a, b) => {
       if (a.type === "daily_summary") return -1;
@@ -189,6 +204,17 @@ async function getRescheduledShifts(
     },
     orderBy: { rescheduledAt: "desc" },
     take: 10,
+  });
+}
+
+// Persistidas (Notification): se marcan leídas con PUT /api/notifications/[id]/read.
+async function getStoredUnread(userId: string, now: Date) {
+  const since = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  return prisma.notification.findMany({
+    where: { userId, read: false, createdAt: { gte: since } },
+    select: { id: true, type: true, title: true, message: true, resourceId: true, read: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: 20,
   });
 }
 

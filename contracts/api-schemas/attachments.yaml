@@ -1,0 +1,144 @@
+openapi: 3.0.3
+info:
+  title: Adjuntos de la historia clínica
+  version: 1.0.0
+  description: |
+    Archivos adjuntos a la historia clínica (resultados de estudios, imágenes,
+    informes en PDF). Son datos de salud: se tratan con el mismo perímetro que
+    el resto de la HC.
+
+    Privacidad y seguridad:
+      - **Cifrado por archivo en reposo**: cada archivo tiene su propia clave
+        AES-256-GCM (DEK) generada al subir; la DEK se guarda envuelta con la
+        clave maestra `HC_ENC_KEY` (mismo esquema versionado que los campos
+        cifrados: rotar la maestra no obliga a re-cifrar los archivos, solo a
+        re-envolver las DEK). El nombre original y la descripción también van
+        cifrados en la base. El disco nunca contiene el archivo en claro.
+      - **Acceso**: mismas reglas que un asiento clínico (`lib/clinical-access.ts`):
+        sube un médico (queda como autor); leen el autor, el admin y quien tenga
+        una concesión vigente que cubra la sección (estudios si está asociado a
+        una orden, evoluciones si está asociado a una evolución, "adjuntos" en
+        general). Secretaria: nunca. Cada descarga se audita (`VIEW_SENSITIVE`,
+        details `{ attachmentId, grantId? }`).
+      - **Integridad**: sha256 del contenido en claro, asiento en el ledger
+        (`ClinicalEntryVersion`, entityType `attachment`) y listado en la copia
+        de HC del paciente.
+      - **No se borra**: la anulación es lógica (`annulledAt`, motivo cifrado);
+        el archivo se conserva con la HC (10 años). Solo el autor anula.
+      - **Validación de subida**: tamaño máximo (`ATTACHMENTS_MAX_MB`, default 15),
+        tipos permitidos por *magic bytes* (no por extensión): PDF, JPEG, PNG,
+        WebP; nombre saneado; sin ejecutables ni archivos de oficina en v1.
+        Hook opcional de antivirus (`CLAMAV_HOST`).
+      - **Entrega**: siempre por endpoint autenticado que descifra en streaming;
+        `Content-Disposition: attachment` por defecto; `?inline=1` solo para
+        imagen/PDF y con `Content-Security-Policy: sandbox` + `nosniff` (evita
+        que un PDF/SVG malicioso ejecute nada en nuestro origen).
+      - **Almacenamiento**: `ATTACHMENTS_DIR` (volumen Docker) en v1; interfaz
+        preparada para S3 compatible. Los backups deben incluir ese directorio
+        (ver docs/BACKUPS.md): sin `HC_ENC_KEY` los archivos son irrecuperables.
+
+paths:
+  /api/patients/{id}/attachments:
+    get:
+      summary: Lista los adjuntos visibles para el actor
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+        - { in: query, name: entityType, schema: { type: string, enum: [evolution, study_order, clinical_record] } }
+        - { in: query, name: entityId, schema: { type: string } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Attachment" }
+        "403": { description: Sin acceso a datos clínicos }
+    post:
+      summary: Sube un adjunto (multipart/form-data)
+      description: Solo médicos. Campos: `file`, `entityType`, `entityId` (opcional), `description` (opcional, máx. 300).
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, entityType]
+              properties:
+                file: { type: string, format: binary }
+                entityType: { type: string, enum: [evolution, study_order, clinical_record] }
+                entityId: { type: string }
+                description: { type: string, maxLength: 300 }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/Attachment" }
+        "400": { description: Sin archivo / tipo no permitido / nombre inválido }
+        "403": { description: Solo médicos; o el asiento asociado no es del autor }
+        "413": { description: Supera ATTACHMENTS_MAX_MB }
+        "422": { description: El contenido no coincide con un tipo permitido (magic bytes) o antivirus positivo }
+
+  /api/attachments/{id}:
+    get:
+      summary: Descarga (descifra en streaming)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+        - { in: query, name: inline, schema: { type: string, enum: ["1"] }, description: "Solo imagen/PDF; responde con CSP sandbox" }
+      responses:
+        "200": { description: "Binario; Content-Type original; Content-Disposition attachment (o inline con sandbox)" }
+        "403": { description: Sin acceso }
+        "404": { description: Inexistente o anulado (misma respuesta) }
+    delete:
+      summary: Anula el adjunto (lógico, solo el autor)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        "200": { description: Anulado; asiento en el ledger }
+        "403": { description: Solo el autor }
+
+  /api/attachments/{id}/meta:
+    get:
+      summary: Metadatos (para previsualización/listas)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/Attachment" }
+
+components:
+  schemas:
+    Attachment:
+      type: object
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        entityType: { type: string, enum: [evolution, study_order, clinical_record] }
+        entityId: { type: string, nullable: true }
+        fileName: { type: string, description: "Nombre original (descifrado para el actor autorizado)" }
+        mimeType: { type: string }
+        sizeBytes: { type: integer }
+        sha256: { type: string }
+        description: { type: string, nullable: true }
+        uploadedBy: { type: object, properties: { id: { type: string }, shortName: { type: string } } }
+        canAnnul: { type: boolean }
+        annulledAt: { type: string, format: date-time, nullable: true }
+        annulReason: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        inlinePreviewable: { type: boolean, description: "imagen o PDF" }

@@ -7,9 +7,9 @@ import { parseReminderChannels } from "@/lib/reminders/scheduler";
 import { isEmailConfigured } from "@/lib/notifications/email";
 
 // Campos del sitio público: el formulario "Datos del consultorio" los manda
-// todos juntos (vacío → null). Los de recordatorios se actualizan solo si
-// vienen en el body, así un formulario de recordatorios puede guardar sin
-// pisar los datos del sitio (y viceversa).
+// todos juntos (vacío → null). Los de recordatorios y los de reservas online
+// se actualizan solo si vienen en el body, así cada formulario puede guardar
+// sin pisar los datos de los otros.
 const SITE_FIELDS = [
   "name",
   "tagline",
@@ -138,6 +138,20 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    // ── Reservas online (solo los campos presentes) ──
+    const onlineBooking: {
+      onlineBookingEnabled?: boolean;
+      onlineBookingMinAdvanceHours?: number;
+      onlineBookingMaxDaysAhead?: number;
+      onlineBookingNotes?: string | null;
+    } = {};
+    if (d.onlineBookingEnabled !== undefined) onlineBooking.onlineBookingEnabled = d.onlineBookingEnabled;
+    if (d.onlineBookingMinAdvanceHours !== undefined) {
+      onlineBooking.onlineBookingMinAdvanceHours = d.onlineBookingMinAdvanceHours;
+    }
+    if (d.onlineBookingMaxDaysAhead !== undefined) onlineBooking.onlineBookingMaxDaysAhead = d.onlineBookingMaxDaysAhead;
+    if (has("onlineBookingNotes")) onlineBooking.onlineBookingNotes = d.onlineBookingNotes?.toString().trim() || null;
+
     const hasSiteFields = SITE_FIELDS.some(has);
     const cleaned = {
       name: d.name?.toString().trim() || null,
@@ -160,7 +174,7 @@ export async function PUT(req: NextRequest) {
       patientsServedDisplay: d.patientsServedDisplay?.toString().trim() || null,
     };
 
-    const data = { ...(hasSiteFields ? cleaned : {}), ...reminders };
+    const data = { ...(hasSiteFields ? cleaned : {}), ...reminders, ...onlineBooking };
     const row = await prisma.clinicSettings.upsert({
       where: { id: "default" },
       update: data,

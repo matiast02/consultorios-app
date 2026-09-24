@@ -50,6 +50,33 @@ async function main() {
       purge: () => prisma.rateLimit.deleteMany({ where: { expiresAt: { lt: now } } }).then((r) => r.count),
     },
     {
+      label: "Reservas online: IP y user agent > 30 días (anonimización)",
+      count: () =>
+        prisma.onlineBookingRequest.count({
+          where: { createdAt: { lt: new Date(now.getTime() - 30 * DAY_MS) }, OR: [{ ipAddress: { not: null } }, { userAgent: { not: null } }] },
+        }),
+      purge: () =>
+        prisma.onlineBookingRequest
+          .updateMany({
+            where: { createdAt: { lt: new Date(now.getTime() - 30 * DAY_MS) }, OR: [{ ipAddress: { not: null } }, { userAgent: { not: null } }] },
+            data: { ipAddress: null, userAgent: null },
+          })
+          .then((r) => r.count),
+    },
+    {
+      label: "Reservas online cerradas hace > 1 año (el turno se conserva)",
+      count: () =>
+        prisma.onlineBookingRequest.count({
+          where: { status: { in: ["CONFIRMED", "CANCELLED", "EXPIRED"] }, updatedAt: { lt: new Date(now.getTime() - 365 * DAY_MS) } },
+        }),
+      purge: () =>
+        prisma.onlineBookingRequest
+          .deleteMany({
+            where: { status: { in: ["CONFIRMED", "CANCELLED", "EXPIRED"] }, updatedAt: { lt: new Date(now.getTime() - 365 * DAY_MS) } },
+          })
+          .then((r) => r.count),
+    },
+    {
       label: "Notificaciones leídas hace > 90 días",
       count: () =>
         prisma.notification.count({ where: { read: true, createdAt: { lt: new Date(now.getTime() - 90 * DAY_MS) } } }),

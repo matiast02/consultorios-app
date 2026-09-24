@@ -15,6 +15,7 @@ import { SecretaryStatsRow } from "@/components/dashboard/secretary/stats-row";
 import { WaitingRoomCard } from "@/components/dashboard/secretary/waiting-room-card";
 import { NextToCallCard } from "@/components/dashboard/secretary/next-to-call-card";
 import { RemindersCard, formatDispatchSummary } from "@/components/dashboard/secretary/reminders-card";
+import { OnlineBookingsCard } from "@/components/dashboard/secretary/online-bookings-card";
 import { TodaySlotsCard } from "@/components/dashboard/secretary/today-slots-card";
 import { AgendaDayCard } from "@/components/dashboard/secretary/agenda-day-card";
 import { RegisterArrivalDialog } from "@/components/dashboard/secretary/register-arrival-dialog";
@@ -300,6 +301,10 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
 
         <div className="space-y-4">
           <NextToCallCard data={data.proximoALlamar} onCall={handleNextToCall} />
+          {/* Solo si el backend lo informa (módulo de reservas online activo). */}
+          {data.reservasOnline && (
+            <OnlineBookingsCard data={data.reservasOnline} onChanged={fetchDashboard} />
+          )}
           <RemindersCard
             data={data.recordatorios}
             sending={sendingReminders}

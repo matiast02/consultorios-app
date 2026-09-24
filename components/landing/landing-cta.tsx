@@ -1,4 +1,4 @@
-export function LandingCta() {
+export function LandingCta({ onlineBookingEnabled = false }: { onlineBookingEnabled?: boolean }) {
   return (
     <section className="px-7 pb-[88px]">
       <div className="mx-auto max-w-[1180px]">
@@ -26,7 +26,7 @@ export function LandingCta() {
           </div>
           <div className="relative flex flex-wrap gap-3">
             <a
-              href="#contacto"
+              href={onlineBookingEnabled ? "/reservar" : "#contacto"}
               className="inline-flex items-center gap-2 rounded-full bg-white px-[22px] py-[13px] text-[15px] font-semibold transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(10,34,48,0.10)]"
               style={{ color: "var(--primary-deep)" }}
             >

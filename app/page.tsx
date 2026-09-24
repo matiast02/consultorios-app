@@ -129,7 +129,11 @@ async function loadClinicInfo() {
     };
   });
 
-  return { settings, hours, medics, specializations, healthInsurances: insuranceRows, schedule };
+  // Reserva online (contracts/api-schemas/online-booking.yaml): con el módulo
+  // activo, los CTA "Solicitar turno" llevan a /reservar en vez de #contacto.
+  const onlineBookingEnabled = settingsRow.onlineBookingEnabled === true;
+
+  return { settings, hours, medics, specializations, healthInsurances: insuranceRows, schedule, onlineBookingEnabled };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -195,7 +199,8 @@ function shortWeekLabel(lines: string[]): string | null {
 
 export default async function Home() {
   const session = await getSession();
-  const { settings, hours, medics, specializations, healthInsurances, schedule } = await loadClinicInfo();
+  const { settings, hours, medics, specializations, healthInsurances, schedule, onlineBookingEnabled } =
+    await loadClinicInfo();
 
   const clinicName = settings.name?.trim() || "ConsultorioApp";
   const tagline = settings.tagline?.trim() || "Centro médico";
@@ -206,7 +211,12 @@ export default async function Home() {
 
   return (
     <div className="landing flex min-h-screen flex-col">
-      <LandingNav clinicName={clinicName} tagline={tagline} isLoggedIn={!!session?.user} />
+      <LandingNav
+        clinicName={clinicName}
+        tagline={tagline}
+        isLoggedIn={!!session?.user}
+        onlineBookingEnabled={onlineBookingEnabled}
+      />
 
       <main className="flex-1">
         <LandingHero
@@ -214,11 +224,14 @@ export default async function Home() {
           specCount={specializations.length}
           weeklyShortLabel={weeklyShort}
           hasInsurances={healthInsurances.length > 0}
+          onlineBookingEnabled={onlineBookingEnabled}
         />
 
         <LandingSpecialties specializations={specializations} />
 
-        {settings.showTeam && <LandingTeam medics={medics} specializations={specializations} />}
+        {settings.showTeam && (
+          <LandingTeam medics={medics} specializations={specializations} onlineBookingEnabled={onlineBookingEnabled} />
+        )}
 
         <LandingHours hours={hours} enabled={settings.showHours} />
 
@@ -233,13 +246,14 @@ export default async function Home() {
 
         <LandingObras insurances={healthInsurances} />
 
-        <LandingCta />
+        <LandingCta onlineBookingEnabled={onlineBookingEnabled} />
 
         <LandingContact
           settings={settings}
           specializations={specializations}
           healthInsurances={healthInsurances}
           weeklySummary={weeklyJoined}
+          onlineBookingEnabled={onlineBookingEnabled}
         />
       </main>
 
