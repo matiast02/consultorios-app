@@ -95,7 +95,10 @@ export function RecetasTab({ prescriptions, onNew, onView, onAnnul, onHistory, c
               : `No hay recetas en el filtro "${filter}".`}
           </div>
         ) : (
-          sorted.map((p) => (
+          sorted.map((p) => {
+            // Recetas ajenas (vistas por concesión o por el admin): solo lectura.
+            const isOwn = !currentUserId || p.userId === currentUserId;
+            return (
             <div
               key={p.id}
               className={cn(
@@ -189,7 +192,7 @@ export function RecetasTab({ prescriptions, onNew, onView, onAnnul, onHistory, c
                   <Eye className="mr-1.5 h-3.5 w-3.5" />
                   Ver/Imprimir
                 </Button>
-                {p._expired && !p.annulledAt ? (
+                {!isOwn ? null : p._expired && !p.annulledAt ? (
                   <Button size="sm" className="h-8" onClick={onNew}>
                     <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                     Renovar
@@ -211,7 +214,7 @@ export function RecetasTab({ prescriptions, onNew, onView, onAnnul, onHistory, c
                     Historial
                   </Button>
                 )}
-                {onAnnul && !p.annulledAt && (!currentUserId || p.userId === currentUserId) && (
+                {onAnnul && !p.annulledAt && isOwn && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -224,7 +227,8 @@ export function RecetasTab({ prescriptions, onNew, onView, onAnnul, onHistory, c
                 )}
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </Card>

@@ -59,6 +59,10 @@ export interface Patient {
   // Emergency contact
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
+  // Consentimiento informado (Ley 25.326)
+  consentType?: "WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE" | null;
+  consentGivenAt?: string | null;
+  consentNote?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -535,6 +539,11 @@ export interface DashboardPendientes {
   evolucionesSinCerrar: DashboardPendienteItem;
   recetasParaRenovar: DashboardPendienteItem;
   estudiosPendientes: DashboardPendienteItem;
+  /** Solicitudes de acceso a la HC que el médico puede decidir (tratante). */
+  solicitudesDeAcceso: DashboardPendienteItem & {
+    /** Paciente de la solicitud más antigua (link a su ficha); null si no hay. */
+    patientId: string | null;
+  };
 }
 
 export interface DashboardRecentPatient {
@@ -799,6 +808,8 @@ export interface CatalogHealth {
   };
   healthInsurancesUnused90d: { count: number };
   specializationsWithoutColor: { count: number };
+  /** Copias de HC PENDING y, de ellas, las vencidas (dueAt < ahora; Ley 26.529 art. 14). */
+  hcCopiesPending: { count: number; overdue: number };
   modules: { module: string; name: string; enabled: boolean }[];
 }
 
@@ -953,4 +964,73 @@ export interface ClinicInfoResponse {
   medics: PublicMedic[];
   specializations: PublicSpecialization[];
   healthInsurances: { id: string; name: string }[];
+}
+
+// ─── Concesiones de acceso a la HC ──────────────────────────────────────────
+// Contrato: contracts/api-schemas/clinical-access-grants.yaml
+
+export type ClinicalGrantStatus = "PENDING" | "ACTIVE" | "REJECTED" | "REVOKED" | "EXPIRED";
+export type ClinicalGrantScope = "FULL" | "PARTIAL";
+export type ClinicalConsentType = "WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE";
+
+export interface ClinicalGrantUserRef {
+  id: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+export interface ClinicalAccessGrant {
+  id: string;
+  patientId: string;
+  patient?: { id: string; firstName: string; lastName: string };
+  grantedToUserId: string;
+  grantedTo?: ClinicalGrantUserRef;
+  requestedById: string;
+  decidedById: string | null;
+  decidedBy: ClinicalGrantUserRef | null;
+  revokedById: string | null;
+  revokedBy: ClinicalGrantUserRef | null;
+  /** Estado efectivo: una ACTIVE vencida llega como EXPIRED. */
+  status: ClinicalGrantStatus;
+  isActive: boolean;
+  scope: ClinicalGrantScope;
+  sections: string[];
+  entryIds: string[];
+  reason: string;
+  consentType: ClinicalConsentType | null;
+  consentEvidence: string | null;
+  consentAt: string | null;
+  startsAt: string | null;
+  expiresAt: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  permissions: { approve: boolean; reject: boolean; revoke: boolean; cancel: boolean };
+}
+
+export interface ClinicalAccessStatus {
+  isAdmin: boolean;
+  /** Tratante (asientos propios con el paciente) o admin: puede editar la ficha. */
+  hasRelationship: boolean;
+  canDecide: boolean;
+  canRequest: boolean;
+  record: { full: boolean; sections: string[] };
+  activeGrant: {
+    id: string;
+    scope: ClinicalGrantScope;
+    sections: string[];
+    entryIds: string[];
+    startsAt: string;
+    expiresAt: string;
+  } | null;
+  pendingRequest: {
+    id: string;
+    scope: ClinicalGrantScope;
+    sections: string[];
+    createdAt: string;
+  } | null;
+  pendingToDecide: number;
 }

@@ -7,8 +7,9 @@ import { recordClinicalVersion, evolutionSnapshot } from "@/lib/clinical-ledger"
 import {
   CLINICAL_FORBIDDEN,
   canAccessEntry,
-  entryScope,
+  canReadEntry,
   getClinicalActor,
+  grantAuditDetails,
 } from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string; evolutionId: string }> };
@@ -44,12 +45,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
+    // Filtrada por paciente: el patientId que se pasa a canReadEntry es el dueño.
     const evolution = await prisma.evolution.findFirst({
       where: {
         id: evolutionId,
         clinicalRecord: { patientId },
-        // Médicos: solo sus evoluciones (admin: todas).
-        ...entryScope(actor),
       },
       include: {
         user: {
@@ -64,8 +64,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
       },
     });
 
-    // 404 (no 403) para no revelar la existencia de asientos ajenos.
-    if (!evolution || !canAccessEntry(actor, evolution)) {
+    // Autor, admin o concesión vigente que la cubra. 404 (no 403) para no
+    // revelar la existencia de asientos ajenos.
+    const read = evolution
+      ? await canReadEntry(actor, evolution, patientId, "evolution")
+      : null;
+    if (!evolution || !read?.ok) {
       return NextResponse.json(
         { success: false, error: "Evolución no encontrada" },
         { status: 404 }
@@ -77,7 +81,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       action: "VIEW_SENSITIVE",
       resource: "evolution",
       resourceId: evolution.id,
-      details: { patientId },
+      details: { patientId, ...grantAuditDetails(read.grantId) },
       req,
     });
 

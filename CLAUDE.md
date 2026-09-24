@@ -82,6 +82,9 @@ pnpm run docker:down  # Stop MySQL container
 - Datos clínicos: secretaria nunca (salvo alergias en solo lectura); médico solo asientos propios; admin todo, siempre auditado con `VIEW_SENSITIVE`. Nunca poner contenido clínico en `AuditLog.details` ni en `Shift.observations` (eso es nota administrativa visible por recepción)
 - Pacientes: `DELETE ?mode=purge` solo sin asientos clínicos ni turnos de otros (admin, secretaria o médico creador); `?mode=archive` conserva la HC 10 años (médico creador sin terceros, o admin); `POST /restore` solo admin
 - Headers de seguridad (CSP, HSTS, nosniff, frame-ancestors) en `next.config.ts`
+- Consentimiento: `Patient.consentType/consentGivenAt/consentNote` (Ley 25.326 art. 5-6) se carga en el paso 2 del alta; el formulario público exige `privacyAccepted` con el texto de la Disp. DNPDP 10/2008
+- Acceso cruzado entre médicos solo vía `ClinicalAccessGrant` (solicitud → aprobación con consentimiento → vigencia acotada → revocable); copia de HC para el paciente vía `HcCopyRequest` (48 hs, PDF con hashes del ledger, audit `EXPORT_HC`)
+- Operación: backups, restauración y custodia de claves en `docs/BACKUPS.md`; purga programada `pnpm db:purge-expired`
 - Route groups: `(auth)` for public, `(dashboard)` for protected pages
 - Role-based access: medic, secretary, admin
 - Soft deletes on User and Patient (deletedAt field)

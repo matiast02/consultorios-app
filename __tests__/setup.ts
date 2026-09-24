@@ -45,6 +45,10 @@ export const prismaMock = {
   clinicalEntryVersion: createModelMock(),
   auditLog: createModelMock(),
   resetToken: createModelMock(),
+  clinicalAccessGrant: createModelMock(),
+  // Copia de HC (fase 3)
+  hcCopyRequest: createModelMock(),
+  clinicSettings: createModelMock(),
   // Better Auth
   account: createModelMock(),
   session: createModelMock(),

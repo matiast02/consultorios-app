@@ -8,9 +8,12 @@ import { logAudit } from "@/lib/audit";
 import { recordClinicalVersion, clinicalRecordSnapshot } from "@/lib/clinical-ledger";
 import {
   CLINICAL_FORBIDDEN,
-  entryScope,
   getClinicalActor,
+  grantAuditDetails,
+  listScopeFromGrant,
   medicHasRelationship,
+  recordSections,
+  recordVisibleFields,
 } from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -29,19 +32,35 @@ const REDACTED_SELECT = {
 
 type RedactedRecord = Prisma.ClinicalRecordGetPayload<{ select: typeof REDACTED_SELECT }>;
 
-function redactedView(rec: RedactedRecord): Record<string, unknown> {
+function whitelistView(
+  rec: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
   const view: Record<string, unknown> = {};
   for (const field of Object.values(Prisma.ClinicalRecordScalarFieldEnum)) {
     view[field] = null;
   }
   // Se copian solo las claves de la lista blanca (no se esparce `rec`), así un
   // select mal armado nunca filtra columnas extra.
-  for (const key of Object.keys(REDACTED_SELECT) as (keyof RedactedRecord)[]) {
-    view[key] = rec[key];
+  for (const key of keys) {
+    view[key] = rec[key] ?? null;
   }
   view.evolutions = [];
   return view;
 }
+
+function redactedView(rec: RedactedRecord): Record<string, unknown> {
+  return whitelistView(rec, Object.keys(REDACTED_SELECT));
+}
+
+const EVOLUTION_INCLUDE = {
+  user: {
+    select: { id: true, name: true, firstName: true, lastName: true },
+  },
+  shift: {
+    select: { id: true, start: true, end: true, status: true },
+  },
+} as const satisfies Prisma.EvolutionInclude;
 
 // GET /api/patients/[id]/clinical-record — Get or create clinical record
 export async function GET(req: NextRequest, context: RouteContext) {
@@ -94,15 +113,43 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Médico sin relación clínica con el paciente: ficha vacía (lista blanca).
-    if (!(await medicHasRelationship(actor, id))) {
-      const rec = await prisma.clinicalRecord.upsert({
+    // Qué puede ver: ficha completa (admin, tratante o concesión FULL), las
+    // secciones de una concesión PARTIAL, o nada (vista base: alergias
+    // estructuradas). Evoluciones: propias + las que cubra la concesión.
+    const access = await recordSections(actor, id);
+    const evoScope = listScopeFromGrant(actor, access.grant, "evolution");
+    const viaGrant = access.grantId ?? evoScope.grantId;
+
+    if (!access.full) {
+      // Lista blanca: base + campos de las secciones concedidas.
+      const fields = recordVisibleFields(access) ?? [];
+      const select = Object.fromEntries(fields.map((f) => [f, true])) as Prisma.ClinicalRecordSelect;
+      const rec = (await prisma.clinicalRecord.upsert({
         where: { patientId: id },
         update: {},
         create: { patientId: id },
-        select: REDACTED_SELECT,
-      });
-      return NextResponse.json({ success: true, data: redactedView(rec) });
+        select,
+      })) as unknown as Record<string, unknown> & { id: string };
+      const view = whitelistView(rec, fields);
+      // Sin relación no hay evoluciones propias: solo las que cubra la concesión.
+      if (evoScope.grantId) {
+        view.evolutions = await prisma.evolution.findMany({
+          where: { clinicalRecordId: rec.id, ...evoScope.where },
+          orderBy: { createdAt: "desc" },
+          include: EVOLUTION_INCLUDE,
+        });
+      }
+      if (viaGrant) {
+        logAudit({
+          userId,
+          action: "VIEW_SENSITIVE",
+          resource: "clinical_record",
+          resourceId: rec.id,
+          details: { patientId: id, grantId: viaGrant },
+          req,
+        });
+      }
+      return NextResponse.json({ success: true, data: view });
     }
 
     // Upsert: get existing or create empty record
@@ -112,22 +159,15 @@ export async function GET(req: NextRequest, context: RouteContext) {
       create: { patientId: id },
       include: {
         evolutions: {
-          // Médicos: solo sus evoluciones. Admin: todas.
-          where: entryScope(actor),
+          // Médicos: sus evoluciones + las que cubra su concesión. Admin: todas.
+          where: evoScope.where,
           orderBy: { createdAt: "desc" },
-          include: {
-            user: {
-              select: { id: true, name: true, firstName: true, lastName: true },
-            },
-            shift: {
-              select: { id: true, start: true, end: true, status: true },
-            },
-          },
+          include: EVOLUTION_INCLUDE,
         },
       },
     });
 
-    // Log VIEW_SENSITIVE if record has meaningful data
+    // Log VIEW_SENSITIVE if record has meaningful data (siempre bajo concesión)
     const hasData =
       clinicalRecord.evolutions.length > 0 ||
       clinicalRecord.bloodType ||
@@ -137,12 +177,13 @@ export async function GET(req: NextRequest, context: RouteContext) {
       clinicalRecord.currentMedication ||
       clinicalRecord.notes;
 
-    if (hasData) {
+    if (hasData || viaGrant) {
       logAudit({
         userId,
         action: "VIEW_SENSITIVE",
         resource: "clinical_record",
         resourceId: clinicalRecord.id,
+        ...(viaGrant ? { details: { patientId: id, ...grantAuditDetails(viaGrant) } } : {}),
         req,
       });
     }

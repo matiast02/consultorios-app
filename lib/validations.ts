@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  CONSENT_TYPES,
+  GRANT_MAX_DAYS,
+  GRANT_SCOPES,
+  GRANT_SECTIONS,
+  GRANT_STATUSES,
+} from "@/lib/clinical-grants-shared";
 
 // ─── Patients ─────────────────────────────────────────────────────────────────
 
@@ -17,7 +24,17 @@ export const createPatientSchema = z.object({
   osNumber: z.string().max(50).nullable().optional(),
   emergencyContactName: z.string().max(120).nullable().optional(),
   emergencyContactPhone: z.string().max(40).nullable().optional(),
+  // Consentimiento informado para el tratamiento de datos de salud (Ley 25.326 art. 5-6)
+  consentType: z.enum(["WRITTEN", "VERBAL_RECORDED", "DIGITAL_SIGNATURE"]).nullable().optional(),
+  consentGivenAt: z.string().nullable().optional(), // ISO date
+  consentNote: z.string().max(500).nullable().optional(),
 });
+
+export const CONSENT_TYPE_LABELS: Record<"WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE", string> = {
+  WRITTEN: "Escrito (firmado)",
+  VERBAL_RECORDED: "Verbal, registrado por el profesional",
+  DIGITAL_SIGNATURE: "Firma digital",
+};
 
 export const updatePatientSchema = createPatientSchema.partial();
 
@@ -527,9 +544,119 @@ export const contactRequestSchema = z.object({
     ])
     .optional(),
   message: z.string().max(1000).optional().or(z.literal("")),
+  // Aceptación explícita del aviso de privacidad (Ley 25.326 art. 5-6; Disp. DNPDP 10/2008)
+  privacyAccepted: z
+    .boolean()
+    .refine((v) => v === true, { message: "Tenés que aceptar la política de privacidad para enviar la solicitud" }),
 });
 
 export type ClinicSettingsInput = z.infer<typeof clinicSettingsSchema>;
 export type ClinicHoursDayInput = z.infer<typeof clinicHoursDaySchema>;
 export type ClinicHoursWeekInput = z.infer<typeof clinicHoursWeekSchema>;
 export type ContactRequestInput = z.infer<typeof contactRequestSchema>;
+
+// ─── Copia de la historia clínica (Ley 26.529 arts. 14 y 19) ─────────────────
+
+export const hcCopyRequesterTypeEnum = z.enum([
+  "PATIENT",
+  "LEGAL_REPRESENTATIVE",
+  "HEIR",
+  "EXTERNAL_PROFESSIONAL",
+  "JUDICIAL",
+]);
+
+const optionalTrimmed = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v ? v : null));
+
+export const createHcCopyRequestSchema = z
+  .object({
+    requesterType: hcCopyRequesterTypeEnum,
+    requesterName: z.string().trim().min(2, "Ingresá el nombre del solicitante").max(120),
+    requesterDni: optionalTrimmed(20),
+    authorizationNote: optionalTrimmed(1000),
+    reason: optionalTrimmed(1000),
+  })
+  .superRefine((d, ctx) => {
+    // Art. 19: si no lo pide el propio paciente, hay que dejar constancia de
+    // cómo se acreditó el vínculo o la autorización.
+    if (d.requesterType !== "PATIENT" && !d.authorizationNote) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["authorizationNote"],
+        message: "Indicá cómo se acreditó el vínculo o la autorización",
+      });
+    }
+  });
+
+export const deliverHcCopySchema = z.object({
+  deliveryNote: optionalTrimmed(500),
+});
+
+export const hcCopyRequestsQuerySchema = z.object({
+  status: z.enum(["PENDING", "DELIVERED", "CANCELLED"]).default("PENDING"),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export type CreateHcCopyRequestInput = z.infer<typeof createHcCopyRequestSchema>;
+export type DeliverHcCopyInput = z.infer<typeof deliverHcCopySchema>;
+
+// ─── Concesiones de acceso a la HC (ClinicalAccessGrant) ─────────────────────
+
+export const createAccessGrantSchema = z
+  .object({
+    patientId: z.string().min(1, "Paciente requerido").max(64),
+    scope: z.enum(GRANT_SCOPES),
+    sections: z.array(z.enum(GRANT_SECTIONS)).max(GRANT_SECTIONS.length).optional(),
+    entryIds: z.array(z.string().min(1).max(64)).max(100).optional(),
+    reason: z
+      .string()
+      .trim()
+      .min(10, "Contá brevemente el motivo (mínimo 10 caracteres)")
+      .max(1000, "Máximo 1000 caracteres"),
+  })
+  .refine(
+    (d) => d.scope === "FULL" || (d.sections?.length ?? 0) + (d.entryIds?.length ?? 0) > 0,
+    { message: "Elegí al menos una sección", path: ["sections"] },
+  );
+
+export const accessGrantActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("approve"),
+    consentType: z.enum(CONSENT_TYPES, {
+      errorMap: () => ({ message: "Indicá cómo se obtuvo el consentimiento del paciente" }),
+    }),
+    consentEvidence: z.string().trim().max(2000).nullable().optional(),
+    // Cuándo se obtuvo el consentimiento: no puede ser futuro (5 min de tolerancia).
+    consentAt: z.coerce
+      .date()
+      .refine((d) => d.getTime() <= Date.now() + 5 * 60 * 1000, {
+        message: "La fecha del consentimiento no puede ser futura",
+      })
+      .optional(),
+    days: z.number().int().min(1).max(GRANT_MAX_DAYS, `Máximo ${GRANT_MAX_DAYS} días`).optional(),
+  }),
+  z.object({
+    action: z.literal("reject"),
+    decisionNote: z.string().trim().min(3, "Indicá el motivo del rechazo").max(1000),
+  }),
+  z.object({
+    action: z.literal("revoke"),
+    decisionNote: z.string().trim().max(1000).optional(),
+  }),
+  z.object({ action: z.literal("cancel") }),
+]);
+
+export const accessGrantsQuerySchema = z.object({
+  patientId: z.string().min(1).max(64).optional(),
+  status: z.enum(GRANT_STATUSES).optional(),
+  box: z.enum(["received", "to-decide"]).optional(),
+});
+
+export type CreateAccessGrantInput = z.infer<typeof createAccessGrantSchema>;
+export type AccessGrantActionInput = z.infer<typeof accessGrantActionSchema>;

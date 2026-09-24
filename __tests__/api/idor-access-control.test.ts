@@ -66,14 +66,17 @@ describe("IDOR: GET evolution [evolutionId]", () => {
     expect(res.status).toBe(403);
   });
 
-  it("médico que no es el autor → 404 (scope por médico)", async () => {
+  it("médico que no es el autor (sin concesión) → 404 y sin audit", async () => {
     asRole("medic");
     prismaMock.patient.findFirst.mockResolvedValue({ id: "p1" });
-    // Scoped query (userId filter) finds nothing → not the author
-    prismaMock.evolution.findFirst.mockResolvedValue(null);
+    // La evolución existe (query filtrada por paciente) pero es ajena y no hay
+    // concesión vigente → canReadEntry la niega.
+    prismaMock.evolution.findFirst.mockResolvedValue({ id: "e1", ...FOREIGN });
     const res = await getEvolution(req("http://x/api/patients/p1/evolutions/e1"), evoCtx);
     expect(res.status).toBe(404);
-    expect(prismaMock.evolution.findFirst.mock.calls[0][0].where.userId).toBe("user-1");
+    expect(prismaMock.evolution.findFirst.mock.calls[0][0].where.clinicalRecord).toEqual({ patientId: "p1" });
+    expect(prismaMock.clinicalAccessGrant.findFirst).toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
   });
 
   it("médico autor → 200 + VIEW_SENSITIVE", async () => {

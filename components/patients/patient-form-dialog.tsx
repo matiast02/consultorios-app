@@ -43,6 +43,7 @@ import { format, parse } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import type { Patient, HealthInsurance } from "@/types";
+import { CONSENT_TYPE_LABELS } from "@/lib/validations";
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 const patientSchema = z.object({
@@ -60,6 +61,11 @@ const patientSchema = z.object({
   address: z.string().optional(),
   country: z.string().optional(),
   province: z.string().optional(),
+  // Consentimiento informado (Ley 25.326 art. 5-6)
+  consentGiven: z.boolean().optional(),
+  consentType: z.enum(["WRITTEN", "VERBAL_RECORDED", "DIGITAL_SIGNATURE"]).optional(),
+  consentGivenAt: z.string().optional(),
+  consentNote: z.string().max(500, "Máximo 500 caracteres").optional(),
 });
 
 type PatientFormValues = z.infer<typeof patientSchema>;
@@ -146,11 +152,17 @@ export function PatientFormDialog({
       province: "",
       osId: "",
       osNumber: "",
+      consentGiven: false,
+      consentType: "WRITTEN",
+      consentGivenAt: "",
+      consentNote: "",
     },
   });
 
   const selectedOsId = watch("osId");
   const selectedSex = watch("sex");
+  const consentGiven = watch("consentGiven") === true;
+  const selectedConsentType = watch("consentType") ?? "WRITTEN";
   const dniValue = watch("dni") ?? "";
   const birthDateValue = watch("birthDate") ?? "";
 
@@ -174,6 +186,12 @@ export function PatientFormDialog({
           province: patient.province ?? "",
           osId: patient.osId ?? "",
           osNumber: patient.osNumber ?? "",
+          consentGiven: !!patient.consentGivenAt,
+          consentType: patient.consentType ?? "WRITTEN",
+          consentGivenAt: patient.consentGivenAt
+            ? new Date(patient.consentGivenAt).toISOString().split("T")[0]
+            : "",
+          consentNote: patient.consentNote ?? "",
         });
         // Load existing additional insurances
         async function loadPatientInsurances() {
@@ -215,6 +233,10 @@ export function PatientFormDialog({
           province: "",
           osId: "",
           osNumber: "",
+          consentGiven: false,
+          consentType: "WRITTEN",
+          consentGivenAt: "",
+          consentNote: "",
         });
         setAdditionalInsurances([]);
       }
@@ -283,6 +305,14 @@ export function PatientFormDialog({
       for (const [key, value] of Object.entries(data)) {
         body[key] = value === "" ? undefined : value;
       }
+      // Consentimiento: el checkbox no viaja; si no está dado, se limpian los campos.
+      const consentGiven = data.consentGiven === true;
+      delete body.consentGiven;
+      body.consentType = consentGiven ? (data.consentType ?? "WRITTEN") : null;
+      body.consentGivenAt = consentGiven
+        ? data.consentGivenAt || new Date().toISOString().split("T")[0]
+        : null;
+      body.consentNote = consentGiven ? data.consentNote || null : null;
 
       const res = await fetch(url, {
         method,
@@ -730,6 +760,64 @@ export function PatientFormDialog({
           {/* ─── Step 2 — Cobertura y contacto ──────────────────────────── */}
           {step === 2 && (
             <div className="space-y-5 px-6 pb-4">
+              {/* CONSENTIMIENTO (Ley 25.326) */}
+              <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <Shield className="h-3.5 w-3.5" />
+                  Consentimiento informado
+                </div>
+                <label className="flex cursor-pointer items-start gap-2.5 text-[13px] leading-snug">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                    {...register("consentGiven")}
+                  />
+                  <span>
+                    El paciente (o su representante) prestó consentimiento para el tratamiento de sus
+                    datos personales y de salud por parte del consultorio, con fines de atención médica
+                    y gestión de turnos (Ley 25.326, arts. 5 y 7).
+                  </span>
+                </label>
+                {consentGiven && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Forma</Label>
+                      <Select
+                        value={selectedConsentType}
+                        onValueChange={(val) =>
+                          setValue("consentType", val as "WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE")
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(CONSENT_TYPE_LABELS) as Array<keyof typeof CONSENT_TYPE_LABELS>).map((k) => (
+                            <SelectItem key={k} value={k}>
+                              {CONSENT_TYPE_LABELS[k]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Fecha</Label>
+                      <Input type="date" {...register("consentGivenAt")} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-semibold">Observaciones (opcional)</Label>
+                      <Input
+                        placeholder="Ej.: firmó el formulario de consentimiento en recepción"
+                        {...register("consentNote")}
+                      />
+                      {errors.consentNote && (
+                        <p className="text-xs text-destructive">{errors.consentNote.message}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* COBERTURA */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -908,6 +996,7 @@ export function PatientFormDialog({
                 </button>
               )}
               {step === 1 ? (
+                !isEdit && (
                 <button
                   type="button"
                   onClick={handleCreateMinimal}
@@ -917,6 +1006,7 @@ export function PatientFormDialog({
                   {savingMinimal && <Loader2 className="mr-1.5 inline h-3 w-3 animate-spin" />}
                   Crear con datos mínimos
                 </button>
+                )
               ) : (
                 <button
                   type="button"

@@ -6,6 +6,11 @@
 //
 // NO toca AuditLog ni ClinicalEntryVersion: el registro de accesos a datos de
 // salud y el ledger de la HC se conservan (mínimo 10 años, Ley 26.529 art. 18).
+//
+// Concesiones de acceso a la HC (ClinicalAccessGrant): NUNCA se borran
+// (trazabilidad de quién accedió con qué consentimiento). Las ACTIVE vencidas
+// solo se marcan EXPIRED; lib/clinical-access.ts ya las trata como no vigentes
+// por fecha, esto deja el estado consistente para listados y reportes.
 
 import { prisma } from "../lib/prisma";
 
@@ -63,6 +68,18 @@ async function main() {
     console.log(`   ${t.label.padEnd(52)} ${String(n).padStart(6)}`);
   }
   console.log(`\n${dryRun ? "Se borrarían" : "Borrados"}: ${total} registros.`);
+
+  // Marcado (no borrado) de concesiones vencidas.
+  const expiredGrants = { status: "ACTIVE" as const, expiresAt: { lt: now } };
+  const expired = dryRun
+    ? await prisma.clinicalAccessGrant.count({ where: expiredGrants })
+    : await prisma.clinicalAccessGrant
+        .updateMany({ where: expiredGrants, data: { status: "EXPIRED" } })
+        .then((r) => r.count);
+  console.log(
+    `\n   ${"Concesiones de acceso a HC vencidas → EXPIRED".padEnd(52)} ${String(expired).padStart(6)}`,
+  );
+  console.log(`${dryRun ? "Se marcarían" : "Marcadas"}: ${expired} concesiones (se conservan).`);
 }
 
 main()

@@ -5,7 +5,12 @@ import { createMealPlanSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, mealPlanSnapshot } from "@/lib/clinical-ledger";
-import { CLINICAL_FORBIDDEN, entryScope, getClinicalActor } from "@/lib/clinical-access";
+import {
+  CLINICAL_FORBIDDEN,
+  getClinicalActor,
+  grantAuditDetails,
+  readScopeForList,
+} from "@/lib/clinical-access";
 
 // GET /api/meal-plans — List meal plans for a patient
 export async function GET(req: NextRequest) {
@@ -42,9 +47,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Médicos: solo sus planes. Admin: todos.
+    // Médicos: sus planes + los que cubra una concesión vigente. Admin: todos.
+    const scope = await readScopeForList(actor, patientId, "meal_plan");
     const mealPlans = await prisma.mealPlan.findMany({
-      where: { patientId, ...entryScope(actor) },
+      where: { patientId, ...scope.where },
       include: {
         user: {
           select: { id: true, name: true, email: true, firstName: true, lastName: true },
@@ -58,7 +64,7 @@ export async function GET(req: NextRequest) {
       action: "VIEW_SENSITIVE",
       resource: "meal_plan",
       resourceId: patientId,
-      details: { list: true, count: mealPlans.length },
+      details: { list: true, count: mealPlans.length, ...grantAuditDetails(scope.grantId) },
       req,
     });
 

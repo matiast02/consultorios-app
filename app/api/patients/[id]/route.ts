@@ -121,6 +121,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
               ? new Date(data.birthDate)
               : null
             : undefined,
+        consentGivenAt:
+          data.consentGivenAt !== undefined
+            ? data.consentGivenAt
+              ? new Date(data.consentGivenAt)
+              : null
+            : undefined,
       },
       include: { os: true },
     });

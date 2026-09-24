@@ -203,6 +203,15 @@ components:
           type: object
           properties:
             count: { type: integer }
+        hcCopiesPending:
+          type: object
+          description: |
+            Solicitudes de copia de HC (ver hc-copy-requests.yaml). Ley 26.529
+            art. 14: se entregan dentro de las 48 h de solicitadas.
+          required: [count, overdue]
+          properties:
+            count: { type: integer, description: Solicitudes PENDING }
+            overdue: { type: integer, description: PENDING con dueAt < ahora (plazo de 48 h vencido) }
         modules:
           type: array
           items:

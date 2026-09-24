@@ -5,7 +5,12 @@ import { createPrescriptionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, prescriptionSnapshot } from "@/lib/clinical-ledger";
-import { CLINICAL_FORBIDDEN, entryScope, getClinicalActor } from "@/lib/clinical-access";
+import {
+  CLINICAL_FORBIDDEN,
+  getClinicalActor,
+  grantAuditDetails,
+  readScopeForList,
+} from "@/lib/clinical-access";
 
 // GET /api/prescriptions — List prescriptions for a patient
 export async function GET(req: NextRequest) {
@@ -42,9 +47,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Médicos: solo sus recetas (igual que evoluciones). Admin: todas.
+    // Médicos: sus recetas + las que cubra una concesión vigente. Admin: todas.
+    const scope = await readScopeForList(actor, patientId, "prescription");
     const prescriptions = await prisma.prescription.findMany({
-      where: { patientId, ...entryScope(actor) },
+      where: { patientId, ...scope.where },
       include: {
         user: {
           select: { id: true, name: true, email: true },
@@ -58,7 +64,7 @@ export async function GET(req: NextRequest) {
       action: "VIEW_SENSITIVE",
       resource: "prescription",
       resourceId: patientId,
-      details: { list: true, count: prescriptions.length },
+      details: { list: true, count: prescriptions.length, ...grantAuditDetails(scope.grantId) },
       req,
     });
 

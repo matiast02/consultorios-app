@@ -19,7 +19,10 @@ export type AuditAction =
   | "LOGIN_FAILED"
   | "LOGIN_BLOCKED"
   | "LOGOUT"
-  | "PASSWORD_CHANGED";
+  | "PASSWORD_CHANGED"
+  | "EXPORT_HC" // copia de la historia clínica entregada
+  | "GRANT_ACCESS" // concesión de acceso a la HC aprobada / revocada
+  | "REQUEST_ACCESS"; // solicitud de acceso a la HC creada / rechazada
 
 export type AuditResource =
   | "patient"
@@ -38,7 +41,9 @@ export type AuditResource =
   | "export"
   | "admin_dashboard"
   | "medication"
-  | "auth";
+  | "auth"
+  | "clinical_access_grant"
+  | "hc_copy_request";
 
 /** Largo máximo de columnas String sin @db.Text en MySQL (VARCHAR(191)). */
 const MAX_VARCHAR = 191;

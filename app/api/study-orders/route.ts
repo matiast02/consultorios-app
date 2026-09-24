@@ -5,7 +5,12 @@ import { createStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, studyOrderSnapshot } from "@/lib/clinical-ledger";
-import { CLINICAL_FORBIDDEN, entryScope, getClinicalActor } from "@/lib/clinical-access";
+import {
+  CLINICAL_FORBIDDEN,
+  getClinicalActor,
+  grantAuditDetails,
+  readScopeForList,
+} from "@/lib/clinical-access";
 
 // GET /api/study-orders — List study orders for a patient
 export async function GET(req: NextRequest) {
@@ -42,9 +47,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Médicos: solo sus órdenes. Admin: todas.
+    // Médicos: sus órdenes + las que cubra una concesión vigente. Admin: todas.
+    const scope = await readScopeForList(actor, patientId, "study_order");
     const studyOrders = await prisma.studyOrder.findMany({
-      where: { patientId, ...entryScope(actor) },
+      where: { patientId, ...scope.where },
       include: {
         patient: {
           select: { id: true, firstName: true, lastName: true },
@@ -61,7 +67,7 @@ export async function GET(req: NextRequest) {
       action: "VIEW_SENSITIVE",
       resource: "study_order",
       resourceId: patientId,
-      details: { list: true, count: studyOrders.length },
+      details: { list: true, count: studyOrders.length, ...grantAuditDetails(scope.grantId) },
       req,
     });
 

@@ -35,6 +35,8 @@ interface ResumenTabProps {
    * evolution and the "Nueva evolución / Nueva receta / Enviar resumen" actions.
    */
   canManageClinical: boolean;
+  /** La medicación habitual no está en el alcance del acceso (concesión parcial / sin acceso). */
+  medicationHidden?: boolean;
   record: ClinicalRecord | null;
   evolutions: Evolution[];
   nextShift?: Shift | null;
@@ -63,6 +65,7 @@ function getDocName(evo: Evolution): string {
 
 export function ResumenTab({
   canManageClinical,
+  medicationHidden = false,
   record,
   evolutions,
   nextShift,
@@ -153,7 +156,11 @@ export function ResumenTab({
             description="Tratamientos en curso del paciente."
           />
           <div className="space-y-1.5 px-6 pt-4">
-            {chronicMedications.length === 0 && !record?.currentMedication ? (
+            {medicationHidden ? (
+              <p className="py-3 text-center text-sm text-muted-foreground">
+                La medicación habitual no está incluida en tu acceso.
+              </p>
+            ) : chronicMedications.length === 0 && !record?.currentMedication ? (
               <p className="py-3 text-center text-sm text-muted-foreground">
                 Sin medicación crónica registrada.
               </p>

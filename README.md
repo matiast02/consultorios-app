@@ -130,7 +130,8 @@ Push to main --> Dokploy detects change --> Docker build --> Deploy
    |----------|----------|-------------|
    | `DATABASE_URL` | Yes | MySQL connection string: `mysql://user:pass@host:3306/consultorio` |
    | `AUTH_SECRET` | Yes | Generate with `openssl rand -base64 32` |
-   | `NEXTAUTH_URL` | Yes | Your production URL: `https://your-domain.com` |
+   | `NEXTAUTH_URL` | Yes | Your production URL: `https://your-domain.com` (must be https) |
+   | `HC_ENC_KEY` | Yes | AES-256 key for clinical data: `openssl rand -base64 32`. Back it up separately (see `docs/BACKUPS.md`) |
    | `ADMIN_EMAIL` | First deploy | Email for the initial admin account |
    | `ADMIN_PASSWORD` | First deploy | Password for the initial admin (min 8 chars, 1 uppercase, 1 number) |
 
@@ -216,10 +217,18 @@ types/                         # TypeScript type definitions
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | MySQL connection string | `mysql://app_user:app_password_2024@localhost:3307/consultorio` |
-| `AUTH_SECRET` | Auth.js secret key | — |
-| `NEXTAUTH_URL` | Application base URL | `http://localhost:3000` |
+| `AUTH_SECRET` | Better Auth secret (≥ 32 chars) | — |
+| `NEXTAUTH_URL` | Application base URL (https in production) | `http://localhost:3000` |
+| `HC_ENC_KEY` | AES-256-GCM key (base64, 32 bytes) for clinical data; required in production | — |
 | `ADMIN_EMAIL` | Initial admin email (first deploy only) | — |
 | `ADMIN_PASSWORD` | Initial admin password (first deploy only) | — |
+
+## Seguridad, backups y cumplimiento
+
+- **Backups, restauración y custodia de claves**: ver [`docs/BACKUPS.md`](docs/BACKUPS.md). Sin `HC_ENC_KEY` la historia clínica cifrada es irrecuperable: la clave se resguarda aparte de los dumps.
+- **Arranque en producción**: `instrumentation.ts` aborta si faltan `HC_ENC_KEY` (32 bytes base64), `AUTH_SECRET` (≥ 32 caracteres) o `NEXTAUTH_URL` con https.
+- **Purga de datos técnicos vencidos** (sesiones, tokens, rate limits): `pnpm db:purge-expired` por cron; no toca el audit log ni el ledger de la HC.
+- **Migración desde el sistema anterior**: [`prisma/MIGRATION-LEGACY.md`](prisma/MIGRATION-LEGACY.md).
 
 ## License
 

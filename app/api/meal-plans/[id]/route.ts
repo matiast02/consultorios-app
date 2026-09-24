@@ -5,7 +5,13 @@ import { updateMealPlanSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, mealPlanSnapshot } from "@/lib/clinical-ledger";
-import { CLINICAL_FORBIDDEN, canAccessEntry, getClinicalActor } from "@/lib/clinical-access";
+import {
+  canAccessEntry,
+  CLINICAL_FORBIDDEN,
+  canReadEntry,
+  getClinicalActor,
+  grantAuditDetails,
+} from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -47,8 +53,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
       },
     });
 
+    // Autor, admin o concesión vigente sobre SU paciente que lo cubra.
     // 404 (no 403) para no revelar la existencia de planes ajenos.
-    if (!mealPlan || !canAccessEntry(actor, mealPlan)) {
+    const read = mealPlan
+      ? await canReadEntry(actor, mealPlan, mealPlan.patientId, "meal_plan")
+      : null;
+    if (!mealPlan || !read?.ok) {
       return NextResponse.json(
         { success: false, error: "Plan alimentario no encontrado" },
         { status: 404 }
@@ -60,7 +70,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       action: "VIEW_SENSITIVE",
       resource: "meal_plan",
       resourceId: mealPlan.id,
-      details: { patientId: mealPlan.patientId },
+      details: { patientId: mealPlan.patientId, ...grantAuditDetails(read.grantId) },
       req,
     });
 
@@ -104,6 +114,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: "Plan alimentario no encontrado" },
         { status: 404 }
+      );
+    }
+    if (existing.userId !== actor.userId) {
+      return NextResponse.json(
+        { success: false, error: "Solo el autor puede modificar este plan" },
+        { status: 403 }
       );
     }
 
@@ -213,6 +229,12 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: "Plan alimentario no encontrado" },
         { status: 404 }
+      );
+    }
+    if (mealPlan.userId !== actor.userId) {
+      return NextResponse.json(
+        { success: false, error: "Solo el autor puede anular este plan" },
+        { status: 403 }
       );
     }
 

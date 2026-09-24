@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createEvolutionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
-import { CLINICAL_FORBIDDEN, entryScope, getClinicalActor } from "@/lib/clinical-access";
+import {
+  CLINICAL_FORBIDDEN,
+  getClinicalActor,
+  grantAuditDetails,
+  readScopeForList,
+} from "@/lib/clinical-access";
 import { recordClinicalVersion, evolutionSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -56,17 +62,23 @@ export async function GET(req: NextRequest, context: RouteContext) {
       });
     }
 
-    // Médicos: solo sus evoluciones. Admin: todas.
-    const where: Record<string, unknown> = {
+    // Médicos: sus evoluciones + las que cubra una concesión vigente. Admin: todas.
+    const scope = await readScopeForList(actor, patientId, "evolution");
+    const where: Prisma.EvolutionWhereInput = {
       clinicalRecordId: clinicalRecord.id,
-      ...entryScope(actor),
+      ...scope.where,
     };
 
     if (search) {
-      where.OR = [
-        { diagnosis: { contains: search } },
-        { reason: { contains: search } },
-        { diagnosisCode: { contains: search } },
+      // AND: el alcance puede traer su propio OR (propias + asientos puntuales).
+      where.AND = [
+        {
+          OR: [
+            { diagnosis: { contains: search } },
+            { reason: { contains: search } },
+            { diagnosisCode: { contains: search } },
+          ],
+        },
       ];
     }
 
@@ -93,7 +105,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       action: "VIEW_SENSITIVE",
       resource: "evolution",
       resourceId: patientId,
-      details: { list: true, count: evolutions.length },
+      details: { list: true, count: evolutions.length, ...grantAuditDetails(scope.grantId) },
       req,
     });
 

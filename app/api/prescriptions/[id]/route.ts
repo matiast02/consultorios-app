@@ -4,7 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, prescriptionSnapshot } from "@/lib/clinical-ledger";
-import { CLINICAL_FORBIDDEN, canAccessEntry, getClinicalActor } from "@/lib/clinical-access";
+import {
+  CLINICAL_FORBIDDEN,
+  canAccessEntry,
+  canReadEntry,
+  getClinicalActor,
+  grantAuditDetails,
+} from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -46,8 +52,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
       },
     });
 
+    // Autor, admin o concesión vigente sobre SU paciente que la cubra.
     // 404 (no 403) para no revelar la existencia de recetas ajenas.
-    if (!prescription || !canAccessEntry(actor, prescription)) {
+    const read = prescription
+      ? await canReadEntry(actor, prescription, prescription.patientId, "prescription")
+      : null;
+    if (!prescription || !read?.ok) {
       return NextResponse.json(
         { success: false, error: "Receta no encontrada" },
         { status: 404 }
@@ -59,7 +69,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       action: "VIEW_SENSITIVE",
       resource: "prescription",
       resourceId: prescription.id,
-      details: { patientId: prescription.patientId },
+      details: { patientId: prescription.patientId, ...grantAuditDetails(read.grantId) },
       req,
     });
 

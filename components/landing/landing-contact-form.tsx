@@ -38,6 +38,7 @@ export function LandingContactForm({ specializations, healthInsurances, whatsapp
       specializationId: "",
       preferredDay: "",
       message: "",
+      privacyAccepted: false,
     },
   });
 
@@ -249,10 +250,44 @@ export function LandingContactForm({ specializations, healthInsurances, whatsapp
           )}
         </div>
 
-        <p className="mt-4 flex items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
-          <Shield className="h-[15px] w-[15px]" style={{ color: "var(--primary)" }} />
-          Tus datos se tratan según la Ley 25.326 de Protección de Datos Personales.
-        </p>
+        <div className="mt-4 space-y-2 text-[13px]" style={{ color: "var(--muted)" }}>
+          <label className="flex cursor-pointer items-start gap-2.5 leading-snug">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded"
+              {...register("privacyAccepted")}
+            />
+            <span>
+              Acepto que mis datos se usen para coordinar el turno y contactarme, conforme a la{" "}
+              <strong style={{ color: "var(--foreground)" }}>Ley 25.326 de Protección de Datos Personales</strong>.
+            </span>
+          </label>
+          {errors.privacyAccepted && (
+            <p className="text-[12.5px]" style={{ color: "var(--danger, #e11d48)" }}>
+              {errors.privacyAccepted.message}
+            </p>
+          )}
+          <details className="text-[12px] leading-relaxed">
+            <summary className="flex cursor-pointer items-center gap-1.5 font-medium">
+              <Shield className="h-[14px] w-[14px]" style={{ color: "var(--primary)" }} />
+              Cómo tratamos tus datos
+            </summary>
+            <p className="mt-1.5">
+              Responsable: el consultorio. Finalidad: coordinar tu turno y contactarte por el medio que
+              indicaste. Los datos no se ceden a terceros salvo obligación legal y se conservan solo el
+              tiempo necesario para esa finalidad. Podés ejercer los derechos de acceso, rectificación y
+              supresión escribiéndonos por WhatsApp o email.
+            </p>
+            <p className="mt-1.5">
+              El titular de los datos personales tiene la facultad de ejercer el derecho de acceso a los
+              mismos en forma gratuita a intervalos no inferiores a seis meses, salvo que se acredite un
+              interés legítimo al efecto conforme lo establecido en el artículo 14, inciso 3 de la Ley
+              25.326. La Agencia de Acceso a la Información Pública, órgano de control de la Ley 25.326,
+              tiene la atribución de atender las denuncias y reclamos que se interpongan con relación al
+              incumplimiento de las normas sobre protección de datos personales.
+            </p>
+          </details>
+        </div>
       </form>
     </div>
   );

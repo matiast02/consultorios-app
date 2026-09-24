@@ -5,7 +5,12 @@ import { updateStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, studyOrderSnapshot } from "@/lib/clinical-ledger";
-import { CLINICAL_FORBIDDEN, canAccessEntry, getClinicalActor } from "@/lib/clinical-access";
+import {
+  CLINICAL_FORBIDDEN,
+  canReadEntry,
+  getClinicalActor,
+  grantAuditDetails,
+} from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -47,8 +52,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
       },
     });
 
+    // Autor, admin o concesión vigente sobre SU paciente que la cubra.
     // 404 (no 403) para no revelar la existencia de órdenes ajenas.
-    if (!studyOrder || !canAccessEntry(actor, studyOrder)) {
+    const read = studyOrder
+      ? await canReadEntry(actor, studyOrder, studyOrder.patientId, "study_order")
+      : null;
+    if (!studyOrder || !read?.ok) {
       return NextResponse.json(
         { success: false, error: "Orden de estudio no encontrada" },
         { status: 404 }
@@ -60,7 +69,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       action: "VIEW_SENSITIVE",
       resource: "study_order",
       resourceId: studyOrder.id,
-      details: { patientId: studyOrder.patientId },
+      details: { patientId: studyOrder.patientId, ...grantAuditDetails(read.grantId) },
       req,
     });
 
@@ -109,7 +118,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     const existing = await prisma.studyOrder.findUnique({ where: { id } });
-    // Solo el autor puede modificar o anular; el admin ve (canAccessEntry) pero no escribe.
+    // Solo el autor puede modificar o anular; el admin (y un médico con
+    // concesión) ven (canReadEntry) pero no escriben.
     if (!existing || existing.userId !== actor.userId) {
       return NextResponse.json(
         { success: false, error: "Orden de estudio no encontrada" },

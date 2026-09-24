@@ -180,6 +180,9 @@ export async function GET() {
       inactiveOrDeletedCount,
       recentLoginsRaw,
       activeMedicsAndStaff,
+      // Catalog health — copias de HC pendientes (Ley 26.529 art. 14: 48 h)
+      hcCopiesPendingCount,
+      hcCopiesOverdueCount,
     ] = await Promise.all([
       // Admin user for header
       prisma.user.findUnique({
@@ -402,6 +405,11 @@ export async function GET() {
           lastName: true,
         },
       }),
+      // HC copies pending / overdue (dueAt = requestedAt + 48 h)
+      prisma.hcCopyRequest.count({ where: { status: "PENDING" } }),
+      prisma.hcCopyRequest.count({
+        where: { status: "PENDING", dueAt: { lt: now } },
+      }),
     ]);
 
     // ─── Header ──────────────────────────────────────────────────────────────
@@ -526,6 +534,10 @@ export async function GET() {
       },
       healthInsurancesUnused90d: { count: healthInsurancesUnused90dCount },
       specializationsWithoutColor: { count: specsWithoutColor },
+      hcCopiesPending: {
+        count: hcCopiesPendingCount,
+        overdue: hcCopiesOverdueCount,
+      },
       modules: modules.map((m) => ({
         module: m.module,
         name: m.name,

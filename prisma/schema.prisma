@@ -59,6 +59,7 @@ model User {
   notifications      Notification[]
   moduleAccess       UserModuleAccess[]
   acceptedInsurances UserInsurance[]
+  grantsReceived     ClinicalAccessGrant[] @relation("grantsReceived")
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -231,6 +232,11 @@ model Patient {
   createdById String?
   deletedById String?
 
+  // Consentimiento informado para el tratamiento de datos de salud (Ley 25.326 art. 5-6)
+  consentType    ConsentType?
+  consentGivenAt DateTime?
+  consentNote    String?      @db.Text // cómo se obtuvo / observaciones (cifrado)
+
   os             HealthInsurance?   @relation(fields: [osId], references: [id])
   shifts         Shift[]
   clinicalRecord ClinicalRecord?
@@ -239,6 +245,8 @@ model Patient {
   mealPlans      MealPlan[]
   insurances     PatientInsurance[]
   walkInArrivals WalkInArrival[]
+  accessGrants   ClinicalAccessGrant[]
+  hcCopyRequests HcCopyRequest[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -524,6 +532,108 @@ model ClinicalEntryVersion {
   @@index([patientId])
 }
 
+// ─── Concesiones de acceso a la HC entre profesionales ───────────────────────
+// Ley 26.529 art. 19 inc. d (otro médico con autorización del paciente) y
+// Ley 25.326 art. 11 (cesión de datos sensibles con consentimiento).
+// El acceso cruzado entre médicos es siempre explícito, consentido, acotado
+// en alcance y tiempo, revocable y auditado. Extiende lib/clinical-access.ts.
+
+enum GrantStatus {
+  PENDING // solicitada por el médico que necesita acceso
+  ACTIVE // aprobada con consentimiento del paciente registrado
+  REJECTED
+  REVOKED
+  EXPIRED
+}
+
+enum GrantScope {
+  FULL
+  PARTIAL // secciones y/o asientos concretos (sections / entryIds)
+}
+
+enum ConsentType {
+  WRITTEN // escrito firmado por el paciente (o representante)
+  VERBAL_RECORDED // verbal, registrado por el profesional con fecha
+  DIGITAL_SIGNATURE // firma digital
+}
+
+model ClinicalAccessGrant {
+  id              String       @id @default(cuid())
+  patientId       String
+  grantedToUserId String // médico que recibe acceso
+  requestedById   String // quien creó la solicitud (normalmente el mismo médico)
+  decidedById     String? // médico tratante o admin que aprobó / rechazó
+  status          GrantStatus  @default(PENDING)
+  scope           GrantScope   @default(FULL)
+  sections        String?      @db.Text // JSON string[]: antecedentes|alergias|medicacion|evoluciones|recetas|estudios|planes
+  entryIds        String?      @db.Text // JSON string[]: ids de asientos concretos
+  reason          String       @db.Text // motivo clínico de la solicitud (cifrado)
+  consentType     ConsentType?
+  consentEvidence String?      @db.Text // cómo y cuándo se obtuvo el consentimiento (cifrado)
+  consentAt       DateTime?
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  decidedAt       DateTime?
+  decisionNote    String?      @db.Text // motivo de rechazo u observación (cifrado)
+  revokedAt       DateTime?
+  revokedById     String?
+
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  grantedTo User    @relation("grantsReceived", fields: [grantedToUserId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([grantedToUserId, status])
+  @@index([status, expiresAt])
+}
+
+// ─── Copia de la historia clínica para el paciente ───────────────────────────
+// Ley 26.529 art. 14 (copia autenticada dentro de las 48 hs) y art. 19
+// (quiénes pueden pedirla). El paciente no es usuario: el personal registra
+// la solicitud y la entrega; el PDF lleva los hashes del ledger.
+
+enum HcCopyRequesterType {
+  PATIENT
+  LEGAL_REPRESENTATIVE
+  HEIR
+  EXTERNAL_PROFESSIONAL // médico de otra institución con autorización del paciente
+  JUDICIAL
+}
+
+enum HcCopyStatus {
+  PENDING
+  DELIVERED
+  CANCELLED
+}
+
+model HcCopyRequest {
+  id                String              @id @default(cuid())
+  patientId         String
+  requesterType     HcCopyRequesterType
+  requesterName     String
+  requesterDni      String?
+  authorizationNote String?             @db.Text // cómo se acreditó el vínculo / autorización (cifrado)
+  reason            String?             @db.Text // (cifrado)
+  status            HcCopyStatus        @default(PENDING)
+  registeredById    String // usuario que registró la solicitud
+  requestedAt       DateTime            @default(now())
+  dueAt             DateTime // requestedAt + 48 h
+  deliveredAt       DateTime?
+  deliveredById     String?
+  deliveryNote      String?             @db.Text // "entregada en mano", "enviada por email" (cifrado)
+  documentHash      String? // sha256 del PDF entregado
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([status, dueAt])
+}
+
 // ─── Module System ───────────────────────────────────────────────────────────
 
 model ModuleConfig {
@@ -778,6 +888,8 @@ model ContactRequest {
   message          String?         @db.Text
   status           String          @default("new") // new | read | archived
   whatsappOpened   Boolean         @default(false)
+  privacyAccepted  Boolean         @default(false)
+  privacyAcceptedAt DateTime?
   ipAddress        String?
   userAgent        String?         @db.Text
   createdAt        DateTime        @default(now())

@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
       data: {
         ...data,
         birthDate: data.birthDate ? new Date(data.birthDate) : null,
+        consentGivenAt: data.consentGivenAt ? new Date(data.consentGivenAt) : null,
         createdById: session.user.id,
       },
       include: { os: true },

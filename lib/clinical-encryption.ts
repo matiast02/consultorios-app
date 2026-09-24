@@ -32,6 +32,9 @@ export const ENCRYPTED_FIELDS: Record<string, string[]> = {
   ClinicalEntryVersion: ["data", "reason"],
   // Motivo de consulta del walk-in: lo carga recepción, pero es dato de salud.
   WalkInArrival: ["note"],
+  ClinicalAccessGrant: ["reason", "consentEvidence", "decisionNote"],
+  HcCopyRequest: ["authorizationNote", "reason", "deliveryNote"],
+  Patient: ["consentNote"],
 };
 
 function encryptInto(data: unknown, fields: string[]): void {
