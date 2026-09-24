@@ -14,6 +14,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  BookOpen,
   LayoutDashboard,
   Calendar,
   Users,
@@ -122,6 +123,11 @@ const adminOnlyItems = [
     label: "Integridad HC",
     href: "/dashboard/administracion/integridad",
     icon: ShieldCheck,
+  },
+  {
+    label: "API",
+    href: "/dashboard/administracion/api-docs",
+    icon: BookOpen,
   },
 ];
 

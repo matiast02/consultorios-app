@@ -1,0 +1,1403 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Consultorio — API (app móvil)",
+    "version": "1.0.0",
+    "description": "API del sistema de gestión de consultorios. Cada consultorio corre su propia\ninstancia (base URL propia); esta documentación se genera del código en cada\ndeploy, así que describe exactamente lo que responde ese servidor.\n\n## Convenciones\n\n- **Respuestas propias**: `{ \"success\": true, \"data\": … }` en éxito y\n  `{ \"success\": false, \"error\": \"mensaje\", \"code\"?: \"CODIGO\", \"details\"?: … }` en error.\n  `error` está en español y se puede mostrar tal cual; `code` (cuando existe) es estable\n  para tomar decisiones en el cliente. Los listados paginados agregan `pagination`.\n- **Endpoints de Better Auth** (`/api/auth/sign-in/email`, `/api/auth/sign-out`,\n  `/api/auth/get-session`): usan el formato de Better Auth, sin envoltorio; sus errores son\n  `{ \"message\": \"…\", \"code\": \"…\" }`.\n- **Fechas**: ISO 8601 en UTC (`2026-09-24T14:30:00.000Z`). Fechas calendario como\n  `YYYY-MM-DD`. El servidor opera en horario de Argentina (`America/Argentina/Buenos_Aires`).\n- **IDs**: strings opacos (cuid / uuid).\n- **404 uniforme**: en datos clínicos, \"no existe\" y \"no tenés acceso\" responden igual.\n- **Rate limit**: 100 req / 10 s por IP en general; login 6 / 10 s por IP y bloqueo de\n  5 minutos por email tras 5 fallos. Respuesta `429`.\n\n## Autenticación\n\nWeb: cookie HttpOnly `better-auth.session_token` (la setea el login).\nClientes nativos (app): el mismo login devuelve el token en el header `set-auth-token`\n(y en `token` del body). Enviarlo en cada request como `Authorization: Bearer <token>`.\nEl token está firmado: no sirve un dump de la tabla de sesiones.\n\n1. `POST /api/auth/sign-in/email` con `{ \"email\", \"password\" }` → 200 + header `set-auth-token`.\n2. `GET /api/auth/get-session` → `{ \"session\", \"user\": { …, \"role\" } }` o `null` si venció.\n3. `POST /api/auth/sign-out` revoca la sesión en el servidor.\n\nSesiones: 12 h sin actividad, renovación por uso, tope absoluto de 7 días. Si el usuario\nse deshabilita, todas sus sesiones se revocan. Cambiar la contraseña revoca las demás sesiones.\n\n## Roles\n\n`medic` (profesional), `secretary` (recepción), `admin`. Cada operación indica quién\npuede llamarla (`x-roles`). Regla general sobre datos clínicos: la secretaria nunca los ve\n(salvo alergias en solo lectura); el médico ve solo sus propios asientos o los que le\nconcedieron; el admin ve todo, siempre auditado.\n\n## App móvil\n\nLas operaciones marcadas **App móvil: sí** (`x-mobile: true`) son las que la app Flutter\nconsume; `contracts/openapi.mobile.json` contiene solo esas. Ver `docs/API-MOBILE.md`\npara el flujo completo y la generación del cliente Dart.",
+    "contact": {
+      "name": "Equipo Consultorio"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://{host}",
+      "description": "Instancia del consultorio (una por cliente).",
+      "variables": {
+        "host": {
+          "default": "consultorio.example.com",
+          "description": "Dominio del consultorio"
+        }
+      }
+    },
+    {
+      "url": "http://localhost:3000",
+      "description": "Desarrollo"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Autenticación",
+      "description": "Login, sesión y contraseñas (Better Auth). Cookie en web, `Authorization: Bearer` en la app."
+    },
+    {
+      "name": "Adjuntos de HC",
+      "description": "Archivos de la HC cifrados por archivo (PDF, JPEG, PNG, WebP) con miniaturas."
+    }
+  ],
+  "paths": {
+    "/api/auth/sign-in/email": {
+      "post": {
+        "operationId": "signIn",
+        "summary": "Iniciar sesión con email y contraseña",
+        "description": "Devuelve la sesión como cookie (web) y como token firmado en el header `set-auth-token` (app). Protecciones: rate limit 6 intentos / 10 s por IP (429), bloqueo de 5 minutos por email tras 5 fallos (429), retardo progresivo, y cuenta deshabilitada o borrada → 403. Cada intento queda en el audit log.\n\n**Acceso:** público.\n\n**App móvil:** sí.",
+        "tags": [
+          "Autenticación"
+        ],
+        "security": [],
+        "x-mobile": true,
+        "x-auth": "public",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 8
+                  },
+                  "rememberMe": {
+                    "type": "boolean",
+                    "description": "Solo web (cookie persistente)."
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sesión creada. Header `set-auth-token: <token firmado>`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body inválido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetterAuthError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Email o contraseña incorrectos (`INVALID_EMAIL_OR_PASSWORD`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetterAuthError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cuenta deshabilitada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetterAuthError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit por IP o bloqueo temporal por intentos fallidos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetterAuthError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/get-session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Sesión actual",
+        "description": "Con cookie o bearer. Si no hay sesión válida (vencida, revocada, token inválido) responde **200 con body `null`**, no 401. La app debe tratar `null` como 'volver a loguear'.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "tags": [
+          "Autenticación"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-auth": "session",
+        "responses": {
+          "200": {
+            "description": "Sesión y usuario (con `role`), o `null`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "session": {
+                      "$ref": "#/components/schemas/Session"
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/SessionUser"
+                    }
+                  },
+                  "required": [
+                    "session",
+                    "user"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/sign-out": {
+      "post": {
+        "operationId": "signOut",
+        "summary": "Cerrar sesión",
+        "description": "Revoca la sesión actual en el servidor (cookie o bearer). Body vacío `{}`.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "tags": [
+          "Autenticación"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-auth": "session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Vacío."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sesión revocada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sin sesión que cerrar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetterAuthError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "operationId": "postAuthChangePassword",
+        "summary": "Cambiar la contraseña del usuario logueado",
+        "description": "Verifica la contraseña actual, guarda el hash nuevo y revoca las **demás** sesiones del usuario (la actual sigue). Rate limit por usuario (429).\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "tags": [
+          "Autenticación"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-auth": "session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "newPassword": {
+                    "allOf": [
+                      {
+                        "type": "string",
+                        "pattern": "[A-Z]",
+                        "minLength": 8
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "[0-9]"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "currentPassword",
+                  "newPassword"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contraseña cambiada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos o contraseña actual incorrecta.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas solicitudes (rate limit o bloqueo temporal).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/patients/{id}/attachments": {
+      "get": {
+        "operationId": "getPatientsByIdAttachments",
+        "summary": "Listar adjuntos visibles del paciente",
+        "description": "Sube un médico (queda como autor). Leen el autor, el admin y quien tenga una concesión vigente que cubra la sección; la secretaria nunca. Anulados: solo autor y admin los ven (marcados).\n\nMás nuevos primero. Audita `VIEW_SENSITIVE` una vez por listado (con `thumbnails`: cuántas miniaturas expone).\n\n**Acceso:** sesión (medic, admin).\n\n**App móvil:** sí.",
+        "tags": [
+          "Adjuntos de HC"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-roles": [
+          "medic",
+          "admin"
+        ],
+        "x-auth": "session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "ID del paciente",
+            "schema": {
+              "type": "string",
+              "description": "ID del paciente"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "entityType",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "EVOLUTION",
+                "STUDY_ORDER",
+                "CLINICAL_RECORD"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Adjuntos visibles para el actor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ClinicalAttachment"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos (ver `details`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "postPatientsByIdAttachments",
+        "summary": "Subir un adjunto (multipart)",
+        "description": "Solo médicos. Validación: no vacío, ≤ `ATTACHMENTS_MAX_MB` (default 15), tipo real por magic bytes (PDF, JPEG, PNG, WebP). Si se asocia a una evolución u orden, debe ser del mismo paciente, del mismo autor y no estar anulada. Se cifra por archivo (DEK envuelta con la clave maestra); las imágenes generan miniatura. Queda asiento en el ledger y audit `CREATE` solo con ids.\n\n**Acceso:** sesión (medic).\n\n**App móvil:** sí.",
+        "tags": [
+          "Adjuntos de HC"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-roles": [
+          "medic"
+        ],
+        "x-auth": "session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "ID del paciente",
+            "schema": {
+              "type": "string",
+              "description": "ID del paciente"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "entityType": {
+                    "type": "string",
+                    "enum": [
+                      "EVOLUTION",
+                      "STUDY_ORDER",
+                      "CLINICAL_RECORD"
+                    ]
+                  },
+                  "entityId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "El archivo (campo `file`)."
+                  }
+                },
+                "required": [
+                  "entityType",
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Adjunto creado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ClinicalAttachment"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sin archivo, vacío, campos inválidos o el tamaño cambió durante la subida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No es médico, o el asiento asociado es de otro autor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Paciente o asiento asociado inexistente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El asiento asociado está anulado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Cuerpo demasiado grande.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Tipo no permitido (magic bytes) o rechazado por el antivirus.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Servicio requerido no disponible (p. ej. antivirus).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/attachments/{id}": {
+      "get": {
+        "operationId": "getAttachmentsById",
+        "summary": "Descargar el archivo (descifrado en streaming)",
+        "description": "Sube un médico (queda como autor). Leen el autor, el admin y quien tenga una concesión vigente que cubra la sección; la secretaria nunca. Anulados: solo autor y admin los ven (marcados).\n\n`Content-Disposition: attachment` por defecto; con `?inline=1` (solo imagen/PDF) responde inline con CSP sandbox. Siempre `nosniff` y `Cache-Control: private, no-store`. Audita `VIEW_SENSITIVE` por descarga. El tipo de contenido es el real del archivo (PDF, JPEG, PNG o WebP).\n\n**Acceso:** sesión (medic, admin).\n\n**App móvil:** sí.",
+        "tags": [
+          "Adjuntos de HC"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-roles": [
+          "medic",
+          "admin"
+        ],
+        "x-auth": "session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "ID (cuid)",
+            "schema": {
+              "type": "string",
+              "description": "ID (cuid)"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "inline",
+            "description": "Abrir inline (imagen/PDF).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "description": "Abrir inline (imagen/PDF)."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenido del archivo; `Content-Type` según el archivo.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Archivo no disponible en el storage o clave ilegible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAttachmentsById",
+        "summary": "Anular un adjunto (lógico, solo el autor)",
+        "description": "El archivo no se borra: queda marcado como anulado con el motivo (cifrado) y se conserva con la HC. Asiento `annulled` en el ledger y audit `DELETE`.\n\n**Acceso:** sesión (medic).\n\n**App móvil:** sí.",
+        "tags": [
+          "Adjuntos de HC"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-roles": [
+          "medic"
+        ],
+        "x-auth": "session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "ID (cuid)",
+            "schema": {
+              "type": "string",
+              "description": "ID (cuid)"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Adjunto anulado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ClinicalAttachment"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Falta el motivo (3 a 300 caracteres).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo el autor anula (ni admin ni concesiones).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya estaba anulado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/attachments/{id}/meta": {
+      "get": {
+        "operationId": "getAttachmentsByIdMeta",
+        "summary": "Metadatos del adjunto",
+        "description": "Sube un médico (queda como autor). Leen el autor, el admin y quien tenga una concesión vigente que cubra la sección; la secretaria nunca. Anulados: solo autor y admin los ven (marcados).\n\nAudita `VIEW_SENSITIVE` (el nombre y la descripción son datos de salud).\n\n**Acceso:** sesión (medic, admin).\n\n**App móvil:** sí.",
+        "tags": [
+          "Adjuntos de HC"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-roles": [
+          "medic",
+          "admin"
+        ],
+        "x-auth": "session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "ID (cuid)",
+            "schema": {
+              "type": "string",
+              "description": "ID (cuid)"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadatos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ClinicalAttachment"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/attachments/{id}/thumbnail": {
+      "get": {
+        "operationId": "getAttachmentsByIdThumbnail",
+        "summary": "Miniatura WebP (solo imágenes)",
+        "description": "Mismo perímetro que la descarga. Sin auditoría propia (la cubre el listado). 404 también cuando no hay miniatura (PDF, imagen ilegible o archivo faltante): la UI vuelve al ícono.\n\n**Acceso:** sesión (medic, admin).\n\n**App móvil:** sí.",
+        "tags": [
+          "Adjuntos de HC"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-roles": [
+          "medic",
+          "admin"
+        ],
+        "x-auth": "session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "ID (cuid)",
+            "schema": {
+              "type": "string",
+              "description": "ID (cuid)"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WebP ≤ 384 px, inline, `Content-Length` exacto.",
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "better-auth.session_token",
+        "description": "Sesión web (Better Auth). La cookie se setea en el login y es HttpOnly."
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Sesión para clientes nativos: el token viene en el header `set-auth-token` de la respuesta de login y se envía como `Authorization: Bearer <token>`."
+      },
+      "cronSecret": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "`Bearer <CRON_SECRET>`; solo para el cron del servidor."
+      }
+    },
+    "schemas": {
+      "SignInResponse": {
+        "type": "object",
+        "properties": {
+          "redirect": {
+            "type": "boolean"
+          },
+          "token": {
+            "type": "string",
+            "description": "Mismo token firmado que el header `set-auth-token`."
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
+          }
+        },
+        "required": [
+          "redirect",
+          "token",
+          "user"
+        ]
+      },
+      "AuthUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "emailVerified": {
+            "type": "boolean"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "emailVerified",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "BetterAuthError": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "example": "INVALID_EMAIL_OR_PASSWORD"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "Token de sesión SIN firma; no sirve como bearer."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Expiración deslizante (12 h sin uso)."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          },
+          "ipAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "userAgent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "token",
+          "expiresAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SessionUser": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AuthUser"
+          }
+        ],
+        "properties": {
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "medic",
+              "secretary",
+              "admin",
+              null
+            ],
+            "description": "Rol efectivo; define qué puede hacer la app."
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "isDeleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "role",
+          "isActive",
+          "isDeleted"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": false
+          },
+          "error": {
+            "type": "string",
+            "description": "Mensaje para mostrar (español)."
+          },
+          "code": {
+            "type": "string",
+            "description": "Código estable para la app (p. ej. SLOT_TAKEN)."
+          },
+          "details": {
+            "description": "Errores de validación por campo (Zod flatten)."
+          }
+        },
+        "required": [
+          "success",
+          "error"
+        ]
+      },
+      "ClinicalAttachment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "patientId": {
+            "type": "string"
+          },
+          "entityType": {
+            "$ref": "#/components/schemas/AttachmentEntityType"
+          },
+          "entityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ID de la evolución u orden asociada; null si es de la ficha en general."
+          },
+          "fileName": {
+            "type": "string",
+            "description": "Nombre original (dato clínico: va cifrado en la base)."
+          },
+          "mimeType": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "description": "Tipo REAL detectado por magic bytes."
+          },
+          "sizeBytes": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Hash del contenido en claro (integridad, ledger)."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uploadedBy": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "shortName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "shortName"
+            ]
+          },
+          "canAnnul": {
+            "type": "boolean",
+            "description": "Solo el autor, mientras no esté anulado."
+          },
+          "annulledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          },
+          "annulReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          },
+          "inlinePreviewable": {
+            "type": "boolean",
+            "description": "Imagen o PDF: se puede abrir con `?inline=1`."
+          },
+          "hasThumbnail": {
+            "type": "boolean",
+            "description": "Hay miniatura en `GET /api/attachments/{id}/thumbnail` (solo imágenes)."
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Ancho de la imagen original; null en PDF."
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "patientId",
+          "entityType",
+          "entityId",
+          "fileName",
+          "mimeType",
+          "sizeBytes",
+          "sha256",
+          "description",
+          "uploadedBy",
+          "canAnnul",
+          "annulledAt",
+          "annulReason",
+          "createdAt",
+          "inlinePreviewable",
+          "hasThumbnail",
+          "width",
+          "height"
+        ]
+      },
+      "AttachmentEntityType": {
+        "type": "string",
+        "enum": [
+          "EVOLUTION",
+          "STUDY_ORDER",
+          "CLINICAL_RECORD"
+        ]
+      }
+    }
+  }
+}
