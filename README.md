@@ -229,6 +229,7 @@ types/                         # TypeScript type definitions
 - **Arranque en producción**: `instrumentation.ts` aborta si faltan `HC_ENC_KEY` (32 bytes base64), `AUTH_SECRET` (≥ 32 caracteres) o `NEXTAUTH_URL` con https.
 - **Purga de datos técnicos vencidos** (sesiones, tokens, rate limits): `pnpm db:purge-expired` por cron; no toca el audit log ni el ledger de la HC.
 - **Migración desde el sistema anterior**: [`prisma/MIGRATION-LEGACY.md`](prisma/MIGRATION-LEGACY.md).
+- **Recordatorios de turnos**: se planifican y despachan con `POST /api/cron/reminders` (header `Authorization: Bearer $CRON_SECRET`, cada 15-30 min desde el cron del host o Dokploy) o con `pnpm reminders:run`. Email automático según `EMAIL_PROVIDER` (Resend / SMTP; sin proveedor, en desarrollo se imprime en consola); WhatsApp se envía a mano desde el dashboard de recepción (click-to-chat). El paciente confirma o cancela desde el link público `/turno/<token>`. Configuración en Configuración → Consultorio → Recordatorios.
 
 ## License
 

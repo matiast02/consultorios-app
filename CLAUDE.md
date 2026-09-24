@@ -85,6 +85,7 @@ pnpm run docker:down  # Stop MySQL container
 - Consentimiento: `Patient.consentType/consentGivenAt/consentNote` (Ley 25.326 art. 5-6) se carga en el paso 2 del alta; el formulario público exige `privacyAccepted` con el texto de la Disp. DNPDP 10/2008
 - Acceso cruzado entre médicos solo vía `ClinicalAccessGrant` (solicitud → aprobación con consentimiento → vigencia acotada → revocable); copia de HC para el paciente vía `HcCopyRequest` (48 hs, PDF con hashes del ledger, audit `EXPORT_HC`)
 - Operación: backups, restauración y custodia de claves en `docs/BACKUPS.md`; purga programada `pnpm db:purge-expired`
+- Recordatorios de turnos: `lib/reminders/scheduler.ts` (plan + dispatch), email por `lib/notifications/email.ts` (Resend/SMTP/consola según env), WhatsApp manual click-to-chat desde recepción, link público `/turno/<token>` (token derivado de `AUTH_SECRET` + id, solo hash en DB) para confirmar/cancelar/opt-out; cron `POST /api/cron/reminders` con `CRON_SECRET` o `pnpm reminders:run`. Los mensajes y la página pública nunca llevan contenido clínico
 - Route groups: `(auth)` for public, `(dashboard)` for protected pages
 - Role-based access: medic, secretary, admin
 - Soft deletes on User and Patient (deletedAt field)

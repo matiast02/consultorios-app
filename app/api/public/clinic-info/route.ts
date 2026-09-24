@@ -43,13 +43,26 @@ export async function GET() {
       }),
     ]);
 
-    const settings = settingsRow
-      ? {
-          ...settingsRow,
-          mapLat: settingsRow.mapLat == null ? null : Number(settingsRow.mapLat),
-          mapLng: settingsRow.mapLng == null ? null : Number(settingsRow.mapLng),
-        }
-      : null;
+    // Solo campos públicos: la configuración de recordatorios (plantilla, canales,
+    // anticipación) es interna y no se expone en la landing.
+    let settings: Record<string, unknown> | null = null;
+    if (settingsRow) {
+      const {
+        remindersEnabled: _remindersEnabled,
+        reminderHoursBefore: _reminderHoursBefore,
+        reminderSecondHoursBefore: _reminderSecondHoursBefore,
+        reminderChannels: _reminderChannels,
+        reminderTemplate: _reminderTemplate,
+        ...publicSettings
+      } = settingsRow;
+      void _remindersEnabled; void _reminderHoursBefore; void _reminderSecondHoursBefore;
+      void _reminderChannels; void _reminderTemplate;
+      settings = {
+        ...publicSettings,
+        mapLat: settingsRow.mapLat == null ? null : Number(settingsRow.mapLat),
+        mapLng: settingsRow.mapLng == null ? null : Number(settingsRow.mapLng),
+      };
+    }
 
     const publicSpecializations = specializations
       .filter((s) => s._count.users > 0)

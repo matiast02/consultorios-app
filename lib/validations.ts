@@ -28,6 +28,8 @@ export const createPatientSchema = z.object({
   consentType: z.enum(["WRITTEN", "VERBAL_RECORDED", "DIGITAL_SIGNATURE"]).nullable().optional(),
   consentGivenAt: z.string().nullable().optional(), // ISO date
   consentNote: z.string().max(500).nullable().optional(),
+  // Oposición a recibir recordatorios de turnos (Ley 25.326 art. 27)
+  reminderOptOut: z.boolean().optional(),
 });
 
 export const CONSENT_TYPE_LABELS: Record<"WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE", string> = {
@@ -482,6 +484,8 @@ export type UpdateUserInsurancesInput = z.infer<typeof updateUserInsurancesSchem
 const PHONE_DIGITS_RE = /^[0-9]{10,15}$/;
 const TIME_HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+export const reminderChannelEnum = z.enum(["EMAIL", "WHATSAPP", "SMS"]);
+
 export const clinicSettingsSchema = z.object({
   name: z.string().max(80, "Máx. 80 caracteres").nullable().optional(),
   tagline: z.string().max(80).nullable().optional(),
@@ -505,6 +509,29 @@ export const clinicSettingsSchema = z.object({
   showContactForm: z.boolean().optional(),
   yearsOfService: z.number().int().min(0).max(200).nullable().optional(),
   patientsServedDisplay: z.string().max(40).nullable().optional(),
+  // Recordatorios de turnos
+  remindersEnabled: z.boolean().optional(),
+  reminderHoursBefore: z.number().int().min(1, "Mín. 1 hora").max(168, "Máx. 168 horas (7 días)").optional(),
+  reminderSecondHoursBefore: z
+    .number()
+    .int()
+    .min(1, "Mín. 1 hora")
+    .max(48, "Máx. 48 horas")
+    .nullable()
+    .optional(),
+  reminderChannels: z.array(reminderChannelEnum).max(3).optional(),
+  reminderTemplate: z.string().max(1000, "Máx. 1000 caracteres").nullable().optional(),
+});
+
+// Acciones de recepción sobre un recordatorio (PATCH /api/shifts/reminders/[id])
+export const reminderActionSchema = z.object({
+  action: z.enum(["mark_sent", "mark_failed", "retry"]),
+  note: z.string().trim().max(200).optional(),
+});
+
+// Respuesta del paciente desde el link público (/api/public/turno/[token])
+export const publicShiftActionSchema = z.object({
+  action: z.enum(["confirm", "cancel", "opt_out"]),
 });
 
 export const clinicHoursDaySchema = z

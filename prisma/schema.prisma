@@ -237,6 +237,10 @@ model Patient {
   consentGivenAt DateTime?
   consentNote    String?      @db.Text // cómo se obtuvo / observaciones (cifrado)
 
+  // Recordatorios: el paciente puede optar por no recibirlos (Ley 25.326 art. 27 / oposición)
+  reminderOptOut   Boolean   @default(false)
+  reminderOptOutAt DateTime?
+
   os             HealthInsurance?   @relation(fields: [osId], references: [id])
   shifts         Shift[]
   clinicalRecord ClinicalRecord?
@@ -330,6 +334,11 @@ model Shift {
   recurrenceGroupId  String? // Shared ID for recurring shift series
   rescheduledFrom    DateTime? // Original date before auto-reschedule
   rescheduledAt      DateTime? // When the auto-reschedule happened
+
+  // Confirmación y origen del turno
+  confirmedAt DateTime?
+  confirmedVia String? // "PATIENT_LINK" | "STAFF" | "PHONE"
+  source       String    @default("STAFF") // "STAFF" | "ONLINE" (reserva web)
 
   // Reception / waiting-room state
   arrivedAt             DateTime? // Paciente llegó al consultorio (en sala de espera)
@@ -802,7 +811,14 @@ model ShiftReminder {
   shiftId      String
   scheduledFor DateTime // Cuándo debe enviarse el recordatorio
   status       ReminderStatus @default(PENDING)
-  channel      String         @default("email") // "email" | "sms" | "whatsapp"
+  channel      String         @default("EMAIL") // "EMAIL" | "WHATSAPP" | "SMS"
+  offsetHours  Int            @default(24) // 24 = recordatorio del día anterior, 2 = del día
+  manual       Boolean        @default(false) // WhatsApp click-to-chat: lo envía recepción y lo marca
+  deliveredTo  String? // email o teléfono usado (para trazabilidad)
+  tokenHash    String?        @unique // sha256 del token del link de confirmación
+  tokenExpiresAt DateTime?
+  response     String? // "CONFIRMED" | "CANCELLED" (respuesta del paciente vía link)
+  respondedAt  DateTime?
   sentAt       DateTime?
   errorMessage String?        @db.Text
 
@@ -811,6 +827,7 @@ model ShiftReminder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([shiftId, offsetHours])
   @@index([shiftId])
   @@index([status, scheduledFor])
   @@index([scheduledFor])
@@ -862,6 +879,14 @@ model ClinicSettings {
   showContactForm        Boolean  @default(true)
   yearsOfService         Int?
   patientsServedDisplay  String?
+
+  // Recordatorios de turnos
+  remindersEnabled           Boolean @default(true)
+  reminderHoursBefore        Int     @default(24) // primer recordatorio
+  reminderSecondHoursBefore  Int? // segundo recordatorio (p.ej. 2), opcional
+  reminderChannels           String  @default("[\"EMAIL\",\"WHATSAPP\"]") // JSON ReminderChannel[]
+  reminderTemplate           String? @db.Text // plantilla con {paciente} {fecha} {hora} {profesional} {consultorio} {direccion} {link}
+
   updatedAt              DateTime @updatedAt
 }
 

@@ -120,6 +120,7 @@ export async function POST(req: NextRequest) {
         ...data,
         birthDate: data.birthDate ? new Date(data.birthDate) : null,
         consentGivenAt: data.consentGivenAt ? new Date(data.consentGivenAt) : null,
+        reminderOptOutAt: data.reminderOptOut ? new Date() : null,
         createdById: session.user.id,
       },
       include: { os: true },

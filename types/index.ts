@@ -63,6 +63,9 @@ export interface Patient {
   consentType?: "WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE" | null;
   consentGivenAt?: string | null;
   consentNote?: string | null;
+  // Oposición a recordatorios de turnos (contracts/api-schemas/reminders.yaml)
+  reminderOptOut?: boolean;
+  reminderOptOutAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -619,6 +622,9 @@ export interface NextToCallData {
   minutesWaiting: number;
 }
 
+export type ReminderChannel = "EMAIL" | "WHATSAPP" | "SMS";
+export type ReminderResponse = "CONFIRMED" | "CANCELLED";
+
 export interface ReminderItem {
   id: string;
   shiftId: string;
@@ -627,6 +633,45 @@ export interface ReminderItem {
   medicShortName: string;
   medicColor?: string | null;
   status: ReminderStatus;
+  channel?: ReminderChannel;
+  offsetHours?: number;
+  /** WhatsApp click-to-chat: lo envía recepción y lo marca como enviado. */
+  manual?: boolean;
+  /** Link wa.me con el mensaje prellenado (solo canal WHATSAPP con teléfono). */
+  waLink?: string | null;
+  deliveredTo?: string | null;
+  response?: ReminderResponse | null;
+  respondedAt?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface ReminderSettings {
+  remindersEnabled: boolean;
+  reminderHoursBefore: number;
+  reminderSecondHoursBefore: number | null;
+  reminderChannels: ReminderChannel[];
+  reminderTemplate: string | null;
+}
+
+export interface ReminderDispatchSummary {
+  planned: number;
+  sentEmail: number;
+  manualPending: number;
+  failed: number;
+  skippedOptOut: number;
+  skippedNoContact: number;
+}
+
+/** Vista pública mínima del turno para el link de confirmación (sin datos clínicos). */
+export interface PublicShiftConfirmation {
+  clinicName: string | null;
+  patientFirstName: string;
+  start: string;
+  medicShortName: string;
+  address: string | null;
+  status: ShiftStatus;
+  canRespond: boolean;
+  response: ReminderResponse | null;
 }
 
 export interface SecretaryRemindersData {

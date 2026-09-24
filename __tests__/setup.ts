@@ -49,6 +49,8 @@ export const prismaMock = {
   // Copia de HC (fase 3)
   hcCopyRequest: createModelMock(),
   clinicSettings: createModelMock(),
+  // Recordatorios de turnos
+  shiftReminder: createModelMock(),
   // Better Auth
   account: createModelMock(),
   session: createModelMock(),

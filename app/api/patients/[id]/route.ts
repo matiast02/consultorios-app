@@ -127,6 +127,16 @@ export async function PUT(req: NextRequest, context: RouteContext) {
               ? new Date(data.consentGivenAt)
               : null
             : undefined,
+        // Fecha de la oposición: se fija al activarla (sin pisar la original si
+        // ya estaba activa) y se limpia al revocarla.
+        reminderOptOutAt:
+          data.reminderOptOut === undefined
+            ? undefined
+            : data.reminderOptOut
+              ? existing.reminderOptOut
+                ? undefined
+                : new Date()
+              : null,
       },
       include: { os: true },
     });

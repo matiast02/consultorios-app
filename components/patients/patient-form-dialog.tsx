@@ -66,6 +66,8 @@ const patientSchema = z.object({
   consentType: z.enum(["WRITTEN", "VERBAL_RECORDED", "DIGITAL_SIGNATURE"]).optional(),
   consentGivenAt: z.string().optional(),
   consentNote: z.string().max(500, "Máximo 500 caracteres").optional(),
+  // Oposición a recibir recordatorios de turnos (Ley 25.326 art. 27)
+  reminderOptOut: z.boolean().optional(),
 });
 
 type PatientFormValues = z.infer<typeof patientSchema>;
@@ -156,12 +158,14 @@ export function PatientFormDialog({
       consentType: "WRITTEN",
       consentGivenAt: "",
       consentNote: "",
+      reminderOptOut: false,
     },
   });
 
   const selectedOsId = watch("osId");
   const selectedSex = watch("sex");
   const consentGiven = watch("consentGiven") === true;
+  const reminderOptOut = watch("reminderOptOut") === true;
   const selectedConsentType = watch("consentType") ?? "WRITTEN";
   const dniValue = watch("dni") ?? "";
   const birthDateValue = watch("birthDate") ?? "";
@@ -192,6 +196,7 @@ export function PatientFormDialog({
             ? new Date(patient.consentGivenAt).toISOString().split("T")[0]
             : "",
           consentNote: patient.consentNote ?? "",
+          reminderOptOut: patient.reminderOptOut ?? false,
         });
         // Load existing additional insurances
         async function loadPatientInsurances() {
@@ -237,6 +242,7 @@ export function PatientFormDialog({
           consentType: "WRITTEN",
           consentGivenAt: "",
           consentNote: "",
+          reminderOptOut: false,
         });
         setAdditionalInsurances([]);
       }
@@ -313,6 +319,8 @@ export function PatientFormDialog({
         ? data.consentGivenAt || new Date().toISOString().split("T")[0]
         : null;
       body.consentNote = consentGiven ? data.consentNote || null : null;
+      // Recordatorios: siempre viaja como boolean explícito (el backend registra reminderOptOutAt).
+      body.reminderOptOut = data.reminderOptOut === true;
 
       const res = await fetch(url, {
         method,
@@ -816,6 +824,30 @@ export function PatientFormDialog({
                     </div>
                   </div>
                 )}
+
+                {/* Oposición a recordatorios (independiente del consentimiento) */}
+                <div className="border-t pt-3">
+                  <label className="flex cursor-pointer items-start gap-2.5 text-[13px] leading-snug">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                      {...register("reminderOptOut")}
+                    />
+                    <span>
+                      No enviar recordatorios de turnos a este paciente
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Ni por email ni por WhatsApp. Marcalo si el paciente pidió no recibirlos.
+                      </span>
+                    </span>
+                  </label>
+                  {patient?.reminderOptOut && patient.reminderOptOutAt && (
+                    <p className="mt-1.5 pl-[26px] text-xs text-muted-foreground">
+                      {reminderOptOut
+                        ? `Pidió no recibir recordatorios el ${format(new Date(patient.reminderOptOutAt), "d 'de' MMMM 'de' yyyy", { locale: es })}.`
+                        : "Al guardar, el paciente vuelve a recibir recordatorios."}
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* COBERTURA */}
