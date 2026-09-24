@@ -692,6 +692,11 @@ export interface ClinicalAttachment {
   annulReason: string | null;
   createdAt: string;
   inlinePreviewable: boolean;
+  /** Solo imágenes decodificadas correctamente: GET /api/attachments/{id}/thumbnail. */
+  hasThumbnail: boolean;
+  /** Dimensiones de la imagen original (null en PDF). */
+  width: number | null;
+  height: number | null;
 }
 
 // ─── Reservas online ─────────────────────────────────────────────────────────

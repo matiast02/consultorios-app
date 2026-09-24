@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Ban,
@@ -115,6 +115,20 @@ function when(iso: string): { label: string; full: string } {
     label: rel === "hoy" || rel === "ayer" ? `${rel} ${fmtTime(d)}` : rel,
     full: `${fmtDateAR(d)} ${fmtTime(d)}`,
   };
+}
+
+function thumbnailUrl(id: string) {
+  return `/api/attachments/${id}/thumbnail`;
+}
+
+/** URL local (blob:) para previsualizar un archivo antes de subirlo; se libera al cambiar. */
+function useObjectUrl(file: File | null): string | null {
+  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => {
+    if (!url) return;
+    return () => URL.revokeObjectURL(url);
+  }, [url]);
+  return url;
 }
 
 interface UploadResult {
@@ -552,11 +566,24 @@ function StagedRow({
   const descId = useId();
   const isUploading = item.status === "uploading";
   const processing = isUploading && item.progress >= 100;
+  const mime = item.file.type || (fileExt(item.file.name) === ".pdf" ? "application/pdf" : "image/*");
+  const localPreview = useObjectUrl(isImage(mime) ? item.file : null);
+  const [previewFailed, setPreviewFailed] = useState(false);
 
   return (
     <li className="flex flex-col gap-2 px-3 py-2.5">
       <div className="flex items-center gap-2.5">
-        <MimeIcon mime={item.file.type || (fileExt(item.file.name) === ".pdf" ? "application/pdf" : "image/*")} />
+        {localPreview && !previewFailed ? (
+          // eslint-disable-next-line @next/next/no-img-element -- blob local, todavía no subido
+          <img
+            src={localPreview}
+            alt=""
+            className="h-8 w-8 shrink-0 rounded-md border object-cover"
+            onError={() => setPreviewFailed(true)}
+          />
+        ) : (
+          <MimeIcon mime={mime} />
+        )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-[12.5px] font-medium" title={item.file.name}>
             {item.file.name}
@@ -648,6 +675,73 @@ function MimeIcon({ mime, className }: { mime: string; className?: string }) {
   );
 }
 
+/**
+ * Miniatura de un adjunto de imagen. Viene del endpoint autenticado que la
+ * descifra; si falla (sin acceso, archivo faltante) se vuelve al ícono.
+ * Clic = vista previa; anulado = solo se muestra, apagada.
+ */
+function Thumbnail({
+  attachment: a,
+  compact,
+  annulled,
+  onClick,
+}: {
+  attachment: ClinicalAttachment;
+  compact: boolean;
+  annulled: boolean;
+  onClick: () => void;
+}) {
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  if (state === "error") return <MimeIcon mime={a.mimeType} className={cn(annulled && "opacity-50")} />;
+
+  const img = (
+    // eslint-disable-next-line @next/next/no-img-element -- endpoint autenticado, sin optimizador
+    <img
+      src={thumbnailUrl(a.id)}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      draggable={false}
+      className={cn("h-full w-full object-cover", state === "loading" && "opacity-0")}
+      onLoad={() => setState("ready")}
+      onError={() => setState("error")}
+    />
+  );
+  const frame = cn(
+    "relative shrink-0 overflow-hidden rounded-md border bg-muted",
+    compact ? "h-11 w-11" : "h-14 w-14",
+    state === "loading" && "animate-pulse",
+  );
+
+  if (annulled) {
+    return (
+      <span className={cn(frame, "opacity-50 grayscale")} aria-hidden>
+        {img}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Ver ${a.fileName}`}
+      title="Ver imagen"
+      className={cn(
+        frame,
+        "group/thumb cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      )}
+    >
+      {img}
+      <span
+        className="absolute inset-0 flex items-center justify-center bg-black/35 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100 group-focus-visible/thumb:opacity-100"
+        aria-hidden
+      >
+        <Eye className="h-4 w-4 drop-shadow" />
+      </span>
+    </button>
+  );
+}
+
 function AttachmentRow({
   attachment: a,
   compact,
@@ -671,7 +765,11 @@ function AttachmentRow({
         annulled && "bg-muted/30",
       )}
     >
-      <MimeIcon mime={a.mimeType} className={cn(annulled && "opacity-50")} />
+      {a.hasThumbnail ? (
+        <Thumbnail attachment={a} compact={compact} annulled={annulled} onClick={onPreview} />
+      ) : (
+        <MimeIcon mime={a.mimeType} className={cn(annulled && "opacity-50")} />
+      )}
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -698,7 +796,9 @@ function AttachmentRow({
           )}
         </div>
         <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-          {formatBytes(a.sizeBytes)} · {a.uploadedBy?.shortName ?? "Profesional"} ·{" "}
+          {formatBytes(a.sizeBytes)}
+          {a.width && a.height ? ` · ${a.width} × ${a.height} px` : ""} ·{" "}
+          {a.uploadedBy?.shortName ?? "Profesional"} ·{" "}
           <time dateTime={a.createdAt} title={created.full}>
             {created.label}
           </time>
@@ -798,13 +898,25 @@ function PreviewDialog({
                 {a.fileName}
               </DialogTitle>
               <DialogDescription className="text-[12px]">
-                {formatBytes(a.sizeBytes)} · {a.uploadedBy?.shortName ?? "Profesional"}
+                {formatBytes(a.sizeBytes)}
+                {a.width && a.height ? ` · ${a.width} × ${a.height} px` : ""} ·{" "}
+                {a.uploadedBy?.shortName ?? "Profesional"}
                 {created && ` · ${created.full}`}
                 {a.description ? ` · ${a.description}` : ""}
               </DialogDescription>
             </DialogHeader>
 
             <div className="relative min-h-0 flex-1 overflow-hidden rounded-md border bg-muted/40">
+              {/* Mientras carga la imagen completa, la miniatura desenfocada de fondo. */}
+              {a.hasThumbnail && imgState === "loading" && (
+                // eslint-disable-next-line @next/next/no-img-element -- endpoint autenticado, sin optimizador
+                <img
+                  src={thumbnailUrl(a.id)}
+                  alt=""
+                  aria-hidden
+                  className="absolute inset-0 h-full w-full scale-105 object-contain opacity-60 blur-md"
+                />
+              )}
               {/* Solo imágenes: los PDF se abren en una pestaña nueva. */}
               <div className="flex h-full w-full items-center justify-center overflow-auto p-2">
                 {imgState === "loading" && (

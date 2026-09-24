@@ -14,7 +14,10 @@ import {
 } from "@/lib/clinical-access";
 import { ENTRY_KIND_SECTION } from "@/lib/clinical-grants-shared";
 import { normalizeFileName, uploaderShortName } from "@/lib/attachments/service";
-import { ATTACHMENT_CSP, contentDisposition, downloadHeaders, safeContentType } from "@/lib/attachments/http";
+import { ATTACHMENT_CSP, contentDisposition, downloadHeaders, safeContentType, thumbnailHeaders } from "@/lib/attachments/http";
+import { objectKey, thumbnailObjectKey } from "@/lib/attachments/storage";
+import { isThumbnailable, makeThumbnail, THUMBNAIL_MAX_PX } from "@/lib/attachments/thumbnail";
+import sharp from "sharp";
 import { parseClamdResponse, scanWithClamav, ClamavUnavailableError } from "@/lib/attachments/clamav";
 import { closedPort, fakeClamd, markerVerdict, TEST_MARKER, type FakeClamd } from "./helpers/fake-clamd";
 
@@ -228,5 +231,68 @@ describe("clamav", () => {
     await expect(
       scanWithClamav(Readable.from([Buffer.from("x")]), { host: "127.0.0.1", port, timeoutMs: 2000 }),
     ).rejects.toBeInstanceOf(ClamavUnavailableError);
+  });
+});
+
+// ─── Miniaturas ──────────────────────────────────────────────────────────────
+
+describe("miniaturas", () => {
+  const solid = (width: number, height: number) =>
+    sharp({ create: { width, height, channels: 3, background: "#3366cc" } });
+
+  it("isThumbnailable: imágenes sí, PDF no", () => {
+    expect(isThumbnailable("image/jpeg")).toBe(true);
+    expect(isThumbnailable("image/png")).toBe(true);
+    expect(isThumbnailable("image/webp")).toBe(true);
+    expect(isThumbnailable("application/pdf")).toBe(false);
+  });
+
+  it("la clave de la miniatura va junto al original, saneada igual", () => {
+    expect(objectKey("p1", "att1")).toBe("p1/att1.hca");
+    expect(thumbnailObjectKey("p1", "att1")).toBe("p1/att1.thumb.hca");
+    expect(thumbnailObjectKey("../p1", "a/b")).toBe("p1/ab.thumb.hca");
+  });
+
+  it("PNG 800×600 → WebP de 384×288 e informa las dimensiones del original", async () => {
+    const t = await makeThumbnail(await solid(800, 600).png().toBuffer());
+    expect(t.data.subarray(0, 4).toString("ascii")).toBe("RIFF");
+    expect(t.data.subarray(8, 12).toString("ascii")).toBe("WEBP");
+    expect([t.width, t.height]).toEqual([THUMBNAIL_MAX_PX, 288]);
+    expect(t.source).toEqual({ width: 800, height: 600 });
+  });
+
+  it("una imagen chica no se agranda", async () => {
+    const t = await makeThumbnail(await solid(120, 90).png().toBuffer());
+    expect([t.width, t.height]).toEqual([120, 90]);
+    expect(t.source).toEqual({ width: 120, height: 90 });
+  });
+
+  it("JPEG con orientación EXIF 6 → se rota y la miniatura sale sin metadatos", async () => {
+    const jpg = await solid(600, 400).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+    expect((await sharp(jpg).metadata()).orientation).toBe(6);
+    const t = await makeThumbnail(jpg);
+    expect(t.source).toEqual({ width: 400, height: 600 });
+    expect([t.width, t.height]).toEqual([256, THUMBNAIL_MAX_PX]);
+    const meta = await sharp(t.data).metadata();
+    expect(meta.format).toBe("webp");
+    expect(meta.orientation).toBeUndefined();
+    expect(meta.exif).toBeUndefined();
+  });
+
+  it("contenido que no es imagen → lanza (la subida lo trata como 'sin miniatura')", async () => {
+    await expect(makeThumbnail(Buffer.from("no soy una imagen"))).rejects.toThrow();
+    await expect(makeThumbnail(Buffer.alloc(0))).rejects.toThrow();
+  });
+
+  it("thumbnailHeaders: WebP inline con sandbox, nosniff, no-store y Content-Length opcional", () => {
+    const h = thumbnailHeaders(1234);
+    expect(h.get("Content-Type")).toBe("image/webp");
+    expect(h.get("Content-Disposition")).toBe(`inline; filename="miniatura.webp"; filename*=UTF-8''miniatura.webp`);
+    expect(h.get("Content-Security-Policy")).toBe(ATTACHMENT_CSP.inlineImage);
+    expect(h.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(h.get("Cache-Control")).toBe("private, no-store");
+    expect(h.get("X-Frame-Options")).toBe("SAMEORIGIN");
+    expect(h.get("Content-Length")).toBe("1234");
+    expect(thumbnailHeaders(null).get("Content-Length")).toBeNull();
   });
 });

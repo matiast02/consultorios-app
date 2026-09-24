@@ -11,10 +11,11 @@ import { NextRequest } from "next/server";
 import { prismaMock, resetAllMocks } from "../setup";
 import { getUserRole } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
-import { encryptToStream } from "@/lib/attachments/file-crypto";
+import sharp from "sharp";
+import { decryptBuffer, encryptToStream, unwrapDek } from "@/lib/attachments/file-crypto";
 import { decryptField } from "@/lib/field-crypto";
-import { getAttachmentStorage, objectKey } from "@/lib/attachments/storage";
-import { uploadAttachment } from "@/lib/attachments/service";
+import { getAttachmentStorage, objectKey, thumbnailObjectKey } from "@/lib/attachments/storage";
+import { generateMissingThumbnail, uploadAttachment } from "@/lib/attachments/service";
 import { fakeClamd, closedPort, TEST_MARKER, type FakeClamd } from "../helpers/fake-clamd";
 
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
@@ -22,6 +23,7 @@ vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 import { GET as listRoute, POST as uploadRoute } from "@/app/api/patients/[id]/attachments/route";
 import { GET as downloadRoute, DELETE as annulRoute } from "@/app/api/attachments/[id]/route";
 import { GET as metaRoute } from "@/app/api/attachments/[id]/meta/route";
+import { GET as thumbnailRoute } from "@/app/api/attachments/[id]/thumbnail/route";
 import { GET as ledgerRoute } from "@/app/api/clinical-ledger/route";
 
 // ─── Entorno: clave de prueba y storage temporal ─────────────────────────────
@@ -30,7 +32,8 @@ const ENV_KEYS = ["HC_ENC_KEY", "ATTACHMENTS_DIR", "ATTACHMENTS_MAX_MB", "CLAMAV
 const savedEnv: Record<string, string | undefined> = {};
 let storageDir = "";
 
-beforeAll(() => {
+beforeAll(async () => {
+  realPng = await solidImage(640, 480).png().toBuffer();
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
   process.env.HC_ENC_KEY = crypto.randomBytes(32).toString("base64");
   storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "hc-attachments-test-"));
@@ -52,6 +55,10 @@ const PDF = Buffer.from("%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 7)]);
 const EXE = Buffer.concat([Buffer.from("MZ\x90\x00\x03\x00\x00\x00", "latin1"), Buffer.alloc(64, 0)]);
 const sha256 = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
+/** Imagen real (decodificable) de 640×480; se genera una vez (beforeAll). */
+let realPng: Buffer;
+const solidImage = (width: number, height: number) =>
+  sharp({ create: { width, height, channels: 3, background: "#2a9d8f" } });
 
 const patientCtx = { params: Promise.resolve({ id: "p1" }) };
 const idCtx = (id = "att1") => ({ params: Promise.resolve({ id }) });
@@ -89,7 +96,7 @@ function withGrant(sections: string[], entryIds: string[] = [], scope: "FULL" | 
 }
 
 /** Guarda `content` cifrado como lo haría la subida y devuelve la fila de la base. */
-async function storedAttachment(content: Buffer, over: Record<string, unknown> = {}) {
+async function storedAttachment(content: Buffer, over: Record<string, unknown> = {}, thumbnail?: Buffer) {
   const id = (over.id as string) ?? "att1";
   const storageKey = objectKey("p1", id);
   const { PassThrough } = await import("node:stream");
@@ -98,6 +105,16 @@ async function storedAttachment(content: Buffer, over: Record<string, unknown> =
     encryptToStream(Readable.from([content]), sink),
     getAttachmentStorage().put(storageKey, sink),
   ]);
+  // Miniatura opcional, cifrada con la MISMA DEK que el original (como en la subida).
+  let thumbnailKey: string | null = null;
+  if (thumbnail) {
+    thumbnailKey = thumbnailObjectKey("p1", id);
+    const thumbSink = new PassThrough();
+    await Promise.all([
+      encryptToStream(Readable.from([thumbnail]), thumbSink, unwrapDek(info.wrappedDek)),
+      getAttachmentStorage().put(thumbnailKey, thumbSink),
+    ]);
+  }
   return {
     id,
     patientId: "p1",
@@ -115,6 +132,9 @@ async function storedAttachment(content: Buffer, over: Record<string, unknown> =
     uploadedBy: { id: "other-medic", name: "om", firstName: "Pedro", lastName: "Ruiz" },
     storageKey,
     wrappedDek: info.wrappedDek,
+    thumbnailKey,
+    width: null,
+    height: null,
     ...over,
   };
 }
@@ -569,5 +589,160 @@ describe("GET /api/clinical-ledger?entityType=attachment", () => {
     withGrant(["estudios"]);
     prismaMock.clinicalAttachment.findUnique.mockResolvedValue({ ...ATT, annulledAt: new Date() });
     expect((await ledgerRoute(getReq(url))).status).toBe(404);
+  });
+});
+
+// ─── Miniaturas ──────────────────────────────────────────────────────────────
+
+describe("miniaturas", () => {
+  const thumbReq = (id = "att1") =>
+    thumbnailRoute(getReq(`http://x/api/attachments/${id}/thumbnail`), idCtx(id));
+  const smallThumb = () => solidImage(10, 10).webp().toBuffer();
+
+  it("imagen válida → miniatura WebP cifrada con la MISMA DEK, dimensiones en la fila y hasThumbnail en el DTO", async () => {
+    const res = await uploadRoute(uploadReq(realPng, "rx.png"), patientCtx);
+    expect(res.status).toBe(201);
+    const { data } = await res.json();
+    expect(data).toMatchObject({ mimeType: "image/png", hasThumbnail: true, width: 640, height: 480 });
+    expect(data).not.toHaveProperty("thumbnailKey");
+
+    const created = prismaMock.clinicalAttachment.create.mock.calls[0][0].data;
+    expect(created.thumbnailKey).toBe(thumbnailObjectKey("p1", created.id));
+    expect(created).toMatchObject({ width: 640, height: 480 });
+    expect(filesOnDisk().sort()).toEqual([`${created.id}.hca`, `${created.id}.thumb.hca`]);
+
+    const onDisk = fs.readFileSync(path.join(storageDir, created.thumbnailKey));
+    expect(onDisk.subarray(0, 4).toString()).toBe("HCA1");
+    const thumb = decryptBuffer(onDisk, created.wrappedDek); // misma DEK que el original
+    expect(thumb.subarray(8, 12).toString("ascii")).toBe("WEBP");
+    const meta = await sharp(thumb).metadata();
+    expect([meta.width, meta.height]).toEqual([384, 288]);
+
+    // El ledger describe el original: la miniatura es derivada y no entra.
+    const ledger = JSON.parse(prismaMock.clinicalEntryVersion.create.mock.calls[0][0].data.data);
+    expect(ledger).not.toHaveProperty("thumbnailKey");
+    expect(ledger.sha256).toBe(sha256(realPng));
+  });
+
+  it("imagen que no se puede decodificar → 201 SIN miniatura (no es fatal) y sin archivo .thumb", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await uploadRoute(uploadReq(PNG, "rx.png"), patientCtx);
+    warn.mockRestore();
+    expect(res.status).toBe(201);
+    const { data } = await res.json();
+    expect(data).toMatchObject({ hasThumbnail: false, width: null, height: null });
+    const created = prismaMock.clinicalAttachment.create.mock.calls[0][0].data;
+    expect(created.thumbnailKey).toBeNull();
+    expect(filesOnDisk()).toEqual([`${created.id}.hca`]);
+  });
+
+  it("PDF → sin miniatura y sin archivo .thumb", async () => {
+    const res = await uploadRoute(uploadReq(PDF, "informe.pdf"), patientCtx);
+    expect(res.status).toBe(201);
+    expect((await res.json()).data.hasThumbnail).toBe(false);
+    expect(filesOnDisk()).toHaveLength(1);
+  });
+
+  it("falla la base después de escribir → se borran original Y miniatura (compensación)", async () => {
+    prismaMock.clinicalAttachment.create.mockRejectedValue(new Error("db down"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await uploadRoute(uploadReq(realPng, "rx.png"), patientCtx);
+    err.mockRestore();
+    expect(res.status).toBe(500);
+    expect(filesOnDisk()).toEqual([]);
+  });
+
+  it("GET thumbnail: WebP inline con sandbox, nosniff, no-store, Content-Length exacto y SIN audit por miniatura", async () => {
+    asRole("admin");
+    const thumb = await solidImage(384, 288).webp().toBuffer();
+    prismaMock.clinicalAttachment.findUnique.mockResolvedValue(
+      await storedAttachment(realPng, { mimeType: "image/png", fileName: "rx.png" }, thumb),
+    );
+    const res = await thumbReq();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/webp");
+    expect(res.headers.get("Content-Disposition")).toBe(
+      `inline; filename="miniatura.webp"; filename*=UTF-8''miniatura.webp`,
+    );
+    expect(res.headers.get("Content-Security-Policy")).toMatch(/^sandbox; default-src 'none'/);
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(res.headers.get("Content-Length")).toBe(String(thumb.length));
+    expect(Buffer.from(await res.arrayBuffer()).equals(thumb)).toBe(true);
+    expect(auditCalls("VIEW_SENSITIVE")).toHaveLength(0);
+  });
+
+  it("sin miniatura (PDF) → 404; archivo .thumb faltante → 404 con el mismo cuerpo", async () => {
+    asRole("admin");
+    prismaMock.clinicalAttachment.findUnique.mockResolvedValue(await storedAttachment(PDF));
+    expect((await thumbReq()).status).toBe(404);
+
+    const row = await storedAttachment(realPng, { mimeType: "image/png" }, await smallThumb());
+    fs.rmSync(path.join(storageDir, row.thumbnailKey!));
+    prismaMock.clinicalAttachment.findUnique.mockResolvedValue(row);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await thumbReq();
+    err.mockRestore();
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ success: false, error: "Miniatura no disponible" });
+  });
+
+  it("permisos: secretaria 403; otro médico sin concesión 404; con concesión 'estudios' 200; anulado ajeno 404", async () => {
+    const row = await storedAttachment(realPng, { mimeType: "image/png" }, await smallThumb());
+    prismaMock.clinicalAttachment.findUnique.mockResolvedValue(row);
+
+    asRole("secretary");
+    expect((await thumbReq()).status).toBe(403);
+
+    asRole("medic"); // user-1: no es el autor (other-medic)
+    expect((await thumbReq()).status).toBe(404);
+
+    withGrant(["estudios"]);
+    expect((await thumbReq()).status).toBe(200);
+
+    prismaMock.clinicalAttachment.findUnique.mockResolvedValue({ ...row, annulledAt: new Date() });
+    expect((await thumbReq()).status).toBe(404);
+  });
+
+  it("listado: DTO con hasThumbnail/width/height y el audit informa cuántas miniaturas expuso", async () => {
+    asRole("admin");
+    const withThumb = await storedAttachment(
+      realPng,
+      { id: "att1", mimeType: "image/png", width: 640, height: 480 },
+      await smallThumb(),
+    );
+    const without = await storedAttachment(PDF, { id: "att2" });
+    prismaMock.clinicalAttachment.findMany.mockResolvedValue([withThumb, without]);
+    const res = await listRoute(getReq("http://x/api/patients/p1/attachments"), patientCtx);
+    expect(res.status).toBe(200);
+    const { data } = await res.json();
+    expect(data.map((a: { hasThumbnail: boolean }) => a.hasThumbnail)).toEqual([true, false]);
+    expect(data[0]).toMatchObject({ width: 640, height: 480 });
+    expect(data[0]).not.toHaveProperty("thumbnailKey");
+    expect(auditCalls("VIEW_SENSITIVE")[0].details).toEqual({ list: true, count: 2, thumbnails: 1 });
+  });
+
+  it("generateMissingThumbnail: genera desde el original cifrado, guarda con la misma DEK y actualiza la fila", async () => {
+    const row = await storedAttachment(realPng, { mimeType: "image/png" });
+    expect(await generateMissingThumbnail(row)).toBe(true);
+    expect(prismaMock.clinicalAttachment.update).toHaveBeenCalledWith({
+      where: { id: "att1" },
+      data: { thumbnailKey: "p1/att1.thumb.hca", width: 640, height: 480 },
+    });
+    const thumb = decryptBuffer(fs.readFileSync(path.join(storageDir, "p1/att1.thumb.hca")), row.wrappedDek);
+    expect((await sharp(thumb).metadata()).width).toBe(384);
+
+    // Ya tiene, o es PDF → false sin tocar nada.
+    prismaMock.clinicalAttachment.update.mockClear();
+    expect(await generateMissingThumbnail({ ...row, thumbnailKey: "p1/att1.thumb.hca" })).toBe(false);
+    expect(await generateMissingThumbnail(await storedAttachment(PDF, { id: "att2" }))).toBe(false);
+    expect(prismaMock.clinicalAttachment.update).not.toHaveBeenCalled();
+
+    // Imagen ilegible → false (queda sin miniatura, sin archivo .thumb).
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bad = await storedAttachment(PNG, { id: "att3", mimeType: "image/png" });
+    expect(await generateMissingThumbnail(bad)).toBe(false);
+    warn.mockRestore();
+    expect(fs.existsSync(path.join(storageDir, "p1/att3.thumb.hca"))).toBe(false);
   });
 });

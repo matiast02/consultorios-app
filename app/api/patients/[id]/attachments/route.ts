@@ -63,12 +63,20 @@ export async function GET(req: NextRequest, context: RouteContext) {
     // Autor: los suyos; admin: todos; concesión: lo que cubra (ver clinical-access).
     const { items, grantId } = await listAttachments(actor, patientId, query.data);
 
+    // Las miniaturas que muestra el listado no se auditan una por una: acá
+    // queda cuántas expuso (ver /api/attachments/[id]/thumbnail).
+    const thumbnails = items.filter((a) => a.hasThumbnail).length;
     logAudit({
       userId: actor.userId,
       action: "VIEW_SENSITIVE",
       resource: "attachment",
       resourceId: patientId,
-      details: { list: true, count: items.length, ...grantAuditDetails(grantId) },
+      details: {
+        list: true,
+        count: items.length,
+        ...(thumbnails > 0 ? { thumbnails } : {}),
+        ...grantAuditDetails(grantId),
+      },
       req,
     });
 

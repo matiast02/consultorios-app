@@ -569,6 +569,9 @@ model ClinicalAttachment {
   sha256       String // del contenido en claro
   storageKey   String               @unique // <patientId>/<id>.hca
   wrappedDek   String               @db.Text // DEK envuelta (token enc:…)
+  thumbnailKey String? // <patientId>/<id>.thumb.hca: miniatura WebP cifrada con la misma DEK (solo imágenes)
+  width        Int? // dimensiones de la imagen original ya orientada (null en PDF)
+  height       Int?
   description  String?              @db.Text // (cifrado)
   annulledAt   DateTime?
   annulledById String?

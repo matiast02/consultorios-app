@@ -21,6 +21,8 @@ export const FILE_MAGIC = Buffer.from("HCA1", "ascii");
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const ALGO = "aes-256-gcm";
+/** Bytes que el formato HCA1 agrega al claro (encabezado + tag): cifrado − esto = tamaño del claro. */
+export const ENCRYPTED_OVERHEAD_BYTES = FILE_MAGIC.length + IV_BYTES + TAG_BYTES;
 
 export interface EncryptedFileInfo {
   /** DEK envuelta con HC_ENC_KEY (token "enc:…"). Guardar en la base. */

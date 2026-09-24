@@ -6,7 +6,8 @@
 //
 // Lo que se escribe acá SIEMPRE está cifrado (ver file-crypto.ts): el
 // proveedor de storage no necesita conocer la clave. Las claves de objeto son
-// `<patientId>/<attachmentId>.hca` para poder respaldar/purgar por paciente.
+// `<patientId>/<attachmentId>.hca` (y `.thumb.hca` para la miniatura) para
+// poder respaldar/purgar por paciente.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -42,6 +43,11 @@ export function attachmentsRootDir(): string {
 export function objectKey(patientId: string, attachmentId: string): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "");
   return `${safe(patientId)}/${safe(attachmentId)}.hca`;
+}
+
+/** Clave de la miniatura, junto al original (se respalda y purga con él). */
+export function thumbnailObjectKey(patientId: string, attachmentId: string): string {
+  return objectKey(patientId, attachmentId).replace(/\.hca$/, ".thumb.hca");
 }
 
 class LocalDiskStorage implements AttachmentStorage {
@@ -105,6 +111,10 @@ export function getAttachmentStorage(): AttachmentStorage {
 
 export const ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
 export type AllowedMime = (typeof ALLOWED_MIME)[number];
+
+/** Las miniaturas se generan siempre en WebP (ver thumbnail.ts). */
+export const THUMBNAIL_MIME = "image/webp";
+export const THUMBNAIL_FILE_NAME = "miniatura.webp";
 
 /** Detecta el tipo real por magic bytes (no confiamos en la extensión ni en el Content-Type del cliente). */
 export function sniffMime(head: Buffer): AllowedMime | null {

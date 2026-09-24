@@ -5,6 +5,7 @@
 // de estas rutas lleva su CSP desde acá:
 //   - descarga (attachment): sandbox, sin subrecursos, no embebible.
 //   - inline imagen: sandbox, embebible solo desde nuestro origen.
+//   - miniatura: como inline imagen (WebP), con Content-Length exacto.
 //   - inline PDF: SIN sandbox (Chrome no renderiza PDFs en documentos
 //     sandboxed); sin subrecursos salvo el visor (object-src 'self'), embebible
 //     solo desde nuestro origen. nosniff + Content-Type real (magic bytes)
@@ -13,7 +14,7 @@
 // Siempre `nosniff` y `Cache-Control: private, no-store` (datos de salud).
 
 import { NextResponse } from "next/server";
-import { ALLOWED_MIME, isInlinePreviewable } from "./storage";
+import { ALLOWED_MIME, isInlinePreviewable, THUMBNAIL_FILE_NAME, THUMBNAIL_MIME } from "./storage";
 
 export const ATTACHMENT_CSP = {
   download: "sandbox; default-src 'none'; frame-ancestors 'none'",
@@ -82,6 +83,21 @@ export function downloadHeaders(
   // descifra en streaming y se envía solo el claro).
   if (Number.isInteger(a.sizeBytes) && a.sizeBytes >= 0) {
     headers.set("Content-Length", String(a.sizeBytes));
+  }
+  return headers;
+}
+
+/** Headers de la miniatura (WebP inline con sandbox; sin cache: dato de salud). */
+export function thumbnailHeaders(sizeBytes?: number | null): Headers {
+  const headers = new Headers({
+    ...BASE_HEADERS,
+    "Content-Type": THUMBNAIL_MIME,
+    "Content-Disposition": contentDisposition("inline", THUMBNAIL_FILE_NAME),
+    "Content-Security-Policy": ATTACHMENT_CSP.inlineImage,
+    "X-Frame-Options": "SAMEORIGIN",
+  });
+  if (sizeBytes != null && Number.isInteger(sizeBytes) && sizeBytes >= 0) {
+    headers.set("Content-Length", String(sizeBytes));
   }
   return headers;
 }

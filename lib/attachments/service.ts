@@ -13,6 +13,8 @@
 //      configurado pero sin respuesta → 503 (fail closed).
 //   5. Cifrado en streaming a storage (DEK por archivo, envuelta con
 //      HC_ENC_KEY). El stream se corta si supera el máximo aunque `size` mienta.
+//      Si es imagen, miniatura WebP cifrada con la misma DEK (ver thumbnail.ts);
+//      si no se puede decodificar, el adjunto se guarda igual sin miniatura.
 //   6. Fila + versión v1 en el ledger en UNA transacción; audit CREATE solo con ids.
 //   Si algo falla después de empezar a escribir el archivo, se borra
 //   (compensación): nunca queda un archivo sin fila ni una fila sin archivo.
@@ -38,7 +40,14 @@ import {
 import { attachmentSnapshot, recordClinicalVersion } from "@/lib/clinical-ledger";
 import type { AttachmentEntityType, ClinicalAttachment } from "@/types";
 import { ClamavUnavailableError, clamavConfig, scanWithClamav } from "./clamav";
-import { decryptStream, encryptToStream, type EncryptedFileInfo } from "./file-crypto";
+import {
+  decryptBuffer,
+  decryptStream,
+  encryptToStream,
+  generateDek,
+  unwrapDek,
+  type EncryptedFileInfo,
+} from "./file-crypto";
 import {
   attachmentsMaxBytes,
   extensionFor,
@@ -47,8 +56,10 @@ import {
   objectKey,
   sanitizeFileName,
   sniffMime,
+  thumbnailObjectKey,
   type AllowedMime,
 } from "./storage";
+import { isThumbnailable, makeThumbnail } from "./thumbnail";
 
 // ─── Errores ─────────────────────────────────────────────────────────────────
 
@@ -101,6 +112,8 @@ export interface AttachmentForRead {
   attachment: ClinicalAttachment;
   storageKey: string;
   wrappedDek: string;
+  /** Clave de la miniatura cifrada (misma DEK) o null si no tiene. */
+  thumbnailKey: string | null;
   /** Presente si la lectura es posible gracias a una concesión (auditar). */
   grantId?: string;
 }
@@ -120,6 +133,9 @@ const dtoSelect = {
   mimeType: true,
   sizeBytes: true,
   sha256: true,
+  thumbnailKey: true,
+  width: true,
+  height: true,
   description: true,
   annulledAt: true,
   annulReason: true,
@@ -164,6 +180,9 @@ export function toAttachmentDto(row: AttachmentRow, actor: ClinicalActor): Clini
     annulReason: row.annulledAt ? row.annulReason ?? null : null,
     createdAt: toIso(row.createdAt) ?? new Date(0).toISOString(),
     inlinePreviewable: isInlinePreviewable(row.mimeType),
+    hasThumbnail: !!row.thumbnailKey,
+    width: row.width ?? null,
+    height: row.height ?? null,
   };
 }
 
@@ -217,16 +236,15 @@ async function* limitBytes(source: AsyncIterable<Uint8Array>, max: number): Asyn
   }
 }
 
-/** Cifra el archivo en streaming directo al storage (el disco nunca ve el claro). */
-async function encryptToStorage(file: UploadableFile, key: string, max: number): Promise<EncryptedFileInfo> {
+/** Cifra `source` (claro) con `dek` en streaming directo al storage (el disco nunca ve el claro). */
+async function encryptSourceToStorage(source: Readable, key: string, dek: Buffer): Promise<EncryptedFileInfo> {
   const storage = getAttachmentStorage();
-  const source = Readable.from(limitBytes(nodeStreamOf(file), max), { objectMode: false });
   const sink = new PassThrough();
   // Los errores viajan por las promesas; sin este listener, un destroy(err)
   // tardío (cuando `put` ya terminó) tiraría el proceso.
   sink.on("error", () => {});
 
-  const encrypting = encryptToStream(source, sink).catch((e: unknown) => {
+  const encrypting = encryptToStream(source, sink, dek).catch((e: unknown) => {
     sink.destroy(e as Error); // desbloquea el `put` que espera el fin del stream
     throw e;
   });
@@ -235,6 +253,46 @@ async function encryptToStorage(file: UploadableFile, key: string, max: number):
   if (enc.status === "rejected") throw enc.reason;
   if (put.status === "rejected") throw put.reason;
   return enc.value;
+}
+
+/** El archivo subido, cortado (413) si supera `max` bytes. */
+function encryptToStorage(file: UploadableFile, key: string, max: number, dek: Buffer): Promise<EncryptedFileInfo> {
+  const source = Readable.from(limitBytes(nodeStreamOf(file), max), { objectMode: false });
+  return encryptSourceToStorage(source, key, dek);
+}
+
+// ─── Miniatura ───────────────────────────────────────────────────────────────
+
+interface StoredThumbnail {
+  thumbnailKey: string;
+  /** Dimensiones de la imagen ORIGINAL (orientada), para la fila. */
+  width: number;
+  height: number;
+}
+
+/**
+ * Genera y guarda cifrada (misma DEK, IV propio) la miniatura de una imagen.
+ * Nunca lanza: si la imagen no se puede decodificar, el adjunto se guarda igual
+ * sin miniatura (queda para `pnpm db:backfill-thumbnails`). Solo ids en el log.
+ */
+async function storeThumbnail(
+  plain: Buffer,
+  key: string,
+  dek: Buffer,
+  attachmentId: string,
+): Promise<StoredThumbnail | null> {
+  try {
+    const thumb = await makeThumbnail(plain);
+    await encryptSourceToStorage(Readable.from([thumb.data]), key, dek);
+    return { thumbnailKey: key, width: thumb.source.width, height: thumb.source.height };
+  } catch (e) {
+    console.warn(
+      `[attachments] sin miniatura para el adjunto ${attachmentId}:`,
+      e instanceof Error ? e.message : String(e),
+    );
+    await getAttachmentStorage().remove(key).catch(() => {});
+    return null;
+  }
 }
 
 /** Antivirus si CLAMAV_HOST está configurado (lee el archivo una vez más, en streaming). */
@@ -340,12 +398,18 @@ export async function uploadAttachment(input: UploadAttachmentInput): Promise<Cl
   // 4-6. Archivo cifrado → fila + ledger. Compensación ante cualquier falla.
   const id = crypto.randomUUID();
   const storageKey = objectKey(patientId, id);
+  const thumbnailKey = thumbnailObjectKey(patientId, id);
+  const dek = generateDek();
   let committed = false;
   try {
-    const info = await encryptToStorage(file, storageKey, max);
+    const info = await encryptToStorage(file, storageKey, max, dek);
     if (info.sizeBytes !== file.size) {
       throw new AttachmentError(400, "El archivo cambió durante la subida", "SIZE_MISMATCH");
     }
+    // Miniatura (solo imágenes): misma DEK, IV propio. El original ya está a salvo.
+    const thumb = isThumbnailable(mimeType)
+      ? await storeThumbnail(Buffer.from(await file.slice().arrayBuffer()), thumbnailKey, dek, id)
+      : null;
 
     const row = await prisma.$transaction(async (tx) => {
       const created = await tx.clinicalAttachment.create({
@@ -361,6 +425,9 @@ export async function uploadAttachment(input: UploadAttachmentInput): Promise<Cl
           sha256: info.sha256,
           storageKey,
           wrappedDek: info.wrappedDek,
+          thumbnailKey: thumb?.thumbnailKey ?? null,
+          width: thumb?.width ?? null,
+          height: thumb?.height ?? null,
           description,
         },
         select: dtoSelect,
@@ -397,7 +464,7 @@ export async function uploadAttachment(input: UploadAttachmentInput): Promise<Cl
 
     return toAttachmentDto(row, actor);
   } catch (e) {
-    if (!committed) await compensate(id, storageKey);
+    if (!committed) await compensate(id, [storageKey, thumbnailKey]);
     throw e;
   }
 }
@@ -406,14 +473,17 @@ export async function uploadAttachment(input: UploadAttachmentInput): Promise<Cl
  * Borra el archivo de una subida fallida. Si la fila existe igual (commit que
  * respondió con error), se conserva: mejor un adjunto que un archivo perdido.
  */
-async function compensate(id: string, storageKey: string): Promise<void> {
+async function compensate(id: string, storageKeys: string[]): Promise<void> {
   const row = await prisma.clinicalAttachment
     .findUnique({ where: { id }, select: { id: true } })
     .catch(() => null);
   if (row) return;
-  await getAttachmentStorage()
-    .remove(storageKey)
-    .catch((err) => console.error("[attachments] no se pudo compensar la subida", storageKey, err));
+  const storage = getAttachmentStorage();
+  for (const key of storageKeys) {
+    await storage
+      .remove(key)
+      .catch((err) => console.error("[attachments] no se pudo compensar la subida", key, err));
+  }
 }
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────
@@ -470,6 +540,7 @@ export async function getAttachmentForRead(
     attachment: toAttachmentDto(rest, actor),
     storageKey,
     wrappedDek,
+    thumbnailKey: rest.thumbnailKey ?? null,
     ...(read.grantId ? { grantId: read.grantId } : {}),
   };
 }
@@ -491,6 +562,37 @@ export async function openDecryptedStream(a: { storageKey: string; wrappedDek: s
   // Si el consumidor corta (cliente que cancela), cerrar también el archivo.
   decipher.on("close", () => encrypted.destroy());
   return encrypted.pipe(decipher);
+}
+
+/**
+ * Miniatura para un adjunto de imagen existente que no la tiene (subido antes
+ * de la función, generación fallida, o backup restaurado sin los .thumb.hca).
+ * Descifra el original, genera, guarda cifrado con la misma DEK y actualiza la
+ * fila. Devuelve false si no aplica o la imagen no se pudo decodificar.
+ * Uso: prisma/backfill-thumbnails.ts.
+ */
+export async function generateMissingThumbnail(row: {
+  id: string;
+  patientId: string;
+  mimeType: string;
+  storageKey: string;
+  wrappedDek: string;
+  thumbnailKey: string | null;
+}): Promise<boolean> {
+  if (row.thumbnailKey || !isThumbnailable(row.mimeType)) return false;
+  const encrypted = await readAll(await getAttachmentStorage().get(row.storageKey));
+  const plain = decryptBuffer(encrypted, row.wrappedDek);
+  const key = thumbnailObjectKey(row.patientId, row.id);
+  const thumb = await storeThumbnail(plain, key, unwrapDek(row.wrappedDek), row.id);
+  if (!thumb) return false;
+  await prisma.clinicalAttachment.update({ where: { id: row.id }, data: thumb });
+  return true;
+}
+
+async function readAll(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
 }
 
 // ─── Anulación ───────────────────────────────────────────────────────────────

@@ -60,7 +60,8 @@ find "$OUT" -name "*.age" -mtime +14 -delete
 docker compose up -d mysql
 age -d -i backup-private-key.txt consultorio_2026-09-23_0300.sql.gz.age | gunzip \
   | docker compose exec -T mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" consultorio'
-# Restaurar también los adjuntos en ATTACHMENTS_DIR (mismo layout <patientId>/<id>.hca)
+# Restaurar también los adjuntos en ATTACHMENTS_DIR (mismo layout <patientId>/<id>.hca y <id>.thumb.hca;
+# si faltan las miniaturas, se regeneran con pnpm db:backfill-thumbnails)
 # Configurar .env con la MISMA HC_ENC_KEY y AUTH_SECRET (sin ella, los adjuntos tampoco se abren)
 pnpm db:migrate:deploy        # no debería aplicar nada si el dump es actual
 pnpm start
