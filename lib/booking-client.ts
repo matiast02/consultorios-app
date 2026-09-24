@@ -1,5 +1,5 @@
 // Helpers puros (sin Node ni DOM) para la reserva online pública.
-// Contrato: contracts/api-schemas/online-booking.yaml
+// Contrato: lib/openapi/paths/online-booking.ts
 //
 // Fechas: los días de disponibilidad llegan como "YYYY-MM-DD" (fecha civil en
 // hora AR) y se manipulan como fechas UTC a mediodía para que ningún huso

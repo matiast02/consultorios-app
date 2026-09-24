@@ -12,7 +12,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/patients/[id]/clinical-access — estado de acceso a la HC del
 // usuario actual (banner, secciones visibles, panel de decisiones).
-// Contrato: contracts/api-schemas/clinical-access-grants.yaml (ClinicalAccessStatus).
+// Contrato: lib/openapi/paths/grants-hc-copy.ts (ClinicalAccessStatus).
 // No devuelve datos clínicos (sin VIEW_SENSITIVE).
 export async function GET(_req: Request, context: RouteContext) {
   try {

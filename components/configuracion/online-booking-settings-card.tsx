@@ -15,7 +15,7 @@ import type { OnlineBookingSettings } from "@/types";
 import type { ClinicSettingsFormValues } from "./reminder-settings-card";
 
 // Configuración de reservas online (ClinicSettings). Contrato:
-// contracts/api-schemas/online-booking.yaml → OnlineBookingSettings, guardado con
+// lib/openapi/paths/online-booking.ts → OnlineBookingSettings, guardado con
 // el PUT existente de /api/admin/clinic-settings junto con el resto del formulario.
 
 const NOTES_MAX = 500;

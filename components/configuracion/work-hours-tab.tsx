@@ -72,7 +72,7 @@ interface ConfigState {
   slotDurationMinutes: number;
   bufferMinutes: number;
   minAdvanceMinutes: number;
-  /** Aparece en la reserva online del sitio (contracts/api-schemas/online-booking.yaml). */
+  /** Aparece en la reserva online del sitio (lib/openapi/paths/online-booking.ts). */
   acceptsOnlineBooking: boolean;
 }
 

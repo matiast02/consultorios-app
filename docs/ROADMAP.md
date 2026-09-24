@@ -15,7 +15,7 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 | A3 | CI (GitHub Actions) | ☐ | `tsc`, `vitest`, `pnpm audit --prod`, lint, chequeo de drift de migraciones (`prisma migrate diff`). |
 | A4 | Operación mínima | ☐ | `/api/health` para Dokploy; error tracking con scrubbing de datos personales; `TZ=America/Argentina/Buenos_Aires` explícita en app y MySQL; backups programados + ensayo de restauración (`docs/BACKUPS.md`). |
 | A5 | Forzar cambio de contraseña en el primer login de usuarios migrados | ☐ | Flag `mustChangePassword` en `User`; las contraseñas del sistema viejo pueden ser débiles. |
-| A6 | Merge a `develop`, ensayo de `db:migrate-legacy` en base scratch, pase a producción | ☐ | El usuario decide cuándo (ver `prisma/MIGRATION-LEGACY.md`). |
+| A6 | Ensayo de `db:migrate-legacy` en base scratch y pase a producción | ☐ | Merge a `develop` hecho el 24-sep-2026. El usuario decide cuándo migrar (ver `prisma/MIGRATION-LEGACY.md`). |
 
 ## B. Seguridad pendiente (de la auditoría del 23-sep-2026)
 
@@ -31,6 +31,9 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 | B8 | 8 vulnerabilidades altas transitivas (undici, vite, postcss, deepmerge-ts) | ☐ | `pnpm.overrides` o actualizar. |
 | B9 | `user/export` (portabilidad del profesional): revisar alcance | ☐ | |
 | B10 | Rate limit de login: 6 intentos cada 10 s por IP (Better Auth, `customRules` en `auth.ts`) + lockout por email (5 fallos → 5 min). Ajustar si una recepción con muchas PCs detrás de un mismo IP lo alcanza | ☑ | Subido de 3 a 6 el 24-sep-2026. |
+| B11 | **Turnos sin control de autoría** (hallazgo al documentar la API, 24-sep-2026) | ☐ | `GET/PUT/DELETE /api/shifts/{id}`, `POST /api/shifts` y las series no verifican que el turno sea del médico que llama (sí lo hacen `GET /api/shifts` y `/rescheduled`); `GET /api/shifts/{id}` devuelve el paciente completo (consentimiento, `deletedById`) a cualquier rol; `isMedic()` es `role === "medic"`, así que un usuario sin rol ve todo. Definir la regla (médico: solo sus turnos; recepción/admin: todos) y aplicarla en las 8 rutas. |
+| B12 | **Agenda sin control de pertenencia** | ☐ | `POST/PUT /api/preferences` y `/api/preferences/block-days` aceptan cualquier `userId` desde cualquier sesión; `DELETE /api/preferences/block-days` borra cualquier bloqueo por id, y bloquear reprograma turnos de otro profesional. Restringir a `session.user.id` salvo admin. |
+| B13 | Permisos y auditoría desparejos en rutas menores | ☐ | `GET /api/modules` sin chequeo de rol; rutas de admin (horarios, settings, módulos, contactos) y `POST` de turnos, series, llegada y consulta no dejan audit; `PUT /api/notifications/{id}/read` responde 403 (revela existencia) en vez del 404 uniforme; `getUserRole` usa `findFirst` sin orden (usuario con varios roles → resultado impredecible); el 503 de `/api/cron/reminders` cuenta que falta `CRON_SECRET` a un cliente no autenticado. |
 
 ## C. Cumplimiento y gestión
 
@@ -52,7 +55,7 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 | D2 | Adjuntos en la historia clínica (PDF, imágenes) | ☑ | Cifrados en reposo por archivo (clave envuelta con `HC_ENC_KEY`), acceso por `lib/clinical-access.ts`, descarga auditada, límite de tamaño y tipo, hash en el ledger y en la copia de HC. Miniaturas cifradas para imágenes (sep 2026). |
 | D3 | Cobros y liquidación por obra social | ☐ | No hay modelo de pagos (copagos, caja diaria, liquidación). |
 | D4 | Pantalla de llamado para la sala de espera | ☐ | Cierra el circuito con el dashboard de recepción. |
-| D5 | App móvil Flutter | ☐ | Instancia por consultorio, `/api/mobile/v1`, endpoint de metadatos, FCM, directorio de consultorios, bearer firmado (ya configurado). |
+| D5 | App móvil Flutter | ☐ | Instancia por consultorio, bearer firmado (ya configurado), documentación OpenAPI con `x-mobile` + cliente Dart generable (`docs/API-MOBILE.md`, sep 2026). Pendiente: resolución del consultorio por código, endpoint público de versión, FCM. |
 | D6 | Impresión de recetas con formato legal | ☐ | Depende de C5. |
 
 ## E. Calidad técnica
@@ -63,6 +66,19 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 | E2 | Accesibilidad básica (botones sin nombre accesible en sidebar y header) | ☐ | |
 | E3 | Logging estructurado con request id; `logAudit` con await en `VIEW_SENSITIVE` (hoy fire-and-forget) | ☐ | |
 | E4 | Base de dev: dos usuarios sueltos sin credencial (`test-admin@test.com`, `admin@test.local`) | ☐ | No vienen del seed; borrar o darles credencial. |
+| E5 | Inconsistencias encontradas al documentar la API (24-sep-2026) | ☐ | Ver lista debajo. Ninguna bloquea la app móvil: el registro documenta el comportamiento real. |
+
+### E5. Detalle de inconsistencias de la API
+
+- **500 donde corresponde 404/400**: `PATCH /api/admin/contact-requests/{id}` y `DELETE /api/shifts/{id}/arrival` con id inexistente; `POST` de recetas, órdenes, planes e insurances con `patientId`/`shiftId`/`affiliateNumber` inválidos (FK/tipo); `PUT /api/modules/{module}/users` con usuario inexistente; `PUT /api/modules` crea módulos arbitrarios.
+- **Huso horario del servidor** (con el proceso en UTC-3 vs UTC difieren): block-days (`new Date("YYYY-MM-DD")` vs `getDate()` local: la ventana de conflicto cae en el día anterior), filtro mes/año de `GET /api/shifts`, chequeo de horario de atención (`getHours()`), armado de series (`setHours`), `to` de `/api/audit-logs`, el "hoy" del dashboard médico. Definir `TZ` explícita (A4) y usar `date-fns-tz` donde se calcula por día.
+- **Paginación**: `GET /api/shifts` sin paginar (todo el histórico sin filtros); `GET /api/patients/{id}/shifts` con `parseInt` sin validar (`limit=0` → `totalPages: null`); `GET /api/online-bookings` corta en 200 sin paginación; `GET /api/hc-copy-requests` devuelve `{ items, count, overdue }` (forma distinta al resto).
+- **Reglas de negocio desparejas**: `POST /api/study-orders` y `/api/meal-plans` no exigen `isMedic` (admin puede crear); `DELETE` de recetas y planes no chequean módulo (órdenes sí); no-autor recibe 403 (admin) / 404 (otro médico) en recetas, planes y evoluciones, pero 404 para todos en órdenes; `PUT /api/shifts/{id}` solo revisa solapamiento si cambia `start`/`end`, no valida `patientId`, no admite `consultationTypeId` ni transiciones de estado; `PATCH /api/shifts/reminders/{id}` `mark_failed` no valida estado; `DELETE /api/health-insurance/{id}` borra en cascada `PatientInsurance`/`UserInsurance` sin aviso; `HealthInsurance.name` no es único; `updateHealthInsuranceSchema` y `updateSpecializationSchema` no son parciales.
+- **Campos ignorados o inalcanzables**: `userId` obligatorio en `createStudyOrderSchema`/`createMealPlanSchema` pero la ruta usa la sesión; `updateMealPlanSchema` acepta `userId`/`patientId` ignorados; `updatePatientSchema.birthDate` nunca puede quedar en null; `createProfessionConfigSchema`/`updateProfessionConfigSchema` y `blockDaysQuerySchema` sin uso; `_hp`/`_elapsedMs` de las rutas públicas no están en sus Zod.
+- **Turnos que no se pudieron reprogramar** al bloquear un día quedan en silencio (ni en `rescheduledShifts` ni notificación). `POST /api/shifts/recurring` responde 201 aunque no cree ninguna ocurrencia.
+- **Dashboards**: `noShowRateMonth.deltaPctVsPrevMonth` es diferencia en puntos, no %; `trends.cancellationByMonth.noShowPct` (cancelados + ausentes) vs `stats.noShowRateMonth.pct` (solo ausentes) con la misma palabra; `healthInsurancesUnused90d` mira la OS actual del paciente y no la del turno; recepción: `recordatorios.context` siempre `"tomorrow"`, `isPinned` siempre `false`, `proximoALlamar.kind` siempre `"scheduled"`; médico: consulta `finishedRecentWithEvolution` y la descarta; `GET /api/stats` sin filtro por médico logueado.
+- **`types/index.ts` desactualizado respecto a las rutas** (el registro OpenAPI sigue a las rutas): `Patient`, `HealthInsurance`, `ConsultationType`, `Specialization`, `ProfessionConfig`, `UserPreference`, `BlockDay`, `ClinicSettings`, `ClinicHoursDay`, `ClinicContactRequest` omiten campos que se devuelven (`createdAt/updatedAt`, `createdById`, recordatorios/reservas, `ipAddress`…); `Prescription`/`StudyOrder`/`MealPlan`/`Evolution.shift` sin campos de anulación o `id/status`; `StatsData` y `AppNotification` no coinciden; `AuditAction` sin `EXPORT_HC`, `GRANT_ACCESS`, `REQUEST_ACCESS`; `Shift.confirmedVia` incluye `"PHONE"` que nada escribe. Conviene derivar los tipos del front de los Zod del registro (`z.infer`) y borrar los duplicados.
+- **Formato**: `POST /api/register` no usa el envoltorio `success` (201 `{ message, user }`, errores `{ error }`); el 409 de `POST /api/public/turno/{token}` no trae `code` (el de reservas sí); `PATCH /api/online-bookings/{id}` 400 sin `details`.
 
 ## Hecho recientemente (para contexto)
 
@@ -72,3 +88,4 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 - ☑ Fase 3: concesiones de acceso, copia de HC en PDF, consentimiento, cifrado ampliado, purga programada, backups documentados.
 - ☑ Dashboards de médico, recepción y admin; migración desde el sistema legacy (tooling listo, sin ejecutar).
 - ☑ Recordatorios con confirmación del paciente, reservas online y adjuntos de HC cifrados (sep 2026).
+- ☑ Documentación de la API generada del código (registro Zod → OpenAPI 3.1, test de cobertura, visor Scalar) y guía para la app móvil con generación del cliente Dart (sep 2026).

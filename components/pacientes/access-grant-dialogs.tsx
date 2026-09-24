@@ -5,7 +5,7 @@
 // - ApproveAccessDialog: el tratante / admin aprueba registrando el
 //   consentimiento del paciente y la vigencia.
 // - GrantNoteDialog: rechazar (motivo obligatorio) o revocar (nota opcional).
-// Contrato: contracts/api-schemas/clinical-access-grants.yaml
+// Contrato: lib/openapi/paths/grants-hc-copy.ts
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";

@@ -700,7 +700,7 @@ export const accessGrantsQuerySchema = z.object({
 export type CreateAccessGrantInput = z.infer<typeof createAccessGrantSchema>;
 export type AccessGrantActionInput = z.infer<typeof accessGrantActionSchema>;
 
-// ─── Reservas online (contracts/api-schemas/online-booking.yaml) ─────────────
+// ─── Reservas online (lib/openapi/paths/online-booking.ts) ─────────────
 
 export const ONLINE_BOOKING_STATUSES = ["PENDING_CONFIRMATION", "CONFIRMED", "CANCELLED", "EXPIRED"] as const;
 export const onlineBookingStatusEnum = z.enum(ONLINE_BOOKING_STATUSES);

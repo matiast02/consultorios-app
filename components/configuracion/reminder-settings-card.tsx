@@ -20,7 +20,7 @@ import type { ReminderChannel, ReminderSettings } from "@/types";
 import { onlineBookingFormShape } from "./online-booking-settings-card";
 
 // Configuración de recordatorios (ClinicSettings). Contrato:
-// contracts/api-schemas/reminders.yaml → ReminderSettings, guardado con el PUT
+// lib/openapi/paths/reminders.ts → ReminderSettings, guardado con el PUT
 // existente de /api/admin/clinic-settings junto con el resto del formulario.
 
 const REMINDER_CHANNELS = ["EMAIL", "WHATSAPP", "SMS"] as const satisfies readonly ReminderChannel[];

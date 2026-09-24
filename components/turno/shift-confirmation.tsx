@@ -18,7 +18,7 @@ import { formatReminderDate, formatReminderTime } from "@/lib/reminders/message"
 import type { PublicShiftConfirmation, ShiftStatus } from "@/types";
 
 // Link público de confirmación de turno (/turno/<token>), sin login.
-// Contrato: contracts/api-schemas/reminders.yaml → /api/public/turno/{token}.
+// Contrato: lib/openapi/paths/public.ts → /api/public/turno/{token}.
 // Privacidad: solo se muestra lo que devuelve el endpoint (nombre de pila,
 // fecha, hora, profesional, dirección y estado). Nada clínico.
 

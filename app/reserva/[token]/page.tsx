@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BookingManage } from "@/components/booking/booking-manage";
 
 // Link de gestión de una reserva online (sin login): ver estado o cancelar.
-// Contrato: contracts/api-schemas/online-booking.yaml → /api/public/booking/{token}.
+// Contrato: lib/openapi/paths/public.ts → /api/public/booking/{token}.
 
 export const metadata: Metadata = {
   title: "Tu reserva",

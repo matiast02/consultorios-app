@@ -19,7 +19,7 @@ import {
   treatingPatientIds,
 } from "@/lib/clinical-access-grants";
 
-// Contrato: contracts/api-schemas/clinical-access-grants.yaml
+// Contrato: lib/openapi/paths/grants-hc-copy.ts
 
 // GET /api/clinical-access-grants?patientId=&status=&box=received|to-decide
 export async function GET(req: NextRequest) {

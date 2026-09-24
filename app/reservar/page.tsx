@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BookingWizard } from "@/components/booking/booking-wizard";
 
 // Reserva online pública (sin login): asistente de 4 pasos.
-// Contrato: contracts/api-schemas/online-booking.yaml. El turno entra
+// Contrato: lib/openapi/paths/public.ts. El turno entra
 // pendiente (source ONLINE) y recepción lo confirma.
 
 export const metadata: Metadata = {

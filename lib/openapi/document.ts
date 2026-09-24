@@ -30,6 +30,8 @@ import { onlineBookingRoutes } from "./paths/online-booking";
 import { notificationsRoutes } from "./paths/notifications";
 import { dashboardsRoutes } from "./paths/dashboards";
 import { settingsRoutes } from "./paths/settings";
+import { usersRoutes } from "./paths/users";
+import { receptionRoutes } from "./paths/reception";
 import { catalogsRoutes } from "./paths/catalogs";
 import { adminRoutes } from "./paths/admin";
 import { auditRoutes } from "./paths/audit";
@@ -51,6 +53,8 @@ export const ALL_ROUTES: ApiRoute[] = [
   ...notificationsRoutes,
   ...dashboardsRoutes,
   ...settingsRoutes,
+  ...usersRoutes,
+  ...receptionRoutes,
   ...catalogsRoutes,
   ...adminRoutes,
   ...auditRoutes,

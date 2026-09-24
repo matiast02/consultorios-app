@@ -1,4 +1,4 @@
-// Reservas online de turnos (contrato: contracts/api-schemas/online-booking.yaml).
+// Reservas online de turnos (contrato: lib/openapi/paths/online-booking.ts).
 //
 // Flujo: el paciente pide un horario libre desde /reservar sin cuenta → se crea
 // un Shift PENDING (source ONLINE) + OnlineBookingRequest con lo que cargó →
