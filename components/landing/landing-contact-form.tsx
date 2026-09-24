@@ -4,8 +4,9 @@ import { useState, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { ArrowRight, Shield, MessageCircle, Loader2 } from "lucide-react";
+import { ArrowRight, MessageCircle, Loader2 } from "lucide-react";
 import { contactRequestSchema, type ContactRequestInput } from "@/lib/validations";
+import { PrivacyConsentText, PrivacyDetails } from "./privacy-notice";
 import type { PublicSpecialization } from "@/types";
 
 interface Props {
@@ -38,6 +39,7 @@ export function LandingContactForm({ specializations, healthInsurances, whatsapp
       specializationId: "",
       preferredDay: "",
       message: "",
+      privacyAccepted: false,
     },
   });
 
@@ -249,10 +251,24 @@ export function LandingContactForm({ specializations, healthInsurances, whatsapp
           )}
         </div>
 
-        <p className="mt-4 flex items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
-          <Shield className="h-[15px] w-[15px]" style={{ color: "var(--primary)" }} />
-          Tus datos se tratan según la Ley 25.326 de Protección de Datos Personales.
-        </p>
+        <div className="mt-4 space-y-2 text-[13px]" style={{ color: "var(--muted)" }}>
+          <label className="flex cursor-pointer items-start gap-2.5 leading-snug">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded"
+              {...register("privacyAccepted")}
+            />
+            <span>
+              <PrivacyConsentText />
+            </span>
+          </label>
+          {errors.privacyAccepted && (
+            <p className="text-[12.5px]" style={{ color: "var(--danger, #e11d48)" }}>
+              {errors.privacyAccepted.message}
+            </p>
+          )}
+          <PrivacyDetails />
+        </div>
       </form>
     </div>
   );

@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/auth";
+import { arDateKey, arTimeLabel, isValidDateKey, loadDayAvailability } from "@/lib/availability";
+
+const DAY_MESSAGES = {
+  NOT_WORKING: "El profesional no atiende este dia",
+  NO_HOURS: "El profesional no tiene horarios configurados para este dia",
+  BLOCKED: "Este dia esta bloqueado",
+} as const;
 
 // GET /api/users/:id/available-slots?date=YYYY-MM-DD&duration=30
-// Returns available time slots for a professional on a given date
+// Returns the time-slot grid (free and taken) for a professional on a given
+// date (hora AR). Agenda interna: sin buffer ni anticipación mínima; solo
+// descarta los horarios ya pasados si la fecha es hoy.
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -29,123 +37,51 @@ export async function GET(
       );
     }
 
-    const date = new Date(dateStr + "T12:00:00");
-    if (isNaN(date.getTime())) {
+    if (!isValidDateKey(dateStr)) {
       return NextResponse.json(
         { success: false, error: "Fecha invalida" },
         { status: 400 }
       );
     }
 
-    const dayOfWeek = date.getDay(); // 0=Sun, 6=Sat
-
-    // 1. Get work hours for this day
-    const preference = await prisma.userPreference.findUnique({
-      where: { userId_day: { userId, day: dayOfWeek } },
-    });
-
-    if (!preference) {
-      return NextResponse.json({
-        success: true,
-        data: { slots: [], message: "El profesional no atiende este dia" },
-      });
+    if (!Number.isInteger(duration) || duration < 5 || duration > 480) {
+      return NextResponse.json(
+        { success: false, error: "Duracion invalida" },
+        { status: 400 }
+      );
     }
 
-    const hasAM = preference.fromHourAM && preference.toHourAM;
-    const hasPM = preference.fromHourPM && preference.toHourPM;
-
-    if (!hasAM && !hasPM) {
-      return NextResponse.json({
-        success: true,
-        data: { slots: [], message: "El profesional no tiene horarios configurados para este dia" },
-      });
-    }
-
-    // 2. Check if day is blocked
-    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setDate(endOfDay.getDate() + 1);
-
-    const blocked = await prisma.blockDay.findFirst({
-      where: { userId, date: { gte: startOfDay, lt: endOfDay } },
-    });
-
-    if (blocked) {
-      return NextResponse.json({
-        success: true,
-        data: { slots: [], message: "Este dia esta bloqueado" },
-      });
-    }
-
-    // 3. Get existing shifts for this day (not cancelled)
-    const existingShifts = await prisma.shift.findMany({
-      where: {
-        userId,
-        status: { notIn: ["CANCELLED"] },
-        start: { gte: startOfDay, lt: endOfDay },
-      },
-      select: { start: true, end: true },
-    });
-
-    // 4. Generate all possible slots from work hours
-    const timeSlots: { start: string; end: string; available: boolean }[] = [];
-
-    // If the requested date is today, skip slots whose start time is already in the past.
     const now = new Date();
-    const isToday =
-      now.getFullYear() === startOfDay.getFullYear() &&
-      now.getMonth() === startOfDay.getMonth() &&
-      now.getDate() === startOfDay.getDate();
+    const day = await loadDayAvailability({
+      medicId: userId,
+      date: dateStr,
+      durationMinutes: duration,
+      // Si es hoy, no se ofrecen horarios que ya empezaron.
+      notBefore: arDateKey(now) === dateStr ? now : null,
+    });
 
-    function generateSlots(fromHour: string, toHour: string) {
-      const [fH, fM] = fromHour.split(":").map(Number);
-      const [tH, tM] = toHour.split(":").map(Number);
-      const startMin = fH * 60 + fM;
-      const endMin = tH * 60 + tM;
-
-      for (let min = startMin; min + duration <= endMin; min += duration) {
-        const slotStartH = Math.floor(min / 60);
-        const slotStartM = min % 60;
-        const slotEndMin = min + duration;
-        const slotEndH = Math.floor(slotEndMin / 60);
-        const slotEndM = slotEndMin % 60;
-
-        const startStr = `${String(slotStartH).padStart(2, "0")}:${String(slotStartM).padStart(2, "0")}`;
-        const endStr = `${String(slotEndH).padStart(2, "0")}:${String(slotEndM).padStart(2, "0")}`;
-
-        // Check if slot conflicts with existing shifts
-        const slotStart = new Date(startOfDay);
-        slotStart.setHours(slotStartH, slotStartM, 0, 0);
-        const slotEnd = new Date(startOfDay);
-        slotEnd.setHours(slotEndH, slotEndM, 0, 0);
-
-        // Skip slots whose start is already in the past (only for today).
-        if (isToday && slotStart <= now) continue;
-
-        const isOccupied = existingShifts.some((s) => {
-          const sStart = new Date(s.start);
-          const sEnd = new Date(s.end);
-          return sStart < slotEnd && sEnd > slotStart;
-        });
-
-        timeSlots.push({
-          start: startStr,
-          end: endStr,
-          available: !isOccupied,
-        });
-      }
+    if (day.status !== "OPEN") {
+      return NextResponse.json({
+        success: true,
+        data: { slots: [], message: DAY_MESSAGES[day.status] },
+      });
     }
 
-    if (hasAM) generateSlots(preference.fromHourAM!, preference.toHourAM!);
-    if (hasPM) generateSlots(preference.fromHourPM!, preference.toHourPM!);
+    const hours = day.hours!;
+    const hasAM = hours.fromHourAM && hours.toHourAM;
+    const hasPM = hours.fromHourPM && hours.toHourPM;
 
     return NextResponse.json({
       success: true,
       data: {
-        slots: timeSlots,
+        slots: day.slots.map((s) => ({
+          start: arTimeLabel(s.start),
+          end: arTimeLabel(s.end),
+          available: s.available,
+        })),
         workHours: {
-          am: hasAM ? { from: preference.fromHourAM, to: preference.toHourAM } : null,
-          pm: hasPM ? { from: preference.fromHourPM, to: preference.toHourPM } : null,
+          am: hasAM ? { from: hours.fromHourAM, to: hours.toHourAM } : null,
+          pm: hasPM ? { from: hours.fromHourPM, to: hours.toHourPM } : null,
         },
         duration,
       },

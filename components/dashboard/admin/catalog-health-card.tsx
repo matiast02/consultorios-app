@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   ClipboardList,
+  FileClock,
   HeartPulse,
   Palette,
   Stethoscope,
@@ -44,12 +45,15 @@ export function CatalogHealthCard({ health }: CatalogHealthCardProps) {
   const insurances = health.healthInsurancesUnused90d;
   const specs = health.specializationsWithoutColor;
   const modules = health.modules ?? [];
+  // Defensivo ante respuestas cacheadas anteriores al campo.
+  const hcCopies = health.hcCopiesPending ?? { count: 0, overdue: 0 };
 
   const allClear =
     patients.total === 0 &&
     medics.count === 0 &&
     insurances.count === 0 &&
-    specs.count === 0;
+    specs.count === 0 &&
+    hcCopies.count === 0;
 
   const medicPreview = medics.items.slice(0, 3).map((m) => m.name).join(", ");
 
@@ -187,6 +191,57 @@ export function CatalogHealthCard({ health }: CatalogHealthCardProps) {
                     {specs.count}
                   </span>
                 )}
+              </div>
+            </Link>
+          </li>
+
+          {/* Copias de HC pendientes (Ley 26.529 art. 14: 48 h) */}
+          <li className="px-5 py-3">
+            <Link
+              href="/dashboard/pacientes"
+              className="group flex items-start gap-3 transition hover:opacity-80"
+            >
+              <div
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                  hcCopies.overdue > 0 ? "bg-rose-50 dark:bg-rose-950/40" : "bg-muted"
+                }`}
+              >
+                <FileClock
+                  className={`h-4 w-4 ${
+                    hcCopies.overdue > 0 ? "text-rose-600" : "text-muted-foreground"
+                  }`}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] font-medium text-foreground">
+                    Copias de HC pendientes
+                  </span>
+                  {hcCopies.count > 0 && (
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums ${
+                        hcCopies.overdue > 0
+                          ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                          : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                      }`}
+                    >
+                      {hcCopies.count}
+                    </span>
+                  )}
+                </div>
+                <div
+                  className={`mt-0.5 text-[11.5px] tabular-nums ${
+                    hcCopies.overdue > 0
+                      ? "font-medium text-rose-700 dark:text-rose-300"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {hcCopies.overdue > 0
+                    ? `${hcCopies.overdue} vencida${hcCopies.overdue === 1 ? "" : "s"} (más de 48 h)`
+                    : hcCopies.count > 0
+                      ? "Dentro del plazo de 48 h"
+                      : "Sin solicitudes pendientes"}
+                </div>
               </div>
             </Link>
           </li>

@@ -8,6 +8,8 @@ import type { PublicMedic, PublicSpecialization } from "@/types";
 interface Props {
   medics: PublicMedic[];
   specializations: PublicSpecialization[];
+  /** Reserva online activa: "Turno" abre /reservar con el profesional preseleccionado. */
+  onlineBookingEnabled?: boolean;
 }
 
 function displayName(m: PublicMedic): string {
@@ -17,7 +19,7 @@ function displayName(m: PublicMedic): string {
   return m.name ?? "Profesional";
 }
 
-export function LandingTeam({ medics, specializations }: Props) {
+export function LandingTeam({ medics, specializations, onlineBookingEnabled = false }: Props) {
   // Sync con el hash: si la URL trae #equipo-<specId>, filtramos.
   // Patrón replicado de landing-schedule-by-medic.tsx.
   const [selectedSpecId, setSelectedSpecId] = useState<string | null>(null);
@@ -220,7 +222,7 @@ export function LandingTeam({ medics, specializations }: Props) {
                     style={{ borderColor: "var(--border)" }}
                   >
                     <a
-                      href="#contacto"
+                      href={onlineBookingEnabled ? `/reservar?medico=${encodeURIComponent(m.id)}` : "#contacto"}
                       className="inline-flex items-center gap-1.5 rounded-full px-3 py-[7px] text-[12.5px] font-semibold text-white shadow-[0_8px_20px_rgba(10,138,158,0.18)] transition hover:-translate-y-0.5"
                       style={{ background: "var(--primary)" }}
                     >

@@ -30,7 +30,9 @@ import {
   Shield,
   Mail,
   CalendarIcon,
+  Trash2,
 } from "lucide-react";
+import { useSession } from "@/lib/auth-client";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -41,6 +43,7 @@ import { format, parse } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import type { Patient, HealthInsurance } from "@/types";
+import { CONSENT_TYPE_LABELS } from "@/lib/validations";
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 const patientSchema = z.object({
@@ -58,6 +61,13 @@ const patientSchema = z.object({
   address: z.string().optional(),
   country: z.string().optional(),
   province: z.string().optional(),
+  // Consentimiento informado (Ley 25.326 art. 5-6)
+  consentGiven: z.boolean().optional(),
+  consentType: z.enum(["WRITTEN", "VERBAL_RECORDED", "DIGITAL_SIGNATURE"]).optional(),
+  consentGivenAt: z.string().optional(),
+  consentNote: z.string().max(500, "Máximo 500 caracteres").optional(),
+  // Oposición a recibir recordatorios de turnos (Ley 25.326 art. 27)
+  reminderOptOut: z.boolean().optional(),
 });
 
 type PatientFormValues = z.infer<typeof patientSchema>;
@@ -67,7 +77,20 @@ interface PatientFormDialogProps {
   onOpenChange: (open: boolean) => void;
   patient?: Patient | null;
   onSaved: () => void;
+  /** Tras eliminar/archivar (solo en edición). Si no se pasa, se usa onSaved. */
+  onDeleted?: () => void;
 }
+
+// Respuesta 409 de DELETE /api/patients/[id] (ver contracts/api-schemas/patients-lifecycle.yaml)
+interface DeletionBlockers {
+  clinicalEntries: number;
+  otherProfessionals: { id: string; name: string }[];
+  futureShiftsWithOthers: number;
+  canArchive: boolean;
+}
+
+// Error ya comunicado al usuario (evita un segundo toast genérico).
+class HandledError extends Error {}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function formatDniDisplay(raw: string): string {
@@ -86,12 +109,16 @@ export function PatientFormDialog({
   onOpenChange,
   patient,
   onSaved,
+  onDeleted,
 }: PatientFormDialogProps) {
   const isEdit = !!patient;
+  const { data: session } = useSession();
+  const role = session?.user.role ?? null;
 
   const [step, setStep] = useState<1 | 2>(1);
   const [healthInsurances, setHealthInsurances] = useState<HealthInsurance[]>([]);
   const [savingMinimal, setSavingMinimal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Additional insurances (multi-OS)
   interface AdditionalInsurance {
@@ -127,11 +154,19 @@ export function PatientFormDialog({
       province: "",
       osId: "",
       osNumber: "",
+      consentGiven: false,
+      consentType: "WRITTEN",
+      consentGivenAt: "",
+      consentNote: "",
+      reminderOptOut: false,
     },
   });
 
   const selectedOsId = watch("osId");
   const selectedSex = watch("sex");
+  const consentGiven = watch("consentGiven") === true;
+  const reminderOptOut = watch("reminderOptOut") === true;
+  const selectedConsentType = watch("consentType") ?? "WRITTEN";
   const dniValue = watch("dni") ?? "";
   const birthDateValue = watch("birthDate") ?? "";
 
@@ -155,6 +190,13 @@ export function PatientFormDialog({
           province: patient.province ?? "",
           osId: patient.osId ?? "",
           osNumber: patient.osNumber ?? "",
+          consentGiven: !!patient.consentGivenAt,
+          consentType: patient.consentType ?? "WRITTEN",
+          consentGivenAt: patient.consentGivenAt
+            ? new Date(patient.consentGivenAt).toISOString().split("T")[0]
+            : "",
+          consentNote: patient.consentNote ?? "",
+          reminderOptOut: patient.reminderOptOut ?? false,
         });
         // Load existing additional insurances
         async function loadPatientInsurances() {
@@ -196,6 +238,11 @@ export function PatientFormDialog({
           province: "",
           osId: "",
           osNumber: "",
+          consentGiven: false,
+          consentType: "WRITTEN",
+          consentGivenAt: "",
+          consentNote: "",
+          reminderOptOut: false,
         });
         setAdditionalInsurances([]);
       }
@@ -264,6 +311,16 @@ export function PatientFormDialog({
       for (const [key, value] of Object.entries(data)) {
         body[key] = value === "" ? undefined : value;
       }
+      // Consentimiento: el checkbox no viaja; si no está dado, se limpian los campos.
+      const consentGiven = data.consentGiven === true;
+      delete body.consentGiven;
+      body.consentType = consentGiven ? (data.consentType ?? "WRITTEN") : null;
+      body.consentGivenAt = consentGiven
+        ? data.consentGivenAt || new Date().toISOString().split("T")[0]
+        : null;
+      body.consentNote = consentGiven ? data.consentNote || null : null;
+      // Recordatorios: siempre viaja como boolean explícito (el backend registra reminderOptOutAt).
+      body.reminderOptOut = data.reminderOptOut === true;
 
       const res = await fetch(url, {
         method,
@@ -273,6 +330,10 @@ export function PatientFormDialog({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        if (!isEdit && res.status === 409 && err.code === "ARCHIVED_DUPLICATE") {
+          notifyArchivedDuplicate(err.archivedPatientId);
+          throw new HandledError(err.error);
+        }
         throw new Error(err.error ?? `Error al ${isEdit ? "actualizar" : "crear"} el paciente`);
       }
 
@@ -320,9 +381,128 @@ export function PatientFormDialog({
       toast.success(`Paciente ${isEdit ? "actualizado" : "creado"} exitosamente`);
       onSaved();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      if (!(error instanceof HandledError)) {
+        toast.error(error instanceof Error ? error.message : "Error al guardar");
+      }
       throw error;
     }
+  }
+
+  // Alta con DNI de un paciente archivado: el admin puede restaurarlo.
+  function notifyArchivedDuplicate(archivedPatientId?: string) {
+    if (role === "admin" && archivedPatientId) {
+      toast("Existe un paciente archivado con ese DNI", {
+        description: "Podés restaurarlo en lugar de crear uno nuevo.",
+        duration: 15000,
+        action: {
+          label: "Restaurar",
+          onClick: () => {
+            void restorePatient(archivedPatientId);
+          },
+        },
+      });
+      return;
+    }
+    toast.error(
+      "Existe un paciente archivado con ese DNI. Pedile al administrador que lo restaure."
+    );
+  }
+
+  async function restorePatient(archivedPatientId: string) {
+    try {
+      const res = await fetch(`/api/patients/${archivedPatientId}/restore`, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "No se pudo restaurar el paciente");
+        return;
+      }
+      toast.success("Paciente restaurado");
+      onSaved();
+    } catch {
+      toast.error("No se pudo restaurar el paciente");
+    }
+  }
+
+  // Eliminar: intenta borrado físico; si hay historia clínica / turnos de
+  // otros profesionales y el usuario puede, ofrece archivar.
+  async function handleDelete() {
+    if (!patient) return;
+    const name = `${patient.firstName} ${patient.lastName}`.trim();
+    if (!window.confirm(`¿Eliminar a ${name}? Esta acción no se puede deshacer.`)) return;
+
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/patients/${patient.id}?mode=purge`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        toast.success("Paciente eliminado");
+        finishDeletion();
+        return;
+      }
+
+      if (res.status === 409 && json.code === "PURGE_BLOCKED") {
+        const blockers: DeletionBlockers | undefined = json.blockers;
+        if (blockers?.canArchive) {
+          const confirmed = window.confirm(
+            `${name} tiene historia clínica o turnos registrados, por eso no se puede borrar.\n\n` +
+              "En su lugar se va a ARCHIVAR: deja de aparecer en listados y búsquedas, " +
+              "su historia clínica se conserva por 10 años y el administrador puede restaurarlo.\n\n" +
+              "¿Archivar al paciente?"
+          );
+          if (!confirmed) return;
+          await archivePatient(patient.id);
+          return;
+        }
+        toast.error(json.error ?? "No se puede eliminar el paciente", {
+          description: deletionBlockedHint(blockers),
+          duration: 10000,
+        });
+        return;
+      }
+
+      toast.error(json.error ?? "Error al eliminar el paciente");
+    } catch {
+      toast.error("Error al eliminar el paciente");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function archivePatient(patientId: string) {
+    const res = await fetch(`/api/patients/${patientId}?mode=archive`, { method: "DELETE" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error ?? "No se pudo archivar el paciente");
+      return;
+    }
+    const warnings: string[] = Array.isArray(json.data?.warnings) ? json.data.warnings : [];
+    toast.success(
+      "Paciente archivado",
+      warnings.length > 0 ? { description: warnings.join(" "), duration: 10000 } : undefined
+    );
+    finishDeletion();
+  }
+
+  function deletionBlockedHint(blockers?: DeletionBlockers): string | undefined {
+    const parts: string[] = [];
+    if (blockers?.otherProfessionals?.length) {
+      parts.push(
+        `Profesionales involucrados: ${blockers.otherProfessionals.map((p) => p.name).join(", ")}.`
+      );
+    }
+    if (blockers?.futureShiftsWithOthers) {
+      parts.push("Primero hay que cancelar sus turnos futuros con otros profesionales.");
+    }
+    if (role !== "admin") {
+      parts.push("Pedile al administrador que lo archive.");
+    }
+    return parts.length > 0 ? parts.join(" ") : undefined;
+  }
+
+  function finishDeletion() {
+    onOpenChange(false);
+    (onDeleted ?? onSaved)();
   }
 
   // Step 1 → Step 2 (validate step 1 first)
@@ -588,6 +768,88 @@ export function PatientFormDialog({
           {/* ─── Step 2 — Cobertura y contacto ──────────────────────────── */}
           {step === 2 && (
             <div className="space-y-5 px-6 pb-4">
+              {/* CONSENTIMIENTO (Ley 25.326) */}
+              <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <Shield className="h-3.5 w-3.5" />
+                  Consentimiento informado
+                </div>
+                <label className="flex cursor-pointer items-start gap-2.5 text-[13px] leading-snug">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                    {...register("consentGiven")}
+                  />
+                  <span>
+                    El paciente (o su representante) prestó consentimiento para el tratamiento de sus
+                    datos personales y de salud por parte del consultorio, con fines de atención médica
+                    y gestión de turnos (Ley 25.326, arts. 5 y 7).
+                  </span>
+                </label>
+                {consentGiven && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Forma</Label>
+                      <Select
+                        value={selectedConsentType}
+                        onValueChange={(val) =>
+                          setValue("consentType", val as "WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE")
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(CONSENT_TYPE_LABELS) as Array<keyof typeof CONSENT_TYPE_LABELS>).map((k) => (
+                            <SelectItem key={k} value={k}>
+                              {CONSENT_TYPE_LABELS[k]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Fecha</Label>
+                      <Input type="date" {...register("consentGivenAt")} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-semibold">Observaciones (opcional)</Label>
+                      <Input
+                        placeholder="Ej.: firmó el formulario de consentimiento en recepción"
+                        {...register("consentNote")}
+                      />
+                      {errors.consentNote && (
+                        <p className="text-xs text-destructive">{errors.consentNote.message}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Oposición a recordatorios (independiente del consentimiento) */}
+                <div className="border-t pt-3">
+                  <label className="flex cursor-pointer items-start gap-2.5 text-[13px] leading-snug">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                      {...register("reminderOptOut")}
+                    />
+                    <span>
+                      No enviar recordatorios de turnos a este paciente
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Ni por email ni por WhatsApp. Marcalo si el paciente pidió no recibirlos.
+                      </span>
+                    </span>
+                  </label>
+                  {patient?.reminderOptOut && patient.reminderOptOutAt && (
+                    <p className="mt-1.5 pl-[26px] text-xs text-muted-foreground">
+                      {reminderOptOut
+                        ? `Pidió no recibir recordatorios el ${format(new Date(patient.reminderOptOutAt), "d 'de' MMMM 'de' yyyy", { locale: es })}.`
+                        : "Al guardar, el paciente vuelve a recibir recordatorios."}
+                    </p>
+                  )}
+                </div>
+              </div>
+
               {/* COBERTURA */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -749,26 +1011,45 @@ export function PatientFormDialog({
 
           {/* ─── Footer ────────────────────────────────────────────────── */}
           <div className="flex items-center justify-between gap-2 border-t bg-muted/20 px-6 py-3">
-            {step === 1 ? (
-              <button
-                type="button"
-                onClick={handleCreateMinimal}
-                disabled={savingMinimal || isSubmitting}
-                className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
-              >
-                {savingMinimal && <Loader2 className="mr-1.5 inline h-3 w-3 animate-spin" />}
-                Crear con datos mínimos
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                Atrás
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {isEdit && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting || savingMinimal || isSubmitting}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-destructive hover:underline disabled:opacity-50"
+                >
+                  {deleting ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  Eliminar
+                </button>
+              )}
+              {step === 1 ? (
+                !isEdit && (
+                <button
+                  type="button"
+                  onClick={handleCreateMinimal}
+                  disabled={savingMinimal || isSubmitting}
+                  className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                >
+                  {savingMinimal && <Loader2 className="mr-1.5 inline h-3 w-3 animate-spin" />}
+                  Crear con datos mínimos
+                </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Atrás
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 type="button"

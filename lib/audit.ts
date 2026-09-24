@@ -1,13 +1,12 @@
 import crypto from "node:crypto";
-import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 // Tamper-evidence: hash encadenado por (resource, resourceId).
 function auditHash(
   prevHash: string | null,
-  c: { userId: string; action: string; resource: string; resourceId: string; details: string | null }
+  c: { userId: string | null; action: string; resource: string; resourceId: string; details: string | null }
 ): string {
-  const payload = [prevHash ?? "", c.userId, c.action, c.resource, c.resourceId, c.details ?? ""].join("\n");
+  const payload = [prevHash ?? "", c.userId ?? "", c.action, c.resource, c.resourceId, c.details ?? ""].join("\n");
   return crypto.createHash("sha256").update(payload, "utf8").digest("hex");
 }
 
@@ -20,7 +19,10 @@ export type AuditAction =
   | "LOGIN_FAILED"
   | "LOGIN_BLOCKED"
   | "LOGOUT"
-  | "PASSWORD_CHANGED";
+  | "PASSWORD_CHANGED"
+  | "EXPORT_HC" // copia de la historia clínica entregada
+  | "GRANT_ACCESS" // concesión de acceso a la HC aprobada / revocada
+  | "REQUEST_ACCESS"; // solicitud de acceso a la HC creada / rechazada
 
 export type AuditResource =
   | "patient"
@@ -33,16 +35,42 @@ export type AuditResource =
   | "user_preference"
   | "block_day"
   | "prescription"
+  | "study_order"
+  | "meal_plan"
+  | "clinical_ledger"
+  | "export"
+  | "admin_dashboard"
   | "medication"
-  | "auth";
+  | "auth"
+  | "clinical_access_grant"
+  | "hc_copy_request"
+  | "attachment"; // adjunto de la HC (details: solo ids, nunca el nombre del archivo)
+
+/** Largo máximo de columnas String sin @db.Text en MySQL (VARCHAR(191)). */
+const MAX_VARCHAR = 191;
+
+/**
+ * IP del cliente: primer valor de x-forwarded-for (el cliente original; el
+ * resto son proxies), o x-real-ip. Recortada para que un header enorme o
+ * manipulado no haga fallar el insert.
+ */
+function clientIp(req: Pick<Request, "headers"> | null | undefined): string | null {
+  if (!req) return null;
+  const forwarded = req.headers.get("x-forwarded-for");
+  const first = forwarded?.split(",")[0]?.trim();
+  const ip = first || req.headers.get("x-real-ip")?.trim() || null;
+  return ip ? ip.slice(0, MAX_VARCHAR) : null;
+}
 
 interface LogAuditParams {
-  userId: string;
+  /** null cuando el actor es desconocido (p.ej. login fallido con email inexistente). */
+  userId: string | null;
   action: AuditAction;
   resource: AuditResource;
   resourceId: string;
   details?: Record<string, unknown> | string;
-  req?: NextRequest;
+  /** NextRequest, Request (hooks de Better Auth) o cualquier objeto con headers. */
+  req?: Pick<Request, "headers"> | null;
 }
 
 /**
@@ -53,14 +81,14 @@ export function logAudit({
   userId,
   action,
   resource,
-  resourceId,
+  resourceId: rawResourceId,
   details,
   req,
 }: LogAuditParams): void {
-  const ipAddress =
-    req?.headers.get("x-forwarded-for") ??
-    req?.headers.get("x-real-ip") ??
-    null;
+  // resourceId puede venir de input del usuario (p.ej. email en login fallido):
+  // se acota para que el insert no falle y el evento no se pierda.
+  const resourceId = rawResourceId.slice(0, MAX_VARCHAR);
+  const ipAddress = clientIp(req);
   const userAgent = req?.headers.get("user-agent") ?? null;
   const detailsStr =
     details != null ? (typeof details === "string" ? details : JSON.stringify(details)) : null;

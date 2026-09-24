@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMedic } from "@/lib/auth-utils";
+import { treatedPatientWhere } from "@/lib/clinical-access";
 
 const DAY_LABELS = ["LU", "MA", "MI", "JU", "VI", "SÁ", "DO"] as const;
 const RENEWAL_WINDOW_DAYS = 14;
@@ -40,6 +41,10 @@ function getInitials(firstName: string, lastName: string): string {
   return `${(firstName[0] ?? "").toUpperCase()}${(lastName[0] ?? "").toUpperCase()}`;
 }
 
+function displayName(u: { name: string; firstName: string | null; lastName: string | null }): string {
+  return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.name || "Profesional";
+}
+
 function summarizeDays(dates: Date[]): string {
   if (dates.length === 0) return "";
   const dayLong = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
@@ -52,7 +57,7 @@ function summarizeDays(dates: Date[]): string {
 
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -75,6 +80,7 @@ export async function GET() {
       prescriptionsForRenewal,
       pendingStudyOrders,
       recentShiftsForPatients,
+      pendingAccessRequests,
     ] = await Promise.all([
       // Today's shifts (with patient, OS, type)
       prisma.shift.findMany({
@@ -141,6 +147,25 @@ export async function GET() {
         },
         orderBy: { start: "desc" },
         take: 30,
+      }),
+
+      // Solicitudes de acceso a la HC que este médico puede decidir: PENDING,
+      // de pacientes (activos) de los que es tratante, y que no son suyas.
+      prisma.clinicalAccessGrant.findMany({
+        where: {
+          status: "PENDING",
+          grantedToUserId: { not: userId },
+          patient: { deletedAt: null, ...treatedPatientWhere(userId) },
+        },
+        select: {
+          id: true,
+          patientId: true,
+          createdAt: true,
+          patient: { select: { firstName: true, lastName: true } },
+          grantedTo: { select: { name: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: "asc" },
+        take: 100,
       }),
     ]);
 
@@ -242,6 +267,16 @@ export async function GET() {
       }
     }
 
+    // Solicitudes de acceso a la HC (la más antigua primero)
+    const oldestAccessRequest = pendingAccessRequests[0] ?? null;
+    let accessSummary = "Sin solicitudes pendientes";
+    if (oldestAccessRequest) {
+      const p = oldestAccessRequest.patient;
+      const who = `${displayName(oldestAccessRequest.grantedTo)} — ${p.lastName}, ${(p.firstName[0] ?? "").toUpperCase()}.`;
+      const more = pendingAccessRequests.length - 1;
+      accessSummary = more > 0 ? `${who} · y ${more} más` : who;
+    }
+
     // Avoid unused warning for finishedRecentWithEvolution
     void finishedRecentWithEvolution;
 
@@ -308,6 +343,11 @@ export async function GET() {
           estudiosPendientes: {
             count: pendingStudyOrders.length,
             summary: studySummary,
+          },
+          solicitudesDeAcceso: {
+            count: pendingAccessRequests.length,
+            summary: accessSummary,
+            patientId: oldestAccessRequest?.patientId ?? null,
           },
         },
         recentPatients,

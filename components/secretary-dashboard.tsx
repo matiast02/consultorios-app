@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,7 +14,8 @@ import { SecretaryDashboardHeader } from "@/components/dashboard/secretary/dashb
 import { SecretaryStatsRow } from "@/components/dashboard/secretary/stats-row";
 import { WaitingRoomCard } from "@/components/dashboard/secretary/waiting-room-card";
 import { NextToCallCard } from "@/components/dashboard/secretary/next-to-call-card";
-import { RemindersCard } from "@/components/dashboard/secretary/reminders-card";
+import { RemindersCard, formatDispatchSummary } from "@/components/dashboard/secretary/reminders-card";
+import { OnlineBookingsCard } from "@/components/dashboard/secretary/online-bookings-card";
 import { TodaySlotsCard } from "@/components/dashboard/secretary/today-slots-card";
 import { AgendaDayCard } from "@/components/dashboard/secretary/agenda-day-card";
 import { RegisterArrivalDialog } from "@/components/dashboard/secretary/register-arrival-dialog";
@@ -201,18 +202,29 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      if (!res.ok) throw new Error();
-      const json = await res.json();
-      toast.success(`${json.data?.sent ?? 0} recordatorios enviados`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        if (res.status === 403) throw new Error("Solo recepción o administración pueden enviar recordatorios");
+        if (res.status === 503) throw new Error("Los recordatorios están desactivados en Configuración → Consultorio");
+        throw new Error("No se pudieron enviar los recordatorios");
+      }
+      // ReminderDispatchSummary (contracts/api-schemas/reminders.yaml)
+      const summary = formatDispatchSummary(json.data);
+      const opts = summary.description ? { description: summary.description } : undefined;
+      if (summary.tone === "warning") toast.warning(summary.title, opts);
+      else if (summary.tone === "info") toast.info(summary.title, opts);
+      else toast.success(summary.title, opts);
       fetchDashboard();
-    } catch {
-      toast.error("No se pudieron enviar los recordatorios");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudieron enviar los recordatorios");
     } finally {
       setSendingReminders(false);
     }
   };
 
-  if (loading) {
+  // Spinner solo en la carga inicial: los refrescos (polling, acciones) no desmontan
+  // las cards, así no se pierde su estado local (p. ej. WhatsApp abiertos en recordatorios).
+  if (loading && !data) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -289,11 +301,16 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
 
         <div className="space-y-4">
           <NextToCallCard data={data.proximoALlamar} onCall={handleNextToCall} />
+          {/* Solo si el backend lo informa (módulo de reservas online activo). */}
+          {data.reservasOnline && (
+            <OnlineBookingsCard data={data.reservasOnline} onChanged={fetchDashboard} />
+          )}
           <RemindersCard
             data={data.recordatorios}
             sending={sendingReminders}
             onSendPending={handleSendReminders}
             onEdit={() => router.push("/dashboard/calendario")}
+            onChanged={fetchDashboard}
           />
           <TodaySlotsCard
             groups={data.huecosHoy}

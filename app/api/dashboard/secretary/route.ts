@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { staffSummary } from "@/lib/online-booking";
+import {
+  REMINDER_ITEM_INCLUDE,
+  loadReminderConfig,
+  reminderRowToItem,
+} from "@/lib/reminders/scheduler";
 import type {
   AgendaAutoMode,
   AgendaProfessional,
@@ -25,10 +31,6 @@ function addDays(d: Date, n: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + n);
   return x;
-}
-
-function formatHHmm(d: Date): string {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function diffMinutes(a: Date, b: Date): number {
@@ -68,7 +70,7 @@ function pickAutoMode(activeCount: number): AgendaAutoMode {
 
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -127,26 +129,13 @@ export async function GET() {
         orderBy: { start: "asc" },
       }),
 
-      // Reminders scheduled for tomorrow's shifts (regardless of status — we list all)
+      // Recordatorios de los turnos de mañana (todos los estados y offsets).
+      // Se filtra por el inicio del turno: con offset 24 h el recordatorio se
+      // envía hoy, así que filtrar por scheduledFor los dejaría afuera.
       prisma.shiftReminder.findMany({
-        where: { scheduledFor: { gte: tomorrow, lt: dayAfter } },
-        include: {
-          shift: {
-            include: {
-              patient: { select: { firstName: true, lastName: true } },
-              user: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  name: true,
-                  specialization: { select: { color: true } },
-                },
-              },
-            },
-          },
-        },
-        orderBy: { scheduledFor: "asc" },
+        where: { shift: { start: { gte: tomorrow, lt: dayAfter } } },
+        include: REMINDER_ITEM_INCLUDE,
+        orderBy: [{ shift: { start: "asc" } }, { offsetHours: "desc" }],
       }),
 
       // Active professionals: medics that are isActive AND have at least one shift today OR a preference covering today
@@ -306,24 +295,12 @@ export async function GET() {
     }
 
     // ─── Recordatorios ───────────────────────────────────────────────────────
-    const reminderItems: ReminderItem[] = tomorrowReminders.map((r) => {
-      const time = formatHHmm(new Date(r.shift.start));
-      const lastName = r.shift.patient?.lastName ?? "";
-      const firstInitial = (r.shift.patient?.firstName?.[0] ?? "").toUpperCase();
-      const patientShortName = lastName
-        ? `${lastName}, ${(r.shift.patient?.firstName ?? "").trim().split(/\s+/)[0]}`
-        : "Paciente";
-      void firstInitial;
-      return {
-        id: r.id,
-        shiftId: r.shiftId,
-        time,
-        patientShortName,
-        medicShortName: shortMedicName(r.shift.user),
-        medicColor: r.shift.user.specialization?.color ?? null,
-        status: r.status,
-      };
-    });
+    // Canal, offset, respuesta del paciente y, para los WhatsApp manuales
+    // pendientes, el waLink con el mensaje y el link de confirmación.
+    const reminderConfig = await loadReminderConfig();
+    const reminderItems: ReminderItem[] = await Promise.all(
+      tomorrowReminders.map((r) => reminderRowToItem(r, reminderConfig, now)),
+    );
 
     const pending = reminderItems.filter((x) => x.status === "PENDING").length;
     const sent = reminderItems.filter((x) => x.status === "SENT").length;
@@ -466,6 +443,13 @@ export async function GET() {
       secretaryUser?.name ||
       "Recepción";
 
+    // ─── Reservas online pendientes de confirmar ─────────────────────────────
+    // Opcional: si falla, el resto del dashboard se sirve igual.
+    const reservasOnline = await staffSummary(now).catch((e: unknown) => {
+      console.error("[dashboard/secretary] reservas online:", e);
+      return undefined;
+    });
+
     const payload: SecretaryDashboardData = {
       header: {
         secretaryName: fullName,
@@ -483,6 +467,7 @@ export async function GET() {
       recordatorios,
       huecosHoy,
       agenda,
+      ...(reservasOnline ? { reservasOnline } : {}),
     };
 
     return NextResponse.json({ success: true, data: payload });

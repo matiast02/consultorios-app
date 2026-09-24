@@ -7,15 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Auth.js Required Models ──────────────────────────────────────────────────
+// ─── Better Auth Models ──────────────────────────────────────────────────
 
 model User {
   id               String    @id @default(cuid())
-  name             String?
-  email            String?   @unique
-  emailVerified    DateTime?
+  name             String    @default("")
+  email            String    @unique
+  emailVerified    Boolean   @default(false)
   image            String?
-  password         String?   @db.Text
   firstName        String?
   lastName         String?
   licenseNumber    String? // Matricula profesional
@@ -31,6 +30,7 @@ model User {
   slotDurationMinutes Int @default(30)
   bufferMinutes       Int @default(0)
   minAdvanceMinutes   Int @default(60)
+  acceptsOnlineBooking Boolean @default(true) // aparece en la reserva web
 
   // Regional prefs
   language  String @default("es-AR")
@@ -60,6 +60,8 @@ model User {
   notifications      Notification[]
   moduleAccess       UserModuleAccess[]
   acceptedInsurances UserInsurance[]
+  grantsReceived     ClinicalAccessGrant[] @relation("grantsReceived")
+  attachmentsUploaded ClinicalAttachment[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -71,33 +73,34 @@ model User {
 }
 
 model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String? @db.Text
-  session_state     String?
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String // Para providerId "credential": el id del usuario
+  providerId            String // "credential" (email + password) o proveedor OAuth
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  idToken               String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?   @db.Text // hash bcrypt (solo providerId = "credential")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([provider, providerAccountId])
+  @@unique([providerId, accountId])
   @@index([userId])
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?  @db.Text
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -107,12 +110,25 @@ model Session {
   @@index([userId])
 }
 
-model VerificationToken {
+model Verification {
+  id         String   @id @default(cuid())
   identifier String
-  token      String
-  expires    DateTime
+  value      String   @db.Text
+  expiresAt  DateTime
 
-  @@unique([identifier, token])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+// ─── Better Auth: rate limit persistente (storage: "database") ───────────────
+
+model AuthRateLimit {
+  id          String @id @default(cuid())
+  key         String @unique // ip o ip+ruta
+  count       Int
+  lastRequest BigInt // epoch ms
 }
 
 // ─── Profession Configs ──────────────────────────────────────────────────────
@@ -214,6 +230,19 @@ model Patient {
   emergencyContactName  String?
   emergencyContactPhone String?
 
+  // Autoría: quién dio de alta y quién archivó (ids de User; null en datos migrados)
+  createdById String?
+  deletedById String?
+
+  // Consentimiento informado para el tratamiento de datos de salud (Ley 25.326 art. 5-6)
+  consentType    ConsentType?
+  consentGivenAt DateTime?
+  consentNote    String?      @db.Text // cómo se obtuvo / observaciones (cifrado)
+
+  // Recordatorios: el paciente puede optar por no recibirlos (Ley 25.326 art. 27 / oposición)
+  reminderOptOut   Boolean   @default(false)
+  reminderOptOutAt DateTime?
+
   os             HealthInsurance?   @relation(fields: [osId], references: [id])
   shifts         Shift[]
   clinicalRecord ClinicalRecord?
@@ -222,6 +251,10 @@ model Patient {
   mealPlans      MealPlan[]
   insurances     PatientInsurance[]
   walkInArrivals WalkInArrival[]
+  accessGrants   ClinicalAccessGrant[]
+  hcCopyRequests HcCopyRequest[]
+  onlineBookings OnlineBookingRequest[]
+  attachments    ClinicalAttachment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -229,6 +262,7 @@ model Patient {
 
   @@index([dni])
   @@index([osId])
+  @@index([createdById])
 }
 
 // ─── Health Insurance (Obra Social) ───────────────────────────────────────────
@@ -305,6 +339,11 @@ model Shift {
   rescheduledFrom    DateTime? // Original date before auto-reschedule
   rescheduledAt      DateTime? // When the auto-reschedule happened
 
+  // Confirmación y origen del turno
+  confirmedAt DateTime?
+  confirmedVia String? // "PATIENT_LINK" | "STAFF" | "PHONE"
+  source       String    @default("STAFF") // "STAFF" | "ONLINE" (reserva web)
+
   // Reception / waiting-room state
   arrivedAt             DateTime? // Paciente llegó al consultorio (en sala de espera)
   consultationStartedAt DateTime? // Pasó a consulta
@@ -318,6 +357,7 @@ model Shift {
   mealPlans        MealPlan[]
   reminders        ShiftReminder[]
   walkInArrivals   WalkInArrival[]
+  onlineBooking    OnlineBookingRequest?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -461,19 +501,19 @@ model Evolution {
 
 model AuditLog {
   id         String  @id @default(cuid())
-  userId     String
+  userId     String? // null = actor desconocido (p.ej. login fallido con email inexistente)
   action     String // CREATE, UPDATE, DELETE, VIEW_SENSITIVE
   resource   String // patient, shift, evolution, clinical_record, etc.
   resourceId String
   details    String? @db.Text // JSON con cambios o contexto
   ipAddress  String?
-  userAgent  String?
+  userAgent  String?  @db.Text
 
   // Tamper-evidence: hash encadenado por (resource, resourceId).
   hash     String? @db.Text
   prevHash String? @db.Text
 
-  user User @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
 
@@ -504,6 +544,149 @@ model ClinicalEntryVersion {
   @@unique([entityType, entityId, version])
   @@index([entityType, entityId])
   @@index([patientId])
+}
+
+// ─── Adjuntos de la historia clínica ─────────────────────────────────────────
+// Archivos (PDF/imagen) cifrados por archivo en reposo (ver lib/attachments/*).
+// La DEK va envuelta con HC_ENC_KEY; nombre y descripción cifrados como campos.
+// Nunca se borran físicamente: anulación lógica, se conservan con la HC.
+
+enum AttachmentEntityType {
+  EVOLUTION
+  STUDY_ORDER
+  CLINICAL_RECORD
+}
+
+model ClinicalAttachment {
+  id           String               @id @default(cuid())
+  patientId    String
+  uploadedById String
+  entityType   AttachmentEntityType
+  entityId     String? // id de la evolución / orden; null si es general de la ficha
+  fileName     String               @db.Text // nombre original (cifrado)
+  mimeType     String // tipo real detectado por magic bytes
+  sizeBytes    Int
+  sha256       String // del contenido en claro
+  storageKey   String               @unique // <patientId>/<id>.hca
+  wrappedDek   String               @db.Text // DEK envuelta (token enc:…)
+  thumbnailKey String? // <patientId>/<id>.thumb.hca: miniatura WebP cifrada con la misma DEK (solo imágenes)
+  width        Int? // dimensiones de la imagen original ya orientada (null en PDF)
+  height       Int?
+  description  String?              @db.Text // (cifrado)
+  annulledAt   DateTime?
+  annulledById String?
+  annulReason  String?              @db.Text // (cifrado)
+
+  patient    Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId, entityType, entityId])
+  @@index([uploadedById])
+}
+
+// ─── Concesiones de acceso a la HC entre profesionales ───────────────────────
+// Ley 26.529 art. 19 inc. d (otro médico con autorización del paciente) y
+// Ley 25.326 art. 11 (cesión de datos sensibles con consentimiento).
+// El acceso cruzado entre médicos es siempre explícito, consentido, acotado
+// en alcance y tiempo, revocable y auditado. Extiende lib/clinical-access.ts.
+
+enum GrantStatus {
+  PENDING // solicitada por el médico que necesita acceso
+  ACTIVE // aprobada con consentimiento del paciente registrado
+  REJECTED
+  REVOKED
+  EXPIRED
+}
+
+enum GrantScope {
+  FULL
+  PARTIAL // secciones y/o asientos concretos (sections / entryIds)
+}
+
+enum ConsentType {
+  WRITTEN // escrito firmado por el paciente (o representante)
+  VERBAL_RECORDED // verbal, registrado por el profesional con fecha
+  DIGITAL_SIGNATURE // firma digital
+}
+
+model ClinicalAccessGrant {
+  id              String       @id @default(cuid())
+  patientId       String
+  grantedToUserId String // médico que recibe acceso
+  requestedById   String // quien creó la solicitud (normalmente el mismo médico)
+  decidedById     String? // médico tratante o admin que aprobó / rechazó
+  status          GrantStatus  @default(PENDING)
+  scope           GrantScope   @default(FULL)
+  sections        String?      @db.Text // JSON string[]: antecedentes|alergias|medicacion|evoluciones|recetas|estudios|planes
+  entryIds        String?      @db.Text // JSON string[]: ids de asientos concretos
+  reason          String       @db.Text // motivo clínico de la solicitud (cifrado)
+  consentType     ConsentType?
+  consentEvidence String?      @db.Text // cómo y cuándo se obtuvo el consentimiento (cifrado)
+  consentAt       DateTime?
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  decidedAt       DateTime?
+  decisionNote    String?      @db.Text // motivo de rechazo u observación (cifrado)
+  revokedAt       DateTime?
+  revokedById     String?
+
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  grantedTo User    @relation("grantsReceived", fields: [grantedToUserId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([grantedToUserId, status])
+  @@index([status, expiresAt])
+}
+
+// ─── Copia de la historia clínica para el paciente ───────────────────────────
+// Ley 26.529 art. 14 (copia autenticada dentro de las 48 hs) y art. 19
+// (quiénes pueden pedirla). El paciente no es usuario: el personal registra
+// la solicitud y la entrega; el PDF lleva los hashes del ledger.
+
+enum HcCopyRequesterType {
+  PATIENT
+  LEGAL_REPRESENTATIVE
+  HEIR
+  EXTERNAL_PROFESSIONAL // médico de otra institución con autorización del paciente
+  JUDICIAL
+}
+
+enum HcCopyStatus {
+  PENDING
+  DELIVERED
+  CANCELLED
+}
+
+model HcCopyRequest {
+  id                String              @id @default(cuid())
+  patientId         String
+  requesterType     HcCopyRequesterType
+  requesterName     String
+  requesterDni      String?
+  authorizationNote String?             @db.Text // cómo se acreditó el vínculo / autorización (cifrado)
+  reason            String?             @db.Text // (cifrado)
+  status            HcCopyStatus        @default(PENDING)
+  registeredById    String // usuario que registró la solicitud
+  requestedAt       DateTime            @default(now())
+  dueAt             DateTime // requestedAt + 48 h
+  deliveredAt       DateTime?
+  deliveredById     String?
+  deliveryNote      String?             @db.Text // "entregada en mano", "enviada por email" (cifrado)
+  documentHash      String? // sha256 del PDF entregado
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([status, dueAt])
 }
 
 // ─── Module System ───────────────────────────────────────────────────────────
@@ -674,7 +857,14 @@ model ShiftReminder {
   shiftId      String
   scheduledFor DateTime // Cuándo debe enviarse el recordatorio
   status       ReminderStatus @default(PENDING)
-  channel      String         @default("email") // "email" | "sms" | "whatsapp"
+  channel      String         @default("EMAIL") // "EMAIL" | "WHATSAPP" | "SMS"
+  offsetHours  Int            @default(24) // 24 = recordatorio del día anterior, 2 = del día
+  manual       Boolean        @default(false) // WhatsApp click-to-chat: lo envía recepción y lo marca
+  deliveredTo  String? // email o teléfono usado (para trazabilidad)
+  tokenHash    String?        @unique // sha256 del token del link de confirmación
+  tokenExpiresAt DateTime?
+  response     String? // "CONFIRMED" | "CANCELLED" (respuesta del paciente vía link)
+  respondedAt  DateTime?
   sentAt       DateTime?
   errorMessage String?        @db.Text
 
@@ -683,9 +873,57 @@ model ShiftReminder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([shiftId, offsetHours])
   @@index([shiftId])
   @@index([status, scheduledFor])
   @@index([scheduledFor])
+}
+
+// ─── Reservas online ─────────────────────────────────────────────────────────
+// Lo que el solicitante cargó en la web, separado del Patient para no pisar
+// datos existentes y para trazabilidad anti-abuso. Sin texto libre de motivo
+// (minimización: no se capturan datos de salud en el formulario público).
+
+enum OnlineBookingStatus {
+  PENDING_CONFIRMATION // creada; recepción la confirma (o el paciente la cancela)
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+model OnlineBookingRequest {
+  id                 String              @id @default(cuid())
+  shiftId            String              @unique
+  patientId          String
+  status             OnlineBookingStatus @default(PENDING_CONFIRMATION)
+  requesterFirstName String
+  requesterLastName  String
+  requesterDni       String
+  requesterPhone     String
+  requesterEmail     String?
+  healthInsuranceText String? // lo que escribió/eligió; no crea obras sociales
+  consultationTypeId String?
+  matchedExisting    Boolean             @default(false) // el DNI ya existía: se vinculó sin modificar
+  tokenHash          String              @unique // link público de gestión (ver / cancelar)
+  tokenExpiresAt     DateTime
+  privacyAcceptedAt  DateTime
+  confirmedAt        DateTime?
+  confirmedById      String? // usuario de recepción que confirmó
+  cancelledAt        DateTime?
+  cancelledBy        String? // "PATIENT" | "STAFF"
+  ipAddress          String?
+  userAgent          String?             @db.Text
+  emailSentAt        DateTime?
+
+  shift   Shift   @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([status, createdAt])
+  @@index([requesterDni])
 }
 
 // ─── Walk-In Arrivals (Pacientes sin turno previo) ──────────────────────────
@@ -734,6 +972,20 @@ model ClinicSettings {
   showContactForm        Boolean  @default(true)
   yearsOfService         Int?
   patientsServedDisplay  String?
+
+  // Recordatorios de turnos
+  remindersEnabled           Boolean @default(true)
+  reminderHoursBefore        Int     @default(24) // primer recordatorio
+  reminderSecondHoursBefore  Int? // segundo recordatorio (p.ej. 2), opcional
+  reminderChannels           String  @default("[\"EMAIL\",\"WHATSAPP\"]") // JSON ReminderChannel[]
+  reminderTemplate           String? @db.Text // plantilla con {paciente} {fecha} {hora} {profesional} {consultorio} {direccion} {link}
+
+  // Reservas online (turnos pedidos por el paciente desde la web; entran PENDING y recepción confirma)
+  onlineBookingEnabled         Boolean @default(false)
+  onlineBookingMinAdvanceHours Int     @default(2) // anticipación mínima
+  onlineBookingMaxDaysAhead    Int     @default(30) // hasta cuántos días adelante
+  onlineBookingNotes           String? @db.Text // aviso que ve el paciente (p.ej. "Traé tu credencial")
+
   updatedAt              DateTime @updatedAt
 }
 
@@ -760,6 +1012,8 @@ model ContactRequest {
   message          String?         @db.Text
   status           String          @default("new") // new | read | archived
   whatsappOpened   Boolean         @default(false)
+  privacyAccepted  Boolean         @default(false)
+  privacyAcceptedAt DateTime?
   ipAddress        String?
   userAgent        String?         @db.Text
   createdAt        DateTime        @default(now())

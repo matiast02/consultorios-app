@@ -1,140 +1,80 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { generateReminderMessage, type ShiftReminder } from "@/lib/reminders";
+import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import {
+  REMINDER_ITEM_INCLUDE,
+  arDayRange,
+  arTomorrowKey,
+  loadReminderConfig,
+  planReminders,
+  reminderRowToItem,
+} from "@/lib/reminders/scheduler";
 
-// POST /api/shifts/reminders — Generate reminders for shifts in the next 24 hours
-// This endpoint would be called by a cron job, scheduled task, or manually from the dashboard
-export async function POST() {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: "No autorizado" },
-        { status: 401 }
-      );
-    }
-
-    const now = new Date();
-    const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-    // Find all PENDING or CONFIRMED shifts starting within the next 24 hours
-    const shifts = await prisma.shift.findMany({
-      where: {
-        status: { in: ["PENDING", "CONFIRMED"] },
-        start: {
-          gte: now,
-          lte: in24Hours,
-        },
-      },
-      include: {
-        patient: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            telephone: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-      },
-      orderBy: { start: "asc" },
-    });
-
-    const reminders: ShiftReminder[] = shifts.map((shift) => {
-      const patientName = shift.patient
-        ? `${shift.patient.lastName}, ${shift.patient.firstName}`
-        : "Paciente";
-
-      const professionalName = shift.user
-        ? [shift.user.firstName, shift.user.lastName].filter(Boolean).join(" ") ||
-          shift.user.name ||
-          "Profesional"
-        : "Profesional";
-
-      const shiftDate = new Date(shift.start);
-      const date = shiftDate.toLocaleDateString("es-AR", {
-        weekday: "long",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
-      const time = shiftDate.toLocaleTimeString("es-AR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      const base = {
-        shiftId: shift.id,
-        patientName,
-        patientEmail: shift.patient?.email ?? null,
-        patientPhone: shift.patient?.telephone ?? null,
-        professionalName,
-        date,
-        time,
-      };
-
-      return {
-        ...base,
-        message: generateReminderMessage(base),
-      };
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: reminders,
-      count: reminders.length,
-    });
-  } catch (error) {
-    console.error("POST /api/shifts/reminders error:", error);
-    return NextResponse.json(
-      { success: false, error: "Error al generar recordatorios" },
-      { status: 500 }
-    );
+async function requireReception() {
+  const session = await getSession();
+  if (!session?.user?.id) {
+    return { error: NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 }) };
   }
+  if (!(await isSecretaryOrAdmin(session.user.id))) {
+    return {
+      error: NextResponse.json({ success: false, error: "Solo recepción o admin" }, { status: 403 }),
+    };
+  }
+  return { userId: session.user.id };
 }
 
-// GET /api/shifts/reminders — Preview shifts that would receive reminders (next 24h)
-export async function GET() {
+// GET /api/shifts/reminders?date=YYYY-MM-DD — recordatorios de los turnos de
+// esa fecha (hora argentina; default mañana). Recepción / admin.
+export async function GET(req: NextRequest) {
+  const guard = await requireReception();
+  if ("error" in guard) return guard.error;
+
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const now = new Date();
+    const dateParam = req.nextUrl.searchParams.get("date")?.trim();
+    const dateKey = dateParam || arTomorrowKey(now);
+    const range = arDayRange(dateKey);
+    if (!range) {
       return NextResponse.json(
-        { success: false, error: "No autorizado" },
-        { status: 401 }
+        { success: false, error: "Fecha inválida (formato YYYY-MM-DD)" },
+        { status: 400 },
       );
     }
 
-    const now = new Date();
-    const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const [config, rows] = await Promise.all([
+      loadReminderConfig(),
+      prisma.shiftReminder.findMany({
+        where: { shift: { start: { gte: range.start, lt: range.end } } },
+        include: REMINDER_ITEM_INCLUDE,
+        orderBy: [{ shift: { start: "asc" } }, { offsetHours: "desc" }],
+      }),
+    ]);
 
-    const count = await prisma.shift.count({
-      where: {
-        status: { in: ["PENDING", "CONFIRMED"] },
-        start: {
-          gte: now,
-          lte: in24Hours,
-        },
-      },
-    });
-
-    return NextResponse.json({
-      success: true,
-      count,
-    });
+    const items = await Promise.all(rows.map((r) => reminderRowToItem(r, config, now)));
+    return NextResponse.json({ success: true, data: items });
   } catch (error) {
     console.error("GET /api/shifts/reminders error:", error);
     return NextResponse.json(
       { success: false, error: "Error al consultar recordatorios" },
-      { status: 500 }
+      { status: 500 },
+    );
+  }
+}
+
+// POST /api/shifts/reminders — planifica (crea los que faltan) sin enviar.
+export async function POST() {
+  const guard = await requireReception();
+  if ("error" in guard) return guard.error;
+
+  try {
+    const summary = await planReminders(new Date());
+    return NextResponse.json({ success: true, data: summary });
+  } catch (error) {
+    console.error("POST /api/shifts/reminders error:", error);
+    return NextResponse.json(
+      { success: false, error: "Error al planificar recordatorios" },
+      { status: 500 },
     );
   }
 }

@@ -11,7 +11,8 @@ export type ClinicalEntityType =
   | "clinical_record"
   | "prescription"
   | "study_order"
-  | "meal_plan";
+  | "meal_plan"
+  | "attachment";
 
 export type LedgerAction = "created" | "corrected" | "annulled";
 
@@ -91,6 +92,23 @@ export function mealPlanSnapshot(m: Record<string, unknown>): Record<string, unk
     supplements: m.supplements ?? null,
     notes: m.notes ?? null,
     shiftId: m.shiftId ?? null,
+  };
+}
+
+/**
+ * Adjunto de la HC: se versionan los metadatos que identifican el archivo
+ * (el contenido queda fijado por el sha256 del claro). El nombre original va
+ * acá y no en AuditLog: `data` del ledger está cifrado en la base.
+ */
+export function attachmentSnapshot(a: Record<string, unknown>): Record<string, unknown> {
+  return {
+    fileName: a.fileName ?? null,
+    mimeType: a.mimeType ?? null,
+    sizeBytes: a.sizeBytes ?? null,
+    sha256: a.sha256 ?? null,
+    entityType: a.entityType ?? null,
+    entityId: a.entityId ?? null,
+    patientId: a.patientId ?? null,
   };
 }
 

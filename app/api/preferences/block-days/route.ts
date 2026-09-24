@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { addBlockDaysSchema, removeBlockDaySchema } from "@/lib/validations";
 
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 // PUT /api/preferences/block-days — Add blocked days + auto-reschedule conflicting shifts
 export async function PUT(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -219,7 +219,7 @@ function findNextAvailableDate(
 // DELETE /api/preferences/block-days — Remove a blocked day
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

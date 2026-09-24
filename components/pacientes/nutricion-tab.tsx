@@ -102,7 +102,8 @@ export function NutricionTab({ mealPlans, onNew, onView, onEdit, onAnnul, onHist
                     <Eye className="mr-1.5 h-3.5 w-3.5" />
                     Ver/Imprimir
                   </Button>
-                  {!p.annulledAt && (
+                  {/* Solo el autor edita (planes ajenos: concesión o admin, solo lectura). */}
+                  {!p.annulledAt && (!currentUserId || p.userId === currentUserId) && (
                     <Button
                       variant="ghost"
                       size="sm"

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserRole } from "@/lib/auth-utils";
 
 // GET /api/modules — List all module configurations
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -31,7 +31,7 @@ export async function GET() {
 // PUT /api/modules — Toggle a module (admin only)
 export async function PUT(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

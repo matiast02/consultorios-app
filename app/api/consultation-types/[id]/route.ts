@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateConsultationTypeSchema } from "@/lib/validations";
 
@@ -8,7 +8,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // PUT /api/consultation-types/[id] — Update consultation type
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -93,7 +93,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/consultation-types/[id] — Delete consultation type
 export async function DELETE(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

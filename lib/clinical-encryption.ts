@@ -8,8 +8,10 @@ import { Prisma } from "@prisma/client";
 import { encryptField, decryptField } from "./field-crypto";
 
 // Campos cifrados por modelo (nombres de modelo Prisma en PascalCase).
-const ENCRYPTED_FIELDS: Record<string, string[]> = {
+export const ENCRYPTED_FIELDS: Record<string, string[]> = {
   ClinicalRecord: [
+    "bloodType",
+    "customFields",
     "allergies",
     "personalHistory",
     "familyHistory",
@@ -23,11 +25,17 @@ const ENCRYPTED_FIELDS: Record<string, string[]> = {
     "odontogram",
     "genogram",
   ],
-  Evolution: ["reason", "physicalExam", "diagnosis", "treatment", "indications", "notes"],
-  Prescription: ["items", "diagnosis", "notes"],
-  StudyOrder: ["items", "resultNotes"],
-  MealPlan: ["meals", "avoidFoods", "supplements", "notes", "hydration"],
-  ClinicalEntryVersion: ["data"],
+  Evolution: ["reason", "physicalExam", "diagnosis", "diagnosisCode", "treatment", "indications", "notes", "annulReason"],
+  Prescription: ["items", "diagnosis", "notes", "annulReason"],
+  StudyOrder: ["items", "resultNotes", "annulReason"],
+  MealPlan: ["title", "meals", "avoidFoods", "supplements", "notes", "hydration", "annulReason"],
+  ClinicalEntryVersion: ["data", "reason"],
+  // Motivo de consulta del walk-in: lo carga recepción, pero es dato de salud.
+  WalkInArrival: ["note"],
+  ClinicalAccessGrant: ["reason", "consentEvidence", "decisionNote"],
+  HcCopyRequest: ["authorizationNote", "reason", "deliveryNote"],
+  Patient: ["consentNote"],
+  ClinicalAttachment: ["fileName", "description", "annulReason"],
 };
 
 function encryptInto(data: unknown, fields: string[]): void {

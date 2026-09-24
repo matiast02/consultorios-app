@@ -18,9 +18,11 @@ import {
 } from "lucide-react";
 import type { Evolution } from "@/types";
 import { SectionHead, fmtDateAR, fmtTime, relTime } from "./shared";
+import { AttachmentsDisclosure } from "./attachments-panel";
 import { cn } from "@/lib/utils";
 
 interface EvolucionesTabProps {
+  patientId: string;
   evolutions: Evolution[];
   onNew: () => void;
   /** Optional: only medics (authors) get annul/history actions. */
@@ -28,6 +30,11 @@ interface EvolucionesTabProps {
   onHistory?: (e: Evolution) => void;
   /** Current user id — the "Anular" action only shows for the evolution's author. */
   currentUserId?: string | null;
+  /**
+   * Habilita adjuntar archivos (médico, fuera de modo concesión). Además, por
+   * evolución solo el autor y si no está anulada; el backend lo vuelve a validar.
+   */
+  canUploadAttachments?: boolean;
 }
 
 function getDocName(evo: Evolution): string {
@@ -37,7 +44,15 @@ function getDocName(evo: Evolution): string {
   return evo.user.name ?? "Profesional";
 }
 
-export function EvolucionesTab({ evolutions, onNew, onAnnul, onHistory, currentUserId }: EvolucionesTabProps) {
+export function EvolucionesTab({
+  patientId,
+  evolutions,
+  onNew,
+  onAnnul,
+  onHistory,
+  currentUserId,
+  canUploadAttachments = false,
+}: EvolucionesTabProps) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     evolutions[0] ? { [evolutions[0].id]: true } : {},
@@ -239,6 +254,21 @@ export function EvolucionesTab({ evolutions, onNew, onAnnul, onHistory, currentU
                       )}
                     </div>
                   )}
+
+                  {/* Oculto (no desmontado) al colapsar: no corta subidas en curso. */}
+                  <div className={open ? "mt-3" : "hidden"}>
+                    <AttachmentsDisclosure
+                      patientId={patientId}
+                      entityType="EVOLUTION"
+                      entityId={e.id}
+                      canUpload={
+                        canUploadAttachments &&
+                        !e.annulledAt &&
+                        !!currentUserId &&
+                        e.userId === currentUserId
+                      }
+                    />
+                  </div>
                 </div>
               );
             })}

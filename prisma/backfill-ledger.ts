@@ -12,6 +12,7 @@ import {
   prescriptionSnapshot,
   studyOrderSnapshot,
   mealPlanSnapshot,
+  attachmentSnapshot,
   type ClinicalEntityType,
 } from "../lib/clinical-ledger";
 
@@ -104,6 +105,35 @@ async function main() {
       action: "created",
       data: mealPlanSnapshot(m),
       authorId: m.userId,
+      reason: "Backfill v1 (registro preexistente)",
+    });
+    created++;
+  }
+
+  // Adjuntos (se versionan al subirse; esto cubre filas cargadas por fuera de
+  // la API). Sin storageKey ni wrappedDek: el ledger describe, no abre.
+  const attachments = await prisma.clinicalAttachment.findMany({
+    select: {
+      id: true,
+      patientId: true,
+      uploadedById: true,
+      entityType: true,
+      entityId: true,
+      fileName: true,
+      mimeType: true,
+      sizeBytes: true,
+      sha256: true,
+    },
+  });
+  for (const a of attachments) {
+    if (await alreadyVersioned("attachment", a.id)) { skipped++; continue; }
+    await recordClinicalVersion(prisma, {
+      entityType: "attachment",
+      entityId: a.id,
+      patientId: a.patientId,
+      action: "created",
+      data: attachmentSnapshot(a),
+      authorId: a.uploadedById,
       reason: "Backfill v1 (registro preexistente)",
     });
     created++;

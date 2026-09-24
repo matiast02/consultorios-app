@@ -1,10 +1,25 @@
-import NextAuth from "next-auth";
-import { authConfig } from "@/auth.config";
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionCookie } from "better-auth/cookies";
 
-// Use the edge-compatible config (no Prisma adapter) for middleware
-export const { auth: middleware } = NextAuth(authConfig);
+// Chequeo optimista por cookie (rápido, sin DB). La verificación real de la
+// sesión y del rol ocurre en los Server Components / rutas vía getSession().
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const hasSessionCookie = !!getSessionCookie(request);
+
+  if (pathname.startsWith("/dashboard") && !hasSessionCookie) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (pathname.startsWith("/login") && hasSessionCookie) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  return NextResponse.next();
+}
 
 export const config = {
-  // Match all routes except static files, images, and Next.js internals
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/dashboard/:path*", "/login"],
 };

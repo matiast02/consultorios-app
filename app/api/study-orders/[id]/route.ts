@@ -1,22 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateStudyOrderSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
 import { recordClinicalVersion, studyOrderSnapshot } from "@/lib/clinical-ledger";
+import {
+  CLINICAL_FORBIDDEN,
+  canReadEntry,
+  getClinicalActor,
+  grantAuditDetails,
+} from "@/lib/clinical-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/study-orders/[id] — Get a single study order
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
+    }
+
+    // Lista blanca: solo roles clínicos.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     if (!(await checkModuleAccess("study_orders", session.user.id))) {
@@ -40,12 +52,26 @@ export async function GET(req: NextRequest, context: RouteContext) {
       },
     });
 
-    if (!studyOrder) {
+    // Autor, admin o concesión vigente sobre SU paciente que la cubra.
+    // 404 (no 403) para no revelar la existencia de órdenes ajenas.
+    const read = studyOrder
+      ? await canReadEntry(actor, studyOrder, studyOrder.patientId, "study_order")
+      : null;
+    if (!studyOrder || !read?.ok) {
       return NextResponse.json(
         { success: false, error: "Orden de estudio no encontrada" },
         { status: 404 }
       );
     }
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "study_order",
+      resourceId: studyOrder.id,
+      details: { patientId: studyOrder.patientId, ...grantAuditDetails(read.grantId) },
+      req,
+    });
 
     return NextResponse.json({ success: true, data: studyOrder });
   } catch (error) {
@@ -60,12 +86,17 @@ export async function GET(req: NextRequest, context: RouteContext) {
 // PUT /api/study-orders/[id] — Update status and/or resultNotes
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
+    }
+
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     if (!(await checkModuleAccess("study_orders", session.user.id))) {
@@ -87,7 +118,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     const existing = await prisma.studyOrder.findUnique({ where: { id } });
-    if (!existing) {
+    // Solo el autor puede modificar o anular; el admin (y un médico con
+    // concesión) ven (canReadEntry) pero no escriben.
+    if (!existing || existing.userId !== actor.userId) {
       return NextResponse.json(
         { success: false, error: "Orden de estudio no encontrada" },
         { status: 404 }
@@ -102,7 +135,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     const data = parsed.data;
-    const authorId = session.user.id!;
+    const authorId = actor.userId;
 
     const studyOrder = await prisma.$transaction(async (tx) => {
       const next = await tx.studyOrder.update({
@@ -134,9 +167,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     });
 
     logAudit({
-      userId: session.user.id!,
+      userId: actor.userId,
       action: "UPDATE",
-      resource: "study_order" as never,
+      resource: "study_order",
       resourceId: studyOrder.id,
       details: { updatedFields: Object.keys(data) },
       req,
@@ -155,12 +188,17 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/study-orders/[id] — Delete a study order
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
+    }
+
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     if (!(await checkModuleAccess("study_orders", session.user.id))) {
@@ -176,7 +214,8 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       typeof body?.annulReason === "string" ? body.annulReason.trim() : "";
 
     const existing = await prisma.studyOrder.findUnique({ where: { id } });
-    if (!existing) {
+    // Solo el autor puede modificar o anular; el admin ve (canAccessEntry) pero no escribe.
+    if (!existing || existing.userId !== actor.userId) {
       return NextResponse.json(
         { success: false, error: "Orden de estudio no encontrada" },
         { status: 404 }
@@ -198,7 +237,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     }
 
     // Inalterabilidad: se anula (no se borra).
-    const authorId = session.user.id!;
+    const authorId = actor.userId;
     await prisma.$transaction(async (tx) => {
       await tx.studyOrder.update({
         where: { id },
@@ -216,11 +255,12 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     });
 
     logAudit({
-      userId: session.user.id!,
+      userId: actor.userId,
       action: "DELETE",
-      resource: "study_order" as never,
+      resource: "study_order",
       resourceId: id,
-      details: { patientId: existing.patientId, annulled: true, reason: annulReason },
+      // El motivo queda en el ledger; en audit, sin texto libre clínico.
+      details: { patientId: existing.patientId, annulled: true },
       req,
     });
 

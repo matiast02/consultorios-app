@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signOut } from "@/lib/auth-client";
 import { useProfessionLabels } from "@/hooks/use-profession-labels";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

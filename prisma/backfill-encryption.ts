@@ -6,29 +6,11 @@
 
 import { prisma } from "../lib/prisma";
 import { encryptField, isEncryptionConfigured } from "../lib/field-crypto";
+import { ENCRYPTED_FIELDS } from "../lib/clinical-encryption";
 
-// Tabla → columnas a cifrar (coinciden con ENCRYPTED_FIELDS de clinical-encryption).
-const TARGETS: Record<string, string[]> = {
-  ClinicalRecord: [
-    "allergies",
-    "personalHistory",
-    "familyHistory",
-    "currentMedication",
-    "notes",
-    "structuredAllergies",
-    "habitsTobacco",
-    "habitsAlcohol",
-    "habitsActivity",
-    "habitsDiet",
-    "odontogram",
-    "genogram",
-  ],
-  Evolution: ["reason", "physicalExam", "diagnosis", "treatment", "indications", "notes"],
-  Prescription: ["items", "diagnosis", "notes"],
-  StudyOrder: ["items", "resultNotes"],
-  MealPlan: ["meals", "avoidFoods", "supplements", "notes", "hydration"],
-  ClinicalEntryVersion: ["data"],
-};
+// Tabla → columnas a cifrar: la misma lista que usa la extensión de Prisma
+// (los nombres de tabla coinciden con los de modelo en este schema).
+const TARGETS: Record<string, string[]> = ENCRYPTED_FIELDS;
 
 async function main() {
   if (!isEncryptionConfigured()) {

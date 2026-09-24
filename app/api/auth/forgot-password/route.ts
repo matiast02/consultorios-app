@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
+import { generateResetToken } from "@/lib/reset-token";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 import { forgotPasswordSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -25,6 +26,19 @@ export async function POST(req: NextRequest) {
       message: "Si el email existe, se envio un enlace de recuperacion",
     });
 
+    // Rate limit por IP y por email: evita spam de tokens y enumeración por tiempo.
+    const ip = (req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "unknown")
+      .split(",")[0]
+      .trim()
+      .slice(0, 100);
+    const [byIp, byEmail] = await Promise.all([
+      checkRateLimit(`forgot:ip:${ip}`, { maxRequests: 5, windowMs: 15 * 60 * 1000 }),
+      checkRateLimit(`forgot:email:${email.toLowerCase()}`, { maxRequests: 3, windowMs: 60 * 60 * 1000 }),
+    ]);
+    if (!byIp.allowed || !byEmail.allowed) {
+      return successResponse; // misma respuesta: no revela nada
+    }
+
     const user = await prisma.user.findFirst({
       where: { email, deletedAt: null },
     });
@@ -39,22 +53,22 @@ export async function POST(req: NextRequest) {
       data: { used: true },
     });
 
-    // Generate secure random token
-    const token = crypto.randomBytes(32).toString("hex");
-
-    // Create reset token with 1-hour expiry
+    // Token aleatorio; en DB se guarda solo el hash.
+    const { token, hash } = generateResetToken();
     await prisma.resetToken.create({
       data: {
         email,
-        token,
+        token: hash,
         expires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
       },
     });
 
-    // Log the reset URL (email integration later)
-    console.log(
-      `[RESET PASSWORD] URL: http://localhost:3000/reset-password?token=${token}`
-    );
+    // TODO: envío por email (aún no hay proveedor). Mientras tanto, la URL solo
+    // se muestra en desarrollo: en producción nunca va a los logs.
+    if (process.env.NODE_ENV !== "production") {
+      const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      console.log(`[RESET PASSWORD] (solo dev) ${base}/reset-password?token=${token}`);
+    }
 
     logAudit({
       userId: user.id,

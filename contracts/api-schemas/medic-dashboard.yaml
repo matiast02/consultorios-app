@@ -113,7 +113,7 @@ components:
 
     PendientesData:
       type: object
-      required: [evolucionesSinCerrar, recetasParaRenovar, estudiosPendientes]
+      required: [evolucionesSinCerrar, recetasParaRenovar, estudiosPendientes, solicitudesDeAcceso]
       properties:
         evolucionesSinCerrar:
           type: object
@@ -133,6 +133,20 @@ components:
           properties:
             count: { type: integer }
             summary: { type: string, description: "e.g. 'Holter — M. García · vence 12/03'" }
+        solicitudesDeAcceso:
+          type: object
+          description: |
+            Solicitudes de acceso a la HC (ClinicalAccessGrant PENDING) de pacientes
+            de los que el médico es tratante y que no son suyas: las puede decidir.
+            Ver contracts/api-schemas/clinical-access-grants.yaml.
+          required: [count, summary, patientId]
+          properties:
+            count: { type: integer }
+            summary: { type: string, description: "e.g. 'Dra. Pérez — López, M. · y 2 más'" }
+            patientId:
+              type: string
+              nullable: true
+              description: Paciente de la solicitud más antigua (link a su ficha); null si no hay
 
     RecentPatient:
       type: object

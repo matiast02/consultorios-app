@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { changePasswordSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { setUserPassword, verifyUserPassword } from "@/lib/credentials";
+import { revokeOtherSessions } from "@/lib/sessions";
 
 // POST /api/auth/change-password
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -38,12 +39,12 @@ export async function POST(req: NextRequest) {
 
     const { currentPassword, newPassword } = parsed.data;
 
-    // Get user with password
     const user = await prisma.user.findUnique({
       where: { id: session.user.id!, deletedAt: null },
+      select: { id: true },
     });
 
-    if (!user || !user.password) {
+    if (!user) {
       return NextResponse.json(
         { success: false, error: "Usuario no encontrado" },
         { status: 404 }
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify current password
-    const isValid = await bcrypt.compare(currentPassword, user.password);
+    const isValid = await verifyUserPassword(prisma, user.id, currentPassword);
     if (!isValid) {
       return NextResponse.json(
         { success: false, error: "Contrasena actual incorrecta" },
@@ -59,14 +60,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-
-    // Update password
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { password: hashedPassword },
-    });
+    await setUserPassword(prisma, user.id, { plain: newPassword });
+    // Cierra las demás sesiones (otro dispositivo / posible atacante); conserva la actual.
+    await revokeOtherSessions(req.headers);
 
     logAudit({
       userId: user.id,

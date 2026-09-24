@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Clock, CalendarX, Shield, Building2 } from "lucide-react";
 import { ProfileTab } from "@/components/configuracion/profile-tab";

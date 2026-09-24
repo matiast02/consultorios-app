@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createSpecializationSchema } from "@/lib/validations";
 
 // GET /api/specializations — List all specializations
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -35,7 +35,7 @@ export async function GET() {
 // POST /api/specializations — Create specialization
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

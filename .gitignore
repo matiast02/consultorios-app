@@ -35,3 +35,7 @@ npm-debug.log*
 
 # Design handoff (local reference material, not part of source)
 design-handoff/
+migration-report.json
+
+# Adjuntos cifrados (datos de salud): nunca al repo
+storage/

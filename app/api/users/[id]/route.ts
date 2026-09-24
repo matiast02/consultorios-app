@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateUserSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { getUserRole } from "@/lib/auth-utils";
+import { revokeUserSessions } from "@/lib/sessions";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/users/[id] — Get single user with roles
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -68,7 +69,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 // PUT /api/users/[id] — Update user and role
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -148,6 +149,11 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       data: updateData,
     });
 
+    // Usuario deshabilitado: cerrar todas sus sesiones abiertas.
+    if (isActive === false) {
+      await revokeUserSessions(id);
+    }
+
     // Update role if provided
     if (role) {
       const roleRecord = await prisma.role.findUnique({
@@ -213,7 +219,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/users/[id] — Soft-delete user
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -274,6 +280,9 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       where: { id },
       data: { deletedAt: new Date() },
     });
+
+    // Baja lógica: cerrar todas sus sesiones abiertas.
+    await revokeUserSessions(id);
 
     logAudit({
       userId: session.user.id!,

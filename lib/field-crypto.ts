@@ -50,15 +50,19 @@ export function isEncryptionConfigured(): boolean {
   return loadKeys().activeId != null;
 }
 
-/** Cifra un valor de texto. null → null. Sin clave configurada → devuelve el texto
- *  sin cifrar (permite desarrollo sin config; en producción HC_ENC_KEY es obligatoria). */
+/** Cifra un valor de texto. null → null.
+ *  Sin clave configurada: en desarrollo devuelve el texto sin cifrar (con aviso);
+ *  en producción LANZA — nunca se persisten datos clínicos en claro. */
 export function encryptField(value: string | null | undefined): string | null {
   if (value == null) return null;
   const { keys, activeId } = loadKeys();
   if (!activeId) {
-    if (!warned && process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("[field-crypto] HC_ENC_KEY no configurada: se rechaza guardar datos clínicos sin cifrar.");
+    }
+    if (!warned) {
       warned = true;
-      console.warn("[field-crypto] HC_ENC_KEY no configurada: los datos clínicos se guardan SIN cifrar.");
+      console.warn("[field-crypto] HC_ENC_KEY no configurada: los datos clínicos se guardan SIN cifrar (solo desarrollo).");
     }
     return value;
   }

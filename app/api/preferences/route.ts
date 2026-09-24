@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { upsertPreferencesSchema } from "@/lib/validations";
 
 // GET /api/preferences — Get user preferences + blocked days
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 // POST /api/preferences — Create or update preferences
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

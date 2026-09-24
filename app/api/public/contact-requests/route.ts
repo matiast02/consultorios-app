@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
         preferredDay: data.preferredDay || null,
         message: data.message || null,
         ipAddress: ip,
+        privacyAccepted: true,
+        privacyAcceptedAt: new Date(),
         userAgent: req.headers.get("user-agent")?.slice(0, 500) || null,
       },
       select: { id: true },

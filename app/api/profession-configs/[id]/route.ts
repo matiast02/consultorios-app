@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -7,7 +7,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/profession-configs/[id] — Get single profession config
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

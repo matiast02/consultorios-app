@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
@@ -101,7 +101,7 @@ function slotsForRange(
 
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -180,6 +180,9 @@ export async function GET() {
       inactiveOrDeletedCount,
       recentLoginsRaw,
       activeMedicsAndStaff,
+      // Catalog health — copias de HC pendientes (Ley 26.529 art. 14: 48 h)
+      hcCopiesPendingCount,
+      hcCopiesOverdueCount,
     ] = await Promise.all([
       // Admin user for header
       prisma.user.findUnique({
@@ -402,6 +405,11 @@ export async function GET() {
           lastName: true,
         },
       }),
+      // HC copies pending / overdue (dueAt = requestedAt + 48 h)
+      prisma.hcCopyRequest.count({ where: { status: "PENDING" } }),
+      prisma.hcCopyRequest.count({
+        where: { status: "PENDING", dueAt: { lt: now } },
+      }),
     ]);
 
     // ─── Header ──────────────────────────────────────────────────────────────
@@ -526,6 +534,10 @@ export async function GET() {
       },
       healthInsurancesUnused90d: { count: healthInsurancesUnused90dCount },
       specializationsWithoutColor: { count: specsWithoutColor },
+      hcCopiesPending: {
+        count: hcCopiesPendingCount,
+        overdue: hcCopiesOverdueCount,
+      },
       modules: modules.map((m) => ({
         module: m.module,
         name: m.name,
@@ -676,7 +688,7 @@ export async function GET() {
         r.user?.name ||
         "Usuario";
       return {
-        userId: r.userId,
+        userId: r.userId ?? "",
         name,
         role: r.user?.roles?.[0]?.role?.name ?? null,
         loggedAt: r.createdAt.toISOString(),
@@ -717,7 +729,7 @@ export async function GET() {
         _max: { createdAt: true },
       });
       for (const l of lasts) {
-        lastLoginsByUser.set(l.userId, l._max.createdAt ?? null);
+        if (l.userId) lastLoginsByUser.set(l.userId, l._max.createdAt ?? null);
       }
     }
     const inactiveItems: InactiveUserItem[] = firstInactive.map((u) => ({
@@ -758,12 +770,10 @@ export async function GET() {
     };
 
     // Fire-and-forget audit log for accessing the admin dashboard.
-    // `resource` "admin_dashboard" is outside the typed AuditResource union,
-    // so we cast through `as never` (same pattern as prescription endpoints).
     logAudit({
       userId,
       action: "VIEW_SENSITIVE",
-      resource: "admin_dashboard" as never,
+      resource: "admin_dashboard",
       resourceId: "dashboard",
     });
 

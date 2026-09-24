@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -435,7 +435,9 @@ export function UserFormDialog({
           return;
         }
 
-        // Create user via register
+        // Create user via register. El rol viaja en el alta para que el usuario
+        // nunca quede sin rol (User + credencial + UserRole en una transacción).
+        const roleToAssign = isRequesterSecretary ? "medic" : data.role;
         const registerRes = await fetch("/api/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -443,6 +445,7 @@ export function UserFormDialog({
             name: fullName,
             email: data.email,
             password: data.password,
+            role: roleToAssign,
           }),
         });
 
@@ -454,9 +457,8 @@ export function UserFormDialog({
         const registerJson = await registerRes.json();
         const userId = registerJson.user?.id;
 
-        // Update with additional fields
+        // Update with additional fields (el rol se reenvía: es idempotente)
         if (userId) {
-          const roleToAssign = isRequesterSecretary ? "medic" : data.role;
           await fetch(`/api/users/${userId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },

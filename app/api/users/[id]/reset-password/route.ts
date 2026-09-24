@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { getUserRole } from "@/lib/auth-utils";
+import { setUserPassword } from "@/lib/credentials";
+import { revokeUserSessions } from "@/lib/sessions";
 
 const resetPasswordSchema = z.object({
   newPassword: z
@@ -19,7 +20,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // POST /api/users/[id]/reset-password — Admin resets a user's password
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -59,12 +60,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(parsed.data.newPassword, 12);
-
-    await prisma.user.update({
-      where: { id },
-      data: { password: hashedPassword },
-    });
+    await setUserPassword(prisma, id, { plain: parsed.data.newPassword });
+    // Reset por admin: se invalidan todas las sesiones del usuario afectado.
+    await revokeUserSessions(id);
 
     logAudit({
       userId: session.user.id,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserRole } from "@/lib/auth-utils";
 import { verifyClinicalChain, type ClinicalEntityType } from "@/lib/clinical-ledger";
@@ -11,7 +11,7 @@ const AUDIT_CHAIN_LIMIT = 1000; // cota defensiva
 // de la auditoría, y reporta cualquier manipulación detectada. Solo admin.
 export async function GET(_req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }

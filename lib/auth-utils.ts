@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
  * Use this in Server Components and API routes.
  */
 export async function getCurrentUser() {
-  const session = await auth();
+  const session = await getSession();
   return session?.user ?? null;
 }
 

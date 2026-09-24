@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock,
   CreditCard,
+  Globe,
   IdCard,
   Loader2,
   Mail,
@@ -315,6 +316,15 @@ export function ShiftQuickDialog({
               >
                 {STATUS_LABEL[status]}
               </span>
+              {shift.source === "ONLINE" && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                  title="El paciente lo pidió desde la reserva online del sitio"
+                >
+                  <Globe className="h-3 w-3" aria-hidden />
+                  Reserva online
+                </span>
+              )}
             </div>
             <p className="mt-0.5 text-[12.5px] text-muted-foreground">
               {formatDateShort(shift.start)} · {startStr}–{endStr} · {ctName}{" "}

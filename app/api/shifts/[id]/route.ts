@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateShiftSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -9,7 +9,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/shifts/[id] — Single shift with patient + consultationType + medic
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 // PUT /api/shifts/[id] — Update shift status/observations
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -225,7 +225,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/shifts/[id] — Delete shift
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

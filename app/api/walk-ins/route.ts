@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
 
 export async function POST(req: Request) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }

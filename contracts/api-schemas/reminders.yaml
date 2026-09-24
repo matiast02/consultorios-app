@@ -1,0 +1,239 @@
+openapi: 3.0.3
+info:
+  title: Recordatorios de turnos
+  version: 1.0.0
+  description: |
+    Recordatorios de turnos con confirmación del paciente.
+
+    Flujo:
+      1. `plan`: para cada turno PENDING/CONFIRMED que empieza dentro de la ventana
+         (ahora → ahora + reminderHoursBefore + margen) se crea un ShiftReminder
+         por cada offset configurado (24 h y opcionalmente un segundo, p.ej. 2 h),
+         con `scheduledFor = start - offset`. Idempotente: unique (shiftId, offsetHours).
+         Se omiten pacientes con `reminderOptOut` y turnos sin contacto.
+      2. `dispatch`: recordatorios PENDING con `scheduledFor <= ahora`:
+         - EMAIL (si el paciente tiene email y el canal está habilitado): se envía
+           por `lib/notifications/email.ts` → SENT / FAILED.
+         - WHATSAPP (si tiene teléfono y el canal está habilitado): queda PENDING
+           con `manual = true` y `waLink` para que recepción lo envíe (click-to-chat)
+           y lo marque como SENT.
+         Cada recordatorio lleva un token de confirmación (hash en DB) que arma el
+         link público `/turno/<token>`.
+      3. El paciente confirma o cancela desde el link (sin login). Confirmar →
+         Shift CONFIRMED (confirmedVia PATIENT_LINK); cancelar → Shift CANCELLED.
+
+    Privacidad: los mensajes y la página pública solo muestran nombre de pila,
+    fecha, hora, profesional y dirección. Nada clínico. El paciente puede optar
+    por no recibir recordatorios (`reminderOptOut`).
+
+paths:
+  /api/cron/reminders:
+    post:
+      summary: Ejecuta plan + dispatch (para cron externo)
+      description: |
+        Requiere header `Authorization: Bearer <CRON_SECRET>`. Si los recordatorios
+        están deshabilitados en ClinicSettings responde 200 con el resumen en cero.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/ReminderDispatchSummary" }
+        "401": { description: CRON_SECRET inválido o ausente }
+        "503": { description: CRON_SECRET no configurado en el servidor }
+
+  /api/shifts/reminders:
+    get:
+      summary: Recordatorios de una fecha (recepción / admin)
+      parameters:
+        - in: query
+          name: date
+          schema: { type: string, format: date }
+          description: Fecha del turno, hora argentina (default mañana). Filtra por inicio del turno.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReminderItem" }
+        "400": { description: Fecha inválida }
+        "403": { description: Solo recepción o admin }
+    post:
+      summary: Planifica recordatorios (sin enviar)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/ReminderDispatchSummary" }
+
+  /api/shifts/reminders/send:
+    post:
+      summary: Planifica y despacha los recordatorios vencidos (recepción / admin)
+      description: Envía los EMAIL automáticamente; los WHATSAPP quedan como manuales con `waLink`.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/ReminderDispatchSummary" }
+        "403": { description: Solo recepción o admin }
+
+  /api/shifts/reminders/{id}:
+    patch:
+      summary: Marca un recordatorio manual como enviado o fallido / lo reintenta
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [mark_sent, mark_failed, retry] }
+                note: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/ReminderItem" }
+        "400": { description: Acción inválida }
+        "403": { description: Solo recepción o admin }
+        "404": { description: Recordatorio inexistente }
+        "409": { description: "mark_sent sobre uno ya SENT; retry sobre uno no FAILED o de un turno no vigente" }
+
+  /api/admin/clinic-settings:
+    put:
+      summary: (existente) acepta además la configuración de recordatorios
+      description: |
+        Los campos de recordatorios se actualizan solo si vienen en el body (un
+        formulario de recordatorios puede guardar sin mandar los datos del sitio).
+        GET devuelve `reminderChannels` como array. 400 si
+        reminderSecondHoursBefore >= reminderHoursBefore.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReminderSettings" }
+
+  /api/public/turno/{token}:
+    get:
+      summary: Datos mínimos del turno para la página de confirmación (sin login)
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/PublicShiftConfirmation" }
+        "404": { description: Token inválido o vencido (misma respuesta en ambos casos) }
+        "429": { description: Rate limit por IP }
+    post:
+      summary: El paciente confirma o cancela el turno
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [confirm, cancel, opt_out] }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: "#/components/schemas/PublicShiftConfirmation" }
+        "400": { description: Acción inválida }
+        "404": { description: Token inválido o vencido }
+        "409":
+          description: |
+            El turno ya no admite cambios (finalizado, cancelado, ya empezó). No aplica a
+            `opt_out`, que se acepta mientras el link esté vigente. El body incluye `data`
+            (PublicShiftConfirmation) con el estado actual.
+        "429": { description: Rate limit por IP }
+
+components:
+  schemas:
+    ReminderChannel:
+      type: string
+      enum: [EMAIL, WHATSAPP, SMS]
+    ReminderItem:
+      type: object
+      properties:
+        id: { type: string }
+        shiftId: { type: string }
+        time: { type: string, example: "10:30" }
+        patientShortName: { type: string }
+        medicShortName: { type: string }
+        medicColor: { type: string, nullable: true }
+        status: { type: string, enum: [PENDING, SENT, FAILED] }
+        channel: { $ref: "#/components/schemas/ReminderChannel" }
+        offsetHours: { type: integer }
+        manual: { type: boolean }
+        waLink: { type: string, nullable: true }
+        deliveredTo: { type: string, nullable: true }
+        response: { type: string, enum: [CONFIRMED, CANCELLED], nullable: true }
+        respondedAt: { type: string, format: date-time, nullable: true }
+        errorMessage: { type: string, nullable: true }
+    ReminderSettings:
+      type: object
+      properties:
+        remindersEnabled: { type: boolean }
+        reminderHoursBefore: { type: integer, minimum: 1, maximum: 168 }
+        reminderSecondHoursBefore: { type: integer, minimum: 1, maximum: 48, nullable: true }
+        reminderChannels:
+          type: array
+          items: { $ref: "#/components/schemas/ReminderChannel" }
+        reminderTemplate: { type: string, maxLength: 1000, nullable: true }
+    ReminderDispatchSummary:
+      type: object
+      properties:
+        planned: { type: integer }
+        sentEmail: { type: integer }
+        manualPending: { type: integer }
+        failed: { type: integer }
+        skippedOptOut: { type: integer }
+        skippedNoContact: { type: integer }
+    PublicShiftConfirmation:
+      type: object
+      properties:
+        clinicName: { type: string, nullable: true }
+        patientFirstName: { type: string }
+        start: { type: string, format: date-time }
+        medicShortName: { type: string }
+        address: { type: string, nullable: true }
+        status: { type: string, enum: [PENDING, CONFIRMED, ABSENT, FINISHED, CANCELLED] }
+        canRespond: { type: boolean }
+        response: { type: string, enum: [CONFIRMED, CANCELLED], nullable: true }

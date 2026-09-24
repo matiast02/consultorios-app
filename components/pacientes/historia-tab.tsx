@@ -16,6 +16,7 @@ import {
   Cigarette,
   Droplet,
   Loader2,
+  Paperclip,
   Plus,
   StickyNote,
   Trash2,
@@ -30,12 +31,24 @@ import type {
 } from "@/types";
 import { ALLERGY_SEVERITY_LABELS, BLOOD_TYPES } from "@/types";
 import { SectionHead, fmtDateAR, fmtTime, safeParseJSON } from "./shared";
+import { AttachmentsPanel } from "./attachments-panel";
 import { cn } from "@/lib/utils";
 
 interface HistoriaTabProps {
   patientId: string;
   record: ClinicalRecord | null;
   onSaved: (next: ClinicalRecord) => void;
+  /** Sin edición (médico con concesión o sin relación): solo tratantes/admin editan. */
+  readOnly?: boolean;
+  /** Ficha completa visible (tratante, admin o concesión FULL). */
+  full?: boolean;
+  /** Si no es `full`: secciones de ficha concedidas (antecedentes | alergias | medicacion). */
+  sections?: string[];
+  /**
+   * Puede adjuntar documentos generales de la ficha: médico tratante (mismo
+   * criterio que la edición) y nunca en modo concesión. El backend lo revalida.
+   */
+  canUploadAttachments?: boolean;
 }
 
 interface FormState {
@@ -100,7 +113,17 @@ function imcLabel(imc: number): { label: string; tone: string } {
   };
 }
 
-export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
+export function HistoriaTab({
+  patientId,
+  record,
+  onSaved,
+  readOnly = false,
+  full = true,
+  sections = [],
+  canUploadAttachments = false,
+}: HistoriaTabProps) {
+  // Las alergias estructuradas se ven siempre (dato de seguridad del paciente).
+  const showAntecedentes = full || sections.includes("antecedentes");
   const [form, setForm] = useState<FormState>(() => recordToForm(record));
   const [savedAt, setSavedAt] = useState<Date | null>(
     record?.updatedAt ? new Date(record.updatedAt) : null,
@@ -198,8 +221,17 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
 
   return (
     <>
+      {/* fieldset disabled: en solo lectura deshabilita todos los controles. */}
+      <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
       <div className="flex flex-col gap-[18px]">
+        {!full && (
+          <p className="rounded-[10px] border border-dashed px-4 py-2.5 text-[12.5px] text-muted-foreground">
+            Algunas secciones de la ficha no están incluidas en tu acceso.
+          </p>
+        )}
+
         {/* Card 1: Datos clínicos + IMC */}
+        {full && (
         <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
           <SectionHead
             icon={Droplet}
@@ -288,8 +320,10 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
             )}
           </div>
         </Card>
+        )}
 
         {/* Card 2: Antecedentes */}
+        {showAntecedentes && (
         <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
           <SectionHead
             icon={Briefcase}
@@ -315,8 +349,10 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
             </Field>
           </div>
         </Card>
+        )}
 
         {/* Card 3: Hábitos */}
+        {showAntecedentes && (
         <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
           <SectionHead
             icon={UserIcon}
@@ -354,6 +390,7 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
             />
           </div>
         </Card>
+        )}
 
         {/* Card 4: Alergias */}
         <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
@@ -362,15 +399,17 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
             title="Alergias"
             description="Lista de alergias conocidas con severidad."
             actions={
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8"
-                onClick={addAllergy}
-              >
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Agregar
-              </Button>
+              !readOnly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={addAllergy}
+                >
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Agregar
+                </Button>
+              )
             }
           />
           <div className="space-y-2 px-6 pt-4">
@@ -383,6 +422,7 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
                 <AllergyRow
                   key={i}
                   allergy={a}
+                  readOnly={readOnly}
                   onChange={(next) => patchAllergy(i, next)}
                   onRemove={() => removeAllergy(i)}
                 />
@@ -392,6 +432,7 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
         </Card>
 
         {/* Card 5: Notas */}
+        {full && (
         <Card className="overflow-hidden pb-5 pt-0 shadow-xs">
           <SectionHead icon={StickyNote} title="Notas generales" />
           <div className="px-6 pt-4">
@@ -403,10 +444,28 @@ export function HistoriaTab({ patientId, record, onSaved }: HistoriaTabProps) {
             />
           </div>
         </Card>
+        )}
       </div>
+      </fieldset>
+
+      {/* Fuera del fieldset: en solo lectura igual se puede ver/descargar. */}
+      <Card className="mt-[18px] overflow-hidden pb-5 pt-0 shadow-xs">
+        <SectionHead
+          icon={Paperclip}
+          title="Documentos de la ficha"
+          description="Estudios previos, informes y otros documentos generales del paciente (PDF o imagen)."
+        />
+        <div className="px-6 pt-4">
+          <AttachmentsPanel
+            patientId={patientId}
+            entityType="CLINICAL_RECORD"
+            canUpload={canUploadAttachments && !readOnly}
+          />
+        </div>
+      </Card>
 
       {/* Floating save bar */}
-      {dirty && (
+      {dirty && !readOnly && (
         <div className="sticky bottom-4 z-30 mt-4">
           <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-[10px] border bg-card px-4 py-3 shadow-lg">
             <span className="text-sm text-muted-foreground">
@@ -483,10 +542,12 @@ const SEVERITY_TONE: Record<AllergySeverity, string> = {
 
 function AllergyRow({
   allergy,
+  readOnly = false,
   onChange,
   onRemove,
 }: {
   allergy: StructuredAllergy;
+  readOnly?: boolean;
   onChange: (next: Partial<StructuredAllergy>) => void;
   onRemove: () => void;
 }) {
@@ -522,15 +583,17 @@ function AllergyRow({
           </option>
         ))}
       </select>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 text-muted-foreground hover:text-rose-600"
-        onClick={onRemove}
-        aria-label="Eliminar alergia"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
+      {!readOnly && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-rose-600"
+          onClick={onRemove}
+          aria-label="Eliminar alergia"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      )}
     </div>
   );
 }
