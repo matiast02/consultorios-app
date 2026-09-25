@@ -25,6 +25,10 @@ interface QuickAttendDialogProps {
   onScheduleRecurring?: (patientId: string, medicId: string) => void;
   onCreatePrescription?: (patientId: string, shiftId: string) => void;
   onCreateStudyOrder?: (patientId: string, shiftId: string) => void;
+  /** La evolución de este turno ya está en la HC (se cargó desde la ficha): no se pide otra. */
+  evolutionRecorded?: boolean;
+  /** Tras finalizar, al cerrar sin elegir un seguimiento (receta, orden, próximo turno). La ficha vuelve al panel. */
+  onDone?: () => void;
 }
 
 export function QuickAttendDialog({
@@ -36,6 +40,8 @@ export function QuickAttendDialog({
   onScheduleRecurring,
   onCreatePrescription,
   onCreateStudyOrder,
+  evolutionRecorded = false,
+  onDone,
 }: QuickAttendDialogProps) {
   // Evolución clínica (va a la HC, cifrada) vs. nota administrativa (Shift.observations,
   // texto claro visible para recepción). Nunca mezclar datos clínicos en la segunda.
@@ -72,7 +78,7 @@ export function QuickAttendDialog({
   }, [open, checkModules]);
 
   async function handleFinish() {
-    const notes = evolutionText.trim();
+    const notes = evolutionRecorded ? "" : evolutionText.trim();
     const patientId = shift.patient?.id ?? shift.patientId;
     try {
       setSaving(true);
@@ -135,7 +141,8 @@ export function QuickAttendDialog({
     }
   }
 
-  function handleClose() {
+  /** `stay`: se eligió un seguimiento que sigue en la misma pantalla; no disparar `onDone`. */
+  function handleClose(opts?: { stay?: boolean }) {
     if (
       !finished &&
       evolutionText.trim() &&
@@ -143,30 +150,32 @@ export function QuickAttendDialog({
     ) {
       return;
     }
+    const wasFinished = finished;
     setFinished(false);
     onSaved();
     onOpenChange(false);
+    if (wasFinished && !opts?.stay) onDone?.();
   }
 
   function handleScheduleNext() {
     if (onScheduleNext && shift.patient) {
       onScheduleNext(shift.patientId, shift.userId);
     }
-    handleClose();
+    handleClose({ stay: true });
   }
 
   function handleCreatePrescription() {
     if (onCreatePrescription) {
       onCreatePrescription(shift.patientId, shift.id);
     }
-    handleClose();
+    handleClose({ stay: true });
   }
 
   function handleCreateStudyOrder() {
     if (onCreateStudyOrder) {
       onCreateStudyOrder(shift.patientId, shift.id);
     }
-    handleClose();
+    handleClose({ stay: true });
   }
 
   const patientName = shift.patient
@@ -197,6 +206,15 @@ export function QuickAttendDialog({
             </DialogHeader>
 
             <div className="space-y-4 py-2">
+              {evolutionRecorded ? (
+                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  <p>
+                    La evolución de esta consulta ya está registrada en la historia clínica. Solo falta
+                    cerrar el turno.
+                  </p>
+                </div>
+              ) : (
               <div className="space-y-2">
                 <Label htmlFor="evolution" className="flex items-center gap-1.5">
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" />
@@ -225,6 +243,7 @@ export function QuickAttendDialog({
                   </p>
                 )}
               </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="admin-note">
@@ -247,7 +266,7 @@ export function QuickAttendDialog({
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={handleClose}>
+              <Button variant="outline" onClick={() => handleClose()}>
                 Cancelar
               </Button>
               <Button onClick={handleFinish} disabled={saving}>
@@ -282,7 +301,7 @@ export function QuickAttendDialog({
             </div>
 
             <DialogFooter className="flex-col gap-2 sm:flex-row">
-              <Button variant="outline" onClick={handleClose} className="flex-1">
+              <Button variant="outline" onClick={() => handleClose()} className="flex-1">
                 No, cerrar
               </Button>
               {prescriptionsEnabled && onCreatePrescription && (

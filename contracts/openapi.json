@@ -2299,7 +2299,7 @@
       "get": {
         "operationId": "getShiftsById",
         "summary": "Detalle de un turno",
-        "description": "El médico solo ve sus turnos (uno ajeno responde 404, como inexistente); secretaria y admin cualquiera. Del paciente trae solo lo que usa la ficha del turno (identificación, contacto, nacimiento, sexo y obra social; sin consentimiento ni datos de baja), más el tipo de consulta y el profesional con consultorio y especialidad. Con `withContext=true` agrega `meta` con la última visita finalizada y el próximo turno del paciente.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo ve sus turnos (uno ajeno responde 404, como inexistente); secretaria y admin cualquiera. Del paciente trae solo lo que usa la ficha del turno (identificación, contacto, nacimiento, sexo y obra social; sin consentimiento ni datos de baja), más el tipo de consulta y el profesional con consultorio y especialidad. `ticket`: número de sala del día si sigue abierto (módulo `waiting_room`); null con el módulo apagado o sin número. La ficha del paciente lo usa para la barra «Consulta en curso» del médico. Con `withContext=true` agrega `meta` con la última visita finalizada y el próximo turno del paciente.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -18306,6 +18306,17 @@
               }
             ],
             "description": "Obra social de la cobertura; null si particular o turno anterior a esta versión."
+          },
+          "ticket": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WaitingTicketOpen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Número de sala del día si sigue abierto (módulo `waiting_room` activo); null con el módulo apagado, sin llegada registrada o con el número ya cerrado."
           }
         },
         "required": [
@@ -18333,7 +18344,8 @@
           "patient",
           "consultationType",
           "user",
-          "coverageInsurance"
+          "coverageInsurance",
+          "ticket"
         ]
       },
       "ShiftDetailPatient": {
@@ -18531,6 +18543,56 @@
           "lastName",
           "defaultRoom",
           "specialization"
+        ]
+      },
+      "WaitingTicketOpen": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "date": {
+            "type": "string"
+          },
+          "room": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Consultorio del último llamado; null si todavía no fue llamado."
+          },
+          "calledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Primer llamado; null si está en sala sin llamar."
+          },
+          "lastCalledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          },
+          "callCount": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "date",
+          "room",
+          "calledAt",
+          "lastCalledAt",
+          "callCount"
         ]
       },
       "ShiftContext": {

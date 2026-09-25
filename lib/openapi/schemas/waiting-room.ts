@@ -39,6 +39,24 @@ export const WaitingTicketCalledField = WaitingTicketCalledSchema.nullable().des
   "Ticket llamado (módulo `waiting_room` activo y paciente con número de sala); null si no hay número: nada se muestra en la pantalla.",
 );
 
+/** Ticket abierto del turno (llamado o no), como lo devuelve `GET /api/shifts/{id}`. */
+export const WaitingTicketOpenSchema = z
+  .object({
+    id: z.string(),
+    number: z.number().int(),
+    date: z.string(),
+    room: z.string().nullable().describe("Consultorio del último llamado; null si todavía no fue llamado."),
+    calledAt: IsoDateTime.nullable().describe("Primer llamado; null si está en sala sin llamar."),
+    lastCalledAt: IsoDateTime.nullable(),
+    callCount: z.number().int(),
+  })
+  .openapi({ ref: "WaitingTicketOpen" });
+
+/** Campo `ticket` del detalle del turno. */
+export const WaitingTicketOpenField = WaitingTicketOpenSchema.nullable().describe(
+  "Número de sala del día si sigue abierto (módulo `waiting_room` activo); null con el módulo apagado, sin llegada registrada o con el número ya cerrado.",
+);
+
 // ─── Pantalla pública /sala ──────────────────────────────────────────────────
 
 export const WaitingRoomDisplayCallSchema = z

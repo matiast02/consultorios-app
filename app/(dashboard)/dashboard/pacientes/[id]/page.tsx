@@ -33,6 +33,12 @@ import { TurnosTab } from "@/components/pacientes/turnos-tab";
 import { ClinicalAccessBanner } from "@/components/pacientes/clinical-access-banner";
 import { AccessGrantsPanel } from "@/components/pacientes/access-grants-panel";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
+import { ConsultationBar } from "@/components/pacientes/consultation-bar";
+import { QuickAttendDialog } from "@/components/shifts/quick-attend-dialog";
+import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
+import { CallToRoomDialog, type CallToRoomTarget } from "@/components/waiting-room/call-to-room-dialog";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { resolveActiveShift } from "@/lib/consultation-flow";
 import { HcCopyDialog } from "@/components/pacientes/hc-copy-dialog";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
 import { CreatePrescriptionDialog } from "@/components/prescriptions/create-prescription-dialog";
@@ -42,7 +48,7 @@ import { CreateMealPlanDialog } from "@/components/nutrition/create-meal-plan-di
 import { MealPlanView } from "@/components/nutrition/meal-plan-view";
 import { AnnulReasonDialog } from "@/components/clinical/annul-reason-dialog";
 import { VersionHistoryDialog } from "@/components/clinical/version-history-dialog";
-import { safeParseJSON, relTime } from "@/components/pacientes/shared";
+import { safeParseJSON, relTime, fmtTime } from "@/components/pacientes/shared";
 import type {
   ClinicalAccessStatus,
   ClinicalRecord,
@@ -53,6 +59,7 @@ import type {
   Prescription,
   Shift,
   StructuredAllergy,
+  WaitingTicketOpen,
 } from "@/types";
 
 const VALID_TABS = [
@@ -128,6 +135,16 @@ export default function PacienteDetailPage() {
   // Acceso a la HC del usuario actual (tratante / concesión / solicitud).
   const [access, setAccess] = useState<ClinicalAccessStatus | null>(null);
 
+  // Consulta en curso (médico): módulo de sala, número de sala + consultorio del
+  // turno activo, y diálogos de llamado / cierre / próximo turno.
+  const [waitingRoomEnabled, setWaitingRoomEnabled] = useState(false);
+  const [activeInfo, setActiveInfo] = useState<{ ticket: WaitingTicketOpen | null; room: string | null } | null>(null);
+  const [ticketTick, setTicketTick] = useState(0);
+  const [consultBusy, setConsultBusy] = useState(false);
+  const [attendShift, setAttendShift] = useState<Shift | null>(null);
+  const [callTarget, setCallTarget] = useState<CallToRoomTarget | null>(null);
+  const [createShiftOpen, setCreateShiftOpen] = useState(false);
+
   // Dialogs
   const [editOpen, setEditOpen] = useState(false);
   const [hcCopyOpen, setHcCopyOpen] = useState(false);
@@ -199,6 +216,7 @@ export default function PacienteDetailPage() {
         if (mRes.ok) {
           const mJson = await mRes.json();
           const modules: ModuleConfig[] = mJson.data ?? [];
+          setWaitingRoomEnabled(modules.find((m) => m.module === "waiting_room")?.enabled ?? false);
           const presc = modules.find((m) => m.module === "prescriptions");
           if (presc?.enabled) {
             setPrescriptionsEnabled(true);
@@ -257,6 +275,7 @@ export default function PacienteDetailPage() {
         setNutritionEnabled(false);
         setOdontogramEnabled(false);
         setGenogramEnabled(false);
+        setWaitingRoomEnabled(false);
       }
     } catch {
       toast.error("Error al cargar el paciente");
@@ -269,6 +288,148 @@ export default function PacienteDetailPage() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  // ─── Consulta en curso (médico) ───────────────────────────────────────────
+  // La ficha es el lugar donde se atiende: el turno de hoy del médico (el de la
+  // URL `?turno=`, o el que está en consulta / en sala / próximo) muestra la
+  // barra con llamar, evolución vinculada, receta, orden y finalizar.
+  const isMedic = userRole === "medic";
+  const turnoParam = searchParams.get("turno");
+  const active = useMemo(
+    () =>
+      isMedic && sessionUserId
+        ? resolveActiveShift(shifts, { medicId: sessionUserId, preferredId: turnoParam })
+        : null,
+    [shifts, isMedic, sessionUserId, turnoParam],
+  );
+  const activeId = active?.shift.id ?? null;
+  const activePhase = active?.phase ?? null;
+
+  // Solo los turnos (sin recargar la HC ni generar otro VIEW_SENSITIVE).
+  const refreshShifts = useCallback(async () => {
+    const res = await fetch(`/api/shifts?patientId=${patientId}`).catch(() => null);
+    if (res?.ok) {
+      const json = await res.json();
+      setShifts(Array.isArray(json.data) ? json.data : []);
+    }
+    setTicketTick((t) => t + 1);
+  }, [patientId]);
+
+  // Número de sala abierto y consultorio habitual del médico, del detalle del turno.
+  useEffect(() => {
+    if (!activeId) {
+      setActiveInfo(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/shifts/${activeId}`).catch(() => null);
+      if (!res?.ok || cancelled) return;
+      const json = await res.json();
+      setActiveInfo({
+        ticket: json.data?.ticket ?? null,
+        room: json.data?.user?.defaultRoom ?? null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, activePhase, ticketTick]);
+
+  // Fija el turno en la URL para que sobreviva a recargas y al cierre (fase «finalizado»).
+  const pinTurno = useCallback(
+    (shiftId: string) => {
+      if (searchParams.get("turno") === shiftId) return;
+      const sp = new URLSearchParams(searchParams.toString());
+      sp.set("turno", shiftId);
+      router.replace(`/dashboard/pacientes/${patientId}?${sp.toString()}`, { scroll: false });
+    },
+    [patientId, router, searchParams],
+  );
+
+  const patientLabel = patient ? `${patient.lastName}, ${patient.firstName}` : "Paciente";
+
+  async function postStartConsultation(shiftId: string, room?: string | null) {
+    const res = await fetch(`/api/shifts/${shiftId}/start-consultation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(room === undefined ? {} : { room }),
+    });
+    if (!res.ok) throw new Error("start failed");
+  }
+
+  /** Módulo de sala activo → diálogo de consultorio (llamado); apagado → pase a consulta directo. */
+  const handleStart = async () => {
+    if (!active) return;
+    pinTurno(active.shift.id);
+    if (waitingRoomEnabled) {
+      setCallTarget({
+        shiftId: active.shift.id,
+        patientName: patientLabel,
+        ticketNumber: activeInfo?.ticket?.number ?? null,
+        room: activeInfo?.ticket?.room ?? activeInfo?.room ?? null,
+      });
+      return;
+    }
+    try {
+      setConsultBusy(true);
+      await postStartConsultation(active.shift.id);
+      toast.success("Consulta iniciada");
+      await refreshShifts();
+    } catch {
+      toast.error("No se pudo iniciar la consulta");
+    } finally {
+      setConsultBusy(false);
+    }
+  };
+
+  const handleConfirmCall = async (target: CallToRoomTarget, room: string | null) => {
+    try {
+      await postStartConsultation(target.shiftId, room);
+      toast.success(
+        target.ticketNumber != null
+          ? `Llamado N.º ${formatTicketNumber(target.ticketNumber)}${room ? ` → ${room}` : ""}`
+          : "Paciente pasó a consulta",
+      );
+      await refreshShifts();
+    } catch {
+      toast.error("No se pudo registrar el llamado");
+      throw new Error("call failed");
+    }
+  };
+
+  /** Repite el aviso en la pantalla con el mismo consultorio. */
+  const handleRecall = async () => {
+    if (!active) return;
+    try {
+      setConsultBusy(true);
+      const res = await fetch(`/api/shifts/${active.shift.id}/recall`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`Se volvió a llamar a ${patientLabel}`);
+      setTicketTick((t) => t + 1);
+    } catch {
+      toast.error("No se pudo volver a llamar");
+    } finally {
+      setConsultBusy(false);
+    }
+  };
+
+  const handleFinish = () => {
+    if (!active) return;
+    pinTurno(active.shift.id);
+    setAttendShift(active.shift);
+  };
+
+  const evolutionRecorded =
+    !!activeId && evolutions.some((e) => (e.shiftId ?? e.shift?.id) === activeId && !e.annulledAt);
+  // Asientos vinculados al turno solo con el paciente en sala / en consulta (o el
+  // turno recién cerrado): nunca a un turno de más tarde que todavía no empezó.
+  const linkShiftId = active && active.phase !== "scheduled" ? active.shift.id : null;
+  const linkShiftLabel = active ? `turno de hoy ${fmtTime(new Date(active.shift.start))}` : null;
 
   // Sync tab param to URL
   function changeTab(next: string) {
@@ -447,8 +608,27 @@ export default function PacienteDetailPage() {
         activePrescriptions={activePrescriptions}
         onEdit={() => setEditOpen(true)}
         onHcCopy={() => setHcCopyOpen(true)}
-        onNewShift={() => router.push(`/dashboard/turnos?patientId=${patientId}`)}
+        onNewShift={() => setCreateShiftOpen(true)}
       />
+
+      {active && (
+        <ConsultationBar
+          shift={{ ...active.shift, ticket: activeInfo?.ticket ?? null }}
+          phase={active.phase}
+          waitingRoomEnabled={waitingRoomEnabled}
+          evolutionRecorded={evolutionRecorded}
+          prescriptionsEnabled={prescriptionsEnabled}
+          studyOrdersEnabled={studyOrdersEnabled}
+          busy={consultBusy}
+          onStart={handleStart}
+          onRecall={handleRecall}
+          onFinish={handleFinish}
+          onNewEvolution={() => setEvolutionOpen(true)}
+          onPrescription={() => setPrescriptionOpen(true)}
+          onStudyOrder={() => setStudyOrderOpen(true)}
+          onBack={() => router.push("/dashboard")}
+        />
+      )}
 
       {(severeAllergies.length > 0 || chronicMedications.length > 0) && (
         <PatientAlerts
@@ -497,7 +677,7 @@ export default function PacienteDetailPage() {
               onNewEvolution={() => setEvolutionOpen(true)}
               onNewPrescription={() => setPrescriptionOpen(true)}
               onNewShift={() =>
-                router.push(`/dashboard/turnos?patientId=${patientId}`)
+                setCreateShiftOpen(true)
               }
               onGoToEvolutions={() => changeTab("evoluciones")}
             />
@@ -650,7 +830,7 @@ export default function PacienteDetailPage() {
           <TurnosTab
             shifts={shifts}
             onNewShift={() =>
-              router.push(`/dashboard/turnos?patientId=${patientId}`)
+              setCreateShiftOpen(true)
             }
           />
         </TabsContent>
@@ -658,6 +838,46 @@ export default function PacienteDetailPage() {
 
       {/* Dialogs ─────────────────────────────────────────────────────── */}
       <HcCopyDialog patientId={patientId} open={hcCopyOpen} onOpenChange={setHcCopyOpen} />
+
+      {/* Consulta en curso: llamado, cierre y próximo turno sin salir de la ficha */}
+      <CallToRoomDialog
+        target={callTarget}
+        onOpenChange={(open) => {
+          if (!open) setCallTarget(null);
+        }}
+        onConfirm={handleConfirmCall}
+      />
+      {attendShift && (
+        <QuickAttendDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setAttendShift(null);
+              refreshShifts();
+            }
+          }}
+          shift={attendShift}
+          onSaved={() => {}}
+          evolutionRecorded={evolutionRecorded}
+          onDone={() => router.push("/dashboard")}
+          onScheduleNext={() => setCreateShiftOpen(true)}
+          onCreatePrescription={prescriptionsEnabled ? () => setPrescriptionOpen(true) : undefined}
+          onCreateStudyOrder={studyOrdersEnabled ? () => setStudyOrderOpen(true) : undefined}
+        />
+      )}
+      {createShiftOpen && (
+        <CreateShiftDialog
+          open={createShiftOpen}
+          onOpenChange={setCreateShiftOpen}
+          defaultPatientId={patientId}
+          defaultMedicId={isMedic ? sessionUserId ?? undefined : undefined}
+          lockMedic={isMedic}
+          onCreated={() => {
+            setCreateShiftOpen(false);
+            refreshShifts();
+          }}
+        />
+      )}
       <PatientFormDialog
         open={editOpen}
         onOpenChange={setEditOpen}
@@ -677,6 +897,8 @@ export default function PacienteDetailPage() {
           open={evolutionOpen}
           onOpenChange={setEvolutionOpen}
           patientId={patientId}
+          shiftId={linkShiftId}
+          shiftLabel={linkShiftLabel}
           onCreated={() => {
             setEvolutionOpen(false);
             fetchAll();
@@ -691,6 +913,7 @@ export default function PacienteDetailPage() {
             onOpenChange={setPrescriptionOpen}
             patientId={patientId}
             patientName={`${patient.lastName}, ${patient.firstName}`}
+            shiftId={linkShiftId ?? undefined}
             userId={sessionUserId}
             onCreated={() => {
               setPrescriptionOpen(false);
@@ -733,6 +956,7 @@ export default function PacienteDetailPage() {
           onOpenChange={setStudyOrderOpen}
           patientId={patientId}
           patientName={`${patient.lastName}, ${patient.firstName}`}
+          shiftId={linkShiftId ?? undefined}
           onCreated={() => {
             setStudyOrderOpen(false);
             fetchAll();

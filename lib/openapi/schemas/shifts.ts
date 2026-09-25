@@ -8,7 +8,7 @@
 // Se arman con objetos de campos (sin `.extend()`) para que el cliente
 // generado no reciba `allOf`. `/api/patients/{id}/shifts` usa su propio DTO.
 
-import { WaitingTicketCalledField, WaitingTicketCalledSchema, WaitingTicketField } from "./waiting-room";
+import { WaitingTicketCalledField, WaitingTicketCalledSchema, WaitingTicketField, WaitingTicketOpenField } from "./waiting-room";
 import { z } from "zod";
 import { IsoDate, IsoDateTime } from "../registry";
 import { ConsultationTypeSchema, HealthInsuranceSchema } from "./catalogs";
@@ -158,6 +158,7 @@ export const ShiftDetailSchema = z
     consultationType: ConsultationTypeSchema.nullable().describe("Tipo de consulta completo (sin `_count`)."),
     user: ShiftDetailMedicRefSchema,
     coverageInsurance: HealthInsuranceSchema.nullable().describe("Obra social de la cobertura; null si particular o turno anterior a esta versión."),
+    ticket: WaitingTicketOpenField,
   })
   .openapi({ ref: "ShiftDetail" });
 
