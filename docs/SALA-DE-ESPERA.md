@@ -165,6 +165,13 @@ Walk-in con turno asignado ──► el ticket pasa al turno (mismo número) y e
   `arrivedAt && !consultationStartedAt` y acción «Llamar». Requiere que
   `GET /api/dashboard/medic` devuelva `arrivedAt`, `consultationStartedAt` y
   `ticketNumber` en `DashboardShift` (hoy no los selecciona).
+  Implementado (25-sep-2026): el llamado desde el dashboard del médico no se queda
+  ahí: al confirmar el consultorio abre la ficha del paciente en modo consulta
+  (`/dashboard/pacientes/{id}?turno=<shiftId>`), con la barra «Consulta en curso»
+  (`components/pacientes/consultation-bar.tsx`) que muestra el número, el consultorio,
+  los minutos y permite volver a llamar, cargar la evolución vinculada al turno, receta,
+  orden y finalizar. Para eso `GET /api/shifts/{id}` devuelve `ticket` (número abierto).
+  Las filas en consulta tienen «Continuar» para volver a esa ficha.
 - `GET /api/dashboard/secretary`: `ticketNumber` en `WaitingRoomItem` y
   `NextToCallData`, más la lista `llamados` para la nueva pestaña.
 - Configuración → Consultorio (admin): sección «Pantalla de sala de espera» con estado

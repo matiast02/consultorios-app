@@ -92,6 +92,7 @@ export const shiftsRoutes = defineRoutes([
     description: [
       "El médico solo ve sus turnos (uno ajeno responde 404, como inexistente); secretaria y admin cualquiera.",
       "Del paciente trae solo lo que usa la ficha del turno (identificación, contacto, nacimiento, sexo y obra social; sin consentimiento ni datos de baja), más el tipo de consulta y el profesional con consultorio y especialidad.",
+      "`ticket`: número de sala del día si sigue abierto (módulo `waiting_room`); null con el módulo apagado o sin número. La ficha del paciente lo usa para la barra «Consulta en curso» del médico.",
       "Con `withContext=true` agrega `meta` con la última visita finalizada y el próximo turno del paciente.",
     ].join(" "),
     tags: [TAGS.shifts],

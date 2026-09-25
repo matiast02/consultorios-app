@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, Check, Megaphone, User as UserIcon, Pencil, RotateCcw, Search, X } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Megaphone, User as UserIcon, Pencil, Play, RotateCcw, Search, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OsBadge } from "./os-badge";
 import type { DashboardShift, ShiftStatus } from "@/types";
@@ -19,6 +19,10 @@ interface TodayShiftsCardProps {
   waitingRoomEnabled?: boolean;
   onCall?: (shift: DashboardShift) => void;
   onRecall?: (shift: DashboardShift) => void;
+  /** Sin módulo de sala: «Iniciar consulta» para el paciente en sala (pase a consulta + ficha). */
+  onStart?: (shift: DashboardShift) => void;
+  /** Paciente ya en consulta: volver a su ficha en modo consulta. */
+  onContinue?: (shift: DashboardShift) => void;
 }
 
 type TabKey = "todos" | "porAtender" | "atendidos" | "ausentes";
@@ -129,6 +133,8 @@ export function TodayShiftsCard({
   waitingRoomEnabled = false,
   onCall,
   onRecall,
+  onStart,
+  onContinue,
 }: TodayShiftsCardProps) {
   // Arranca en "Por atender" (lo que importa durante la jornada); si ya no
   // queda nada por atender, en "Todos" para no mostrar una lista vacía.
@@ -364,6 +370,27 @@ export function TodayShiftsCard({
                         Llamar
                       </button>
                     )}
+                    {!waitingRoomEnabled && onStart && inWaitingRoom(s) && (
+                      <button
+                        type="button"
+                        onClick={() => onStart(s)}
+                        className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-[#0d4f4d] px-2.5 py-1 text-[12px] font-semibold text-white transition hover:bg-[#0a3f3d]"
+                      >
+                        <Play className="h-3 w-3" />
+                        Iniciar consulta
+                      </button>
+                    )}
+                    {onContinue && inConsultation(s) && (
+                      <button
+                        type="button"
+                        onClick={() => onContinue(s)}
+                        title="Seguir en la ficha del paciente"
+                        className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-2.5 py-1 text-[12px] font-semibold text-white transition hover:bg-sky-700"
+                      >
+                        Continuar
+                        <ArrowRight className="h-3 w-3" />
+                      </button>
+                    )}
                     {waitingRoomEnabled && onRecall && inConsultation(s) && s.ticketNumber != null && (
                       <button
                         type="button"
@@ -379,8 +406,8 @@ export function TodayShiftsCard({
                       <div className="flex items-center gap-0.5 ml-1">
                         <button
                           type="button"
-                          title="Atender"
-                          aria-label="Atender"
+                          title="Finalizar atención"
+                          aria-label="Finalizar atención"
                           onClick={() => onAttend(s)}
                           className="grid h-7 w-7 place-items-center rounded-md border bg-card text-foreground/70 transition hover:bg-muted hover:text-foreground"
                         >

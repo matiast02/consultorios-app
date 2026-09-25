@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -77,8 +77,9 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
   const [detailShiftId, setDetailShiftId] = useState<string | null>(null);
   const [createShiftOpen, setCreateShiftOpen] = useState(false);
   const [createPatientOpen, setCreatePatientOpen] = useState(false);
-  // Llamado a consultorio (módulo waiting_room)
+  // Llamado a consultorio (módulo waiting_room); el paciente del llamado para abrir su ficha al confirmar.
   const [callTarget, setCallTarget] = useState<CallToRoomTarget | null>(null);
+  const callPatientRef = useRef<string | null>(null);
 
   // Schedule check
   useEffect(() => {
@@ -150,10 +151,57 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
   const openSearchPatient = () => router.push("/dashboard/pacientes");
   const openBlockDay = () => router.push("/dashboard/configuracion?tab=bloqueados");
   const goToPatient = (patientId: string) => router.push(`/dashboard/pacientes/${patientId}`);
+  /** Ficha del paciente en modo consulta (barra «Consulta en curso» sobre ese turno). */
+  const goToConsultation = (patientId: string, shiftId: string) =>
+    router.push(`/dashboard/pacientes/${patientId}?turno=${shiftId}`);
 
-  const handleStartConsultation = (s: DashboardShift) => {
-    setAttendShift(toShift(s));
+  const patientName = (s: { patient?: { firstName: string; lastName: string } | null }) =>
+    s.patient ? `${s.patient.lastName}, ${s.patient.firstName}` : "Paciente";
+
+  /** Lo mínimo de un turno para iniciar la consulta (fila del dashboard o ficha rápida). */
+  type StartableShift = {
+    id: string;
+    patient?: { id: string; firstName: string; lastName: string } | null;
+    arrivedAt?: string | null;
+    consultationStartedAt?: string | null;
+    ticketNumber?: number | null;
   };
+
+  /**
+   * Atender = ir a la ficha en modo consulta. Si ya está en consulta, directo.
+   * Con el módulo de sala pasa por el diálogo de consultorio (llamado) y navega
+   * al confirmar; sin módulo registra el pase a consulta y abre la ficha.
+   */
+  const handleStartConsultation = async (s: StartableShift) => {
+    const patientId = s.patient?.id;
+    if (!patientId) return;
+    if (s.consultationStartedAt) {
+      goToConsultation(patientId, s.id);
+      return;
+    }
+    if (data?.waitingRoom.enabled) {
+      callPatientRef.current = patientId;
+      setCallTarget({
+        shiftId: s.id,
+        patientName: patientName(s),
+        ticketNumber: s.ticketNumber ?? null,
+        room: data.waitingRoom.room ?? null,
+      });
+      return;
+    }
+    try {
+      const res = await fetch(`/api/shifts/${s.id}/start-consultation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) throw new Error();
+      goToConsultation(patientId, s.id);
+    } catch {
+      toast.error("No se pudo iniciar la consulta");
+    }
+  };
+  /** Cierre rápido sin pasar por la ficha (p. ej. consulta telefónica). */
   const handleAttend = (s: DashboardShift) => {
     setAttendShift(toShift(s));
   };
@@ -163,17 +211,9 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     router.push(`/dashboard/calendario?shift=${s.id}`);
   };
 
-  // ─── Sala de espera: llamar desde «Turnos de hoy» ───
-  const patientName = (s: DashboardShift) =>
-    s.patient ? `${s.patient.lastName}, ${s.patient.firstName}` : "Paciente";
-
+  // ─── Sala de espera: llamar desde «Turnos de hoy» (mismo camino que atender) ───
   const handleCall = (s: DashboardShift) => {
-    setCallTarget({
-      shiftId: s.id,
-      patientName: patientName(s),
-      ticketNumber: s.ticketNumber ?? null,
-      room: data?.waitingRoom.room ?? null,
-    });
+    void handleStartConsultation(s);
   };
 
   const handleConfirmCall = async (target: CallToRoomTarget, room: string | null) => {
@@ -189,7 +229,12 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           ? `Llamado N.º ${formatTicketNumber(target.ticketNumber)}${room ? ` → ${room}` : ""}`
           : "Paciente pasó a consulta",
       );
-      fetchDashboard();
+      // Llamado hecho: seguir en la ficha del paciente, donde se atiende.
+      const patientId =
+        callPatientRef.current ?? data?.today.shifts.find((x) => x.id === target.shiftId)?.patient?.id ?? null;
+      callPatientRef.current = null;
+      if (patientId) goToConsultation(patientId, target.shiftId);
+      else fetchDashboard();
     } catch {
       toast.error("No se pudo registrar el llamado");
       throw new Error("call failed");
@@ -267,8 +312,9 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
         <NextShiftCard
           shift={data.today.nextShift}
-          onStartConsultation={handleStartConsultation}
+          onStartConsultation={(s) => void handleStartConsultation(s)}
           onViewPatient={goToPatient}
+          waitingRoomEnabled={data.waitingRoom.enabled}
         />
         <DaySummaryCard stats={data.today.stats} />
       </div>
@@ -285,6 +331,8 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           waitingRoomEnabled={data.waitingRoom.enabled}
           onCall={handleCall}
           onRecall={handleRecall}
+          onStart={(s) => void handleStartConsultation(s)}
+          onContinue={(s) => s.patient && goToConsultation(s.patient.id, s.id)}
         />
 
         <CallToRoomDialog
@@ -376,7 +424,15 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           label: "Atender",
           onClick: (s) => {
             setDetailShiftId(null);
-            setAttendShift(s);
+            void handleStartConsultation({
+              id: s.id,
+              patient: s.patient
+                ? { id: s.patient.id, firstName: s.patient.firstName, lastName: s.patient.lastName }
+                : null,
+              arrivedAt: s.arrivedAt,
+              consultationStartedAt: s.consultationStartedAt,
+              ticketNumber: s.ticket?.number ?? null,
+            });
           },
           disabled: false,
         }}

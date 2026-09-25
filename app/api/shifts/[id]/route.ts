@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateShiftSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { canAssignTo, canSeeShift, getShiftActor, SHIFT_FORBIDDEN, SHIFT_NOT_FOUND, SHIFT_OWN_ONLY } from "@/lib/shift-access";
-import { closeTicketForShift, TICKET_CLOSE_BY_STATUS } from "@/lib/waiting-room/tickets";
+import { closeTicketForShift, TICKET_CLOSE_BY_STATUS, waitingRoomEnabled } from "@/lib/waiting-room/tickets";
 import { coverageData, resolveShiftCoverage } from "@/lib/shift-coverage";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -56,12 +56,41 @@ export async function GET(req: NextRequest, context: RouteContext) {
             specialization: { select: { id: true, name: true, color: true } },
           },
         },
+        // Número de sala del día (módulo waiting_room); se expone como `ticket` solo si sigue abierto.
+        waitingTicket: {
+          select: {
+            id: true,
+            number: true,
+            date: true,
+            room: true,
+            calledAt: true,
+            lastCalledAt: true,
+            callCount: true,
+            closedAt: true,
+          },
+        },
       },
     });
     // Ajeno para un médico = inexistente (404 uniforme).
     if (!shift || !canSeeShift(actor, shift)) {
       return NextResponse.json(SHIFT_NOT_FOUND, { status: 404 });
     }
+
+    // Ticket abierto (la ficha del médico muestra el número y permite volver a llamar).
+    // Con el módulo apagado siempre null, aunque queden tickets de cuando estuvo prendido.
+    const { waitingTicket, ...shiftData } = shift;
+    const ticket =
+      waitingTicket && !waitingTicket.closedAt && (await waitingRoomEnabled())
+        ? {
+            id: waitingTicket.id,
+            number: waitingTicket.number,
+            date: waitingTicket.date,
+            room: waitingTicket.room,
+            calledAt: waitingTicket.calledAt,
+            lastCalledAt: waitingTicket.lastCalledAt,
+            callCount: waitingTicket.callCount,
+          }
+        : null;
 
     // Optional: include last visit + next scheduled shift for this patient (for the redesigned UI).
     let lastVisit: { date: string; consultationTypeName: string | null } | null = null;
@@ -115,7 +144,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
     return NextResponse.json({
       success: true,
-      data: shift,
+      data: { ...shiftData, ticket },
       meta: withContext ? { lastVisit, nextScheduled } : undefined,
     });
   } catch (error) {

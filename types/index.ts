@@ -105,6 +105,8 @@ export interface Shift {
   confirmedAt?: string | null;
   confirmedVia?: "PATIENT_LINK" | "STAFF" | "PHONE" | null;
   source?: "STAFF" | "ONLINE";
+  /** Solo en `GET /api/shifts/{id}`: número de sala abierto (módulo waiting_room), o null. */
+  ticket?: WaitingTicketOpen | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -444,7 +446,7 @@ export interface Evolution {
   annulledAt?: string | null;
   annulReason?: string | null;
   user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
-  shift?: { start: string; end: string } | null;
+  shift?: { id?: string; start: string; end: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -942,6 +944,14 @@ export interface WaitingTicketSummary {
   number: number;
   /** YYYY-MM-DD en el día del consultorio. */
   date: string;
+}
+
+/** Ticket abierto del turno (`GET /api/shifts/{id}`): llamado o todavía en sala. */
+export interface WaitingTicketOpen extends WaitingTicketSummary {
+  room: string | null;
+  calledAt: string | null;
+  lastCalledAt: string | null;
+  callCount: number;
 }
 
 export interface WalkInArrival {
