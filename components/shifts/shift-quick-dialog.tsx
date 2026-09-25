@@ -35,6 +35,7 @@ import {
 import type { Shift, ShiftStatus } from "@/types";
 import { calcAge, formatDateShortAR, formatDni, formatTime } from "@/lib/format";
 import { initials, medicShortName } from "@/lib/names";
+import { ShiftStatusBadge } from "@/components/shifts/shift-status-badge";
 
 interface ShiftQuickDialogProps {
   open: boolean;
@@ -64,22 +65,6 @@ interface ShiftQuickDialogProps {
     disabled?: boolean;
   };
 }
-
-const STATUS_LABEL: Record<ShiftStatus, string> = {
-  PENDING: "PENDIENTE",
-  CONFIRMED: "CONFIRMADO",
-  ABSENT: "AUSENTE",
-  FINISHED: "FINALIZADO",
-  CANCELLED: "CANCELADO",
-};
-
-const STATUS_BADGE: Record<ShiftStatus, string> = {
-  PENDING: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  CONFIRMED: "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300",
-  ABSENT: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-  FINISHED: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  CANCELLED: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-};
 
 const WEEKDAYS_SHORT_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
@@ -290,11 +275,7 @@ export function ShiftQuickDialog({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="text-[15px] font-semibold text-foreground">{fullName}</span>
-              <span
-                className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[status]}`}
-              >
-                {STATUS_LABEL[status]}
-              </span>
+              <ShiftStatusBadge status={status} variant="chip" />
               {shift.source === "ONLINE" && (
                 <span
                   className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"

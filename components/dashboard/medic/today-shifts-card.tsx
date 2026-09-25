@@ -7,6 +7,7 @@ import { OsBadge } from "@/components/shifts/os-badge";
 import type { DashboardShift, ShiftStatus } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
 import { formatTime, normalizeText as normalize } from "@/lib/format";
+import { ShiftStatusBadge } from "@/components/shifts/shift-status-badge";
 
 interface TodayShiftsCardProps {
   shifts: DashboardShift[];
@@ -27,30 +28,6 @@ interface TodayShiftsCardProps {
 }
 
 type TabKey = "todos" | "porAtender" | "atendidos" | "ausentes";
-
-const STATUS_LABEL: Record<ShiftStatus, string> = {
-  PENDING:   "Pendiente",
-  CONFIRMED: "Confirmado",
-  ABSENT:    "Ausente",
-  FINISHED:  "Finalizado",
-  CANCELLED: "Cancelado",
-};
-
-const STATUS_DOT: Record<ShiftStatus, string> = {
-  PENDING:   "bg-amber-500",
-  CONFIRMED: "bg-sky-500",
-  ABSENT:    "bg-rose-500",
-  FINISHED:  "bg-emerald-500",
-  CANCELLED: "bg-slate-400",
-};
-
-const STATUS_TEXT: Record<ShiftStatus, string> = {
-  PENDING:   "text-amber-700",
-  CONFIRMED: "text-sky-700",
-  ABSENT:    "text-rose-700",
-  FINISHED:  "text-emerald-700",
-  CANCELLED: "text-slate-500",
-};
 
 
 /** A partir de cuántos turnos aparece el buscador (con menos, la lista se recorre de un vistazo). */
@@ -107,14 +84,6 @@ function WaitingBadge({ shift: s }: { shift: DashboardShift }) {
   return null;
 }
 
-function StatusBadge({ status }: { status: ShiftStatus }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[12.5px] font-medium ${STATUS_TEXT[status]} dark:text-foreground/80`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
 
 export function TodayShiftsCard({
   shifts,
@@ -352,7 +321,7 @@ export function TodayShiftsCard({
                     className="flex items-center gap-2 shrink-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <StatusBadge status={s.status} />
+                    <ShiftStatusBadge status={s.status} className="dark:text-foreground/80" />
                     {waitingRoomEnabled && onCall && inWaitingRoom(s) && (
                       <button
                         type="button"

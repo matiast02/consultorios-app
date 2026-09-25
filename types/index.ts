@@ -7,29 +7,12 @@ export type ShiftStatus =
   | "FINISHED"
   | "CANCELLED";
 
-export const SHIFT_STATUS_LABELS: Record<ShiftStatus, string> = {
-  PENDING: "Pendiente",
-  CONFIRMED: "Confirmado",
-  ABSENT: "Ausente",
-  FINISHED: "Finalizado",
-  CANCELLED: "Cancelado",
-};
-
-export const SHIFT_STATUS_COLORS: Record<ShiftStatus, string> = {
-  PENDING: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800",
-  CONFIRMED: "bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-950/40 dark:text-cyan-300 dark:border-cyan-800",
-  ABSENT: "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800",
-  FINISHED: "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800",
-  CANCELLED: "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700",
-};
-
-export const SHIFT_STATUS_DOT_COLORS: Record<ShiftStatus, string> = {
-  PENDING: "bg-amber-500",
-  CONFIRMED: "bg-cyan-500",
-  ABSENT: "bg-red-500",
-  FINISHED: "bg-emerald-500",
-  CANCELLED: "bg-slate-400",
-};
+// Etiquetas y colores: una sola paleta en lib/shift-status.ts (nombres históricos).
+export {
+  SHIFT_STATUS_LABEL as SHIFT_STATUS_LABELS,
+  SHIFT_STATUS_BADGE_OUTLINE as SHIFT_STATUS_COLORS,
+  SHIFT_STATUS_DOT as SHIFT_STATUS_DOT_COLORS,
+} from "@/lib/shift-status";
 
 // ─── Health Insurance ────────────────────────────────────────────────────────
 
