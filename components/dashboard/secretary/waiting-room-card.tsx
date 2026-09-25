@@ -108,8 +108,8 @@ function TabButton({
 
 export function WaitingRoomCard({
   items,
-  called,
-  waitingRoomEnabled,
+  called = [],
+  waitingRoomEnabled = false,
   onMarkSeen,
   onMarkAbsent,
   onCall,

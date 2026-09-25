@@ -15263,6 +15263,205 @@
         }
       }
     },
+    "/api/admin/waiting-room-display-key": {
+      "get": {
+        "operationId": "getAdminWaitingRoomDisplayKey",
+        "summary": "Estado de la clave de la pantalla de la sala",
+        "description": "Solo admin. Dice si hay clave configurada y desde cuándo; nunca devuelve la clave.\n\n**Acceso:** sesión (admin).",
+        "tags": [
+          "Administración"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": false,
+        "x-roles": [
+          "admin"
+        ],
+        "x-auth": "session",
+        "responses": {
+          "200": {
+            "description": "Estado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WaitingRoomDisplayKeyStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "postAdminWaitingRoomDisplayKey",
+        "summary": "Generar o rotar la clave de la pantalla",
+        "description": "Solo admin. Genera una clave nueva (la anterior deja de valer) y la devuelve UNA sola vez junto con el link `/sala?k=…`; en la base queda el hash. Audita `UPDATE` sobre `clinic_settings` (`created` / `rotated`). Sin body.\n\n**Acceso:** sesión (admin).",
+        "tags": [
+          "Administración"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": false,
+        "x-roles": [
+          "admin"
+        ],
+        "x-auth": "session",
+        "responses": {
+          "200": {
+            "description": "Clave nueva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WaitingRoomDisplayKeyCreated"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAdminWaitingRoomDisplayKey",
+        "summary": "Revocar la clave de la pantalla",
+        "description": "Solo admin. Borra el hash: la pantalla recibe 404 hasta que se genere otra. Audita `UPDATE` (`revoked`).\n\n**Acceso:** sesión (admin).",
+        "tags": [
+          "Administración"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": false,
+        "x-roles": [
+          "admin"
+        ],
+        "x-auth": "session",
+        "responses": {
+          "200": {
+            "description": "Revocada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/audit-logs": {
       "get": {
         "operationId": "getAuditLogs",
@@ -16609,6 +16808,78 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PublicShiftConflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas solicitudes (rate limit o bloqueo temporal).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado del servidor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/waiting-room/feed": {
+      "get": {
+        "operationId": "getPublicWaitingRoomFeed",
+        "summary": "Feed de la pantalla de la sala de espera",
+        "description": "Para el televisor de la sala (`/sala`). Se autentica con la clave de dispositivo en el header `X-Display-Key` (la genera el admin en Configuración → Consultorio). Devuelve solo números, consultorios y horas: nunca nombres. Excluye a los profesionales con el módulo deshabilitado por usuario. Módulo apagado, clave ausente o clave incorrecta → el mismo 404. Rate limit 90 por minuto por IP (429 con `Retry-After`). `Cache-Control: no-store`.\n\n**Acceso:** header `X-Display-Key` (secreto del servidor).",
+        "tags": [
+          "Público (sin sesión)"
+        ],
+        "security": [
+          {
+            "cronSecret": []
+          }
+        ],
+        "x-mobile": false,
+        "x-auth": "secret",
+        "responses": {
+          "200": {
+            "description": "Estado actual de la pantalla.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WaitingRoomFeed"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Módulo apagado o clave inválida (respuesta uniforme).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -25570,6 +25841,49 @@
           "user"
         ]
       },
+      "WaitingRoomDisplayKeyStatus": {
+        "type": "object",
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          }
+        },
+        "required": [
+          "configured",
+          "createdAt"
+        ]
+      },
+      "WaitingRoomDisplayKeyCreated": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "La clave, una sola vez. En la base queda su SHA-256."
+          },
+          "url": {
+            "type": "string",
+            "description": "Link para el televisor: `<base de la app>/sala?k=<clave>`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          }
+        },
+        "required": [
+          "key",
+          "url",
+          "createdAt"
+        ]
+      },
       "AuditLog": {
         "type": "object",
         "properties": {
@@ -26624,6 +26938,79 @@
         },
         "required": [
           "data"
+        ]
+      },
+      "WaitingRoomFeed": {
+        "type": "object",
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z"
+          },
+          "current": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WaitingRoomDisplayCall"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Último llamado de los últimos 30 minutos (ticket abierto o ya atendido)."
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WaitingRoomDisplayCall"
+            },
+            "maxItems": 4,
+            "description": "Los anteriores, del más nuevo al más viejo."
+          },
+          "waitingCount": {
+            "type": "integer",
+            "description": "Personas con número que todavía no fueron llamadas."
+          }
+        },
+        "required": [
+          "now",
+          "current",
+          "recent",
+          "waitingCount"
+        ]
+      },
+      "WaitingRoomDisplayCall": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id del ticket (no identifica a nadie); junto con `callCount` permite detectar un llamado nuevo."
+          },
+          "number": {
+            "type": "integer"
+          },
+          "room": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calledAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Último llamado."
+          },
+          "callCount": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "room",
+          "calledAt",
+          "callCount"
         ]
       }
     }

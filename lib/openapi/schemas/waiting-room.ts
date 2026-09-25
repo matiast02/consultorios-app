@@ -38,3 +38,39 @@ export const WaitingTicketCalledSchema = z
 export const WaitingTicketCalledField = WaitingTicketCalledSchema.nullable().describe(
   "Ticket llamado (módulo `waiting_room` activo y paciente con número de sala); null si no hay número: nada se muestra en la pantalla.",
 );
+
+// ─── Pantalla pública /sala ──────────────────────────────────────────────────
+
+export const WaitingRoomDisplayCallSchema = z
+  .object({
+    id: z.string().describe("Id del ticket (no identifica a nadie); junto con `callCount` permite detectar un llamado nuevo."),
+    number: z.number().int(),
+    room: z.string().nullable(),
+    calledAt: IsoDateTime.describe("Último llamado."),
+    callCount: z.number().int(),
+  })
+  .openapi({ ref: "WaitingRoomDisplayCall" });
+
+export const WaitingRoomFeedSchema = z
+  .object({
+    now: IsoDateTime,
+    current: WaitingRoomDisplayCallSchema.nullable().describe("Último llamado de los últimos 30 minutos (ticket abierto o ya atendido)."),
+    recent: z.array(WaitingRoomDisplayCallSchema).max(4).describe("Los anteriores, del más nuevo al más viejo."),
+    waitingCount: z.number().int().describe("Personas con número que todavía no fueron llamadas."),
+  })
+  .openapi({ ref: "WaitingRoomFeed" });
+
+export const WaitingRoomDisplayKeyStatusSchema = z
+  .object({
+    configured: z.boolean(),
+    createdAt: IsoDateTime.nullable(),
+  })
+  .openapi({ ref: "WaitingRoomDisplayKeyStatus" });
+
+export const WaitingRoomDisplayKeyCreatedSchema = z
+  .object({
+    key: z.string().describe("La clave, una sola vez. En la base queda su SHA-256."),
+    url: z.string().describe("Link para el televisor: `<base de la app>/sala?k=<clave>`."),
+    createdAt: IsoDateTime,
+  })
+  .openapi({ ref: "WaitingRoomDisplayKeyCreated" });

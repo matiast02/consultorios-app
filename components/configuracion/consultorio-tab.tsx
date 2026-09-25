@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Loader2, Inbox, Settings, Clock as ClockIcon, MessageCircle, Check, Archive, Mail, Phone, MapPin } from "lucide-react";
 import { ClinicLocationPicker, type LocationValue } from "./clinic-location-picker";
+import { WaitingRoomDisplaySection } from "./waiting-room-display-section";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -708,6 +709,7 @@ export function ConsultorioTab() {
     <div className="space-y-6">
       <SettingsCard />
       <HoursCard />
+      <WaitingRoomDisplaySection />
       <InboxCard />
     </div>
   );
