@@ -237,22 +237,25 @@ export function CreateShiftDialog({
   const { data: typesData, error: typesError } = useCachedFetch<ConsultationType[]>(
     open ? "/api/consultation-types" : null,
   );
-  const typesLoaded = open && (typesData !== undefined || typesError !== undefined);
+  // `typesReady` se prende en el mismo lote que la lista y el tipo por defecto, así el
+  // effect de slots ve la duración correcta desde el primer pedido.
+  const [typesReady, setTypesReady] = useState(false);
   useEffect(() => {
-    if (!open || !typesData) return;
+    if (!open) {
+      setTypesReady(false);
+      return;
+    }
+    if (typesData === undefined && typesError === undefined) return; // cargando
     const list = Array.isArray(typesData) ? typesData : [];
     setConsultationTypes(list);
     // Prefer a type matching the pre-filled duration; else fall back to the default flag
-    if (defaultDurationMinutes) {
-      const match = list.find((t) => t.durationMinutes === defaultDurationMinutes);
-      if (match) {
-        setSelectedTypeId(match.id);
-        return;
-      }
-    }
-    const def = list.find((t) => t.isDefault);
-    if (def) setSelectedTypeId(def.id);
-  }, [open, typesData, defaultDurationMinutes]);
+    const match = defaultDurationMinutes
+      ? list.find((t) => t.durationMinutes === defaultDurationMinutes)
+      : undefined;
+    const chosen = match ?? list.find((t) => t.isDefault);
+    if (chosen) setSelectedTypeId(chosen.id);
+    setTypesReady(true);
+  }, [open, typesData, typesError, defaultDurationMinutes]);
 
   // Auto-calculate endTime when consultation type or startTime changes
   useEffect(() => {
@@ -295,7 +298,7 @@ export function CreateShiftDialog({
       setSlotsMessage("");
       return;
     }
-    if (!typesLoaded) return;
+    if (!typesReady) return;
 
     const ac = new AbortController();
     async function fetchSlots() {
@@ -314,7 +317,7 @@ export function CreateShiftDialog({
     }
     fetchSlots();
     return () => ac.abort();
-  }, [open, watchedMedicId, defaultMedicId, watchedDate, selectedTypeId, consultationTypes, typesLoaded]);
+  }, [open, watchedMedicId, defaultMedicId, watchedDate, selectedTypeId, consultationTypes, typesReady]);
 
   function selectSlot(slot: TimeSlot) {
     if (!slot.available) return;

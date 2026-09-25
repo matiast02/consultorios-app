@@ -599,6 +599,9 @@ export default function CalendarioPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         defaultDate={selectedDay}
+        // El médico solo agenda para sí mismo: profesional fijado y horarios cargados de entrada.
+        defaultMedicId={isStaff ? (selectedMedicId ?? undefined) : userId}
+        lockMedic={!isStaff}
         defaultStartTime={createDefaultTime?.start}
         defaultEndTime={createDefaultTime?.end}
         onCreated={() => {
