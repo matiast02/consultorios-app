@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle, CalendarPlus, Pill, Repeat, ClipboardList, Lock } from "lucide-react";
 import type { Shift, ModuleConfig } from "@/types";
+import { cn } from "@/lib/utils";
 
 interface QuickAttendDialogProps {
   open: boolean;
@@ -178,6 +179,21 @@ export function QuickAttendDialog({
     handleClose({ stay: true });
   }
 
+  function handleScheduleRecurring() {
+    if (onScheduleRecurring) {
+      onScheduleRecurring(shift.patientId, shift.userId);
+    }
+    handleClose({ stay: true });
+  }
+
+  // Seguimientos secundarios tras finalizar (el primario es «Próximo turno»).
+  // Van en dos columnas; si queda uno solo en la última fila, ocupa las dos.
+  const followUps = [
+    onScheduleRecurring && { key: "recurring", label: "Turno recurrente", Icon: Repeat, onClick: handleScheduleRecurring },
+    prescriptionsEnabled && onCreatePrescription && { key: "rx", label: "Crear receta", Icon: Pill, onClick: handleCreatePrescription },
+    studyOrdersEnabled && onCreateStudyOrder && { key: "study", label: "Ordenar estudio", Icon: ClipboardList, onClick: handleCreateStudyOrder },
+  ].filter((a): a is { key: string; label: string; Icon: typeof Repeat; onClick: () => void } => !!a);
+
   const patientName = shift.patient
     ? `${shift.patient.lastName}, ${shift.patient.firstName}`
     : "Paciente";
@@ -291,50 +307,46 @@ export function QuickAttendDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex flex-col items-center gap-4 py-6">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40">
-                <CheckCircle className="h-8 w-8 text-emerald-500" />
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40">
+                <CheckCircle className="h-7 w-7 text-emerald-500" />
               </div>
               <p className="text-center text-sm text-muted-foreground">
-                ¿El paciente necesita un proximo turno?
+                {onScheduleNext || followUps.length > 0
+                  ? "¿Algo más antes de cerrar?"
+                  : "Ya podés cerrar esta ventana."}
               </p>
             </div>
 
-            <DialogFooter className="flex-col gap-2 sm:flex-row">
-              <Button variant="outline" onClick={() => handleClose()} className="flex-1">
-                No, cerrar
+            {(onScheduleNext || followUps.length > 0) && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {onScheduleNext && (
+                  <Button onClick={handleScheduleNext} className="w-full sm:col-span-2">
+                    <CalendarPlus className="mr-2 h-4 w-4" />
+                    Próximo turno
+                  </Button>
+                )}
+                {followUps.map((a, i) => (
+                  <Button
+                    key={a.key}
+                    variant="outline"
+                    onClick={a.onClick}
+                    className={cn(
+                      "w-full",
+                      followUps.length % 2 === 1 && i === followUps.length - 1 && "sm:col-span-2",
+                    )}
+                  >
+                    <a.Icon className="mr-2 h-4 w-4" />
+                    {a.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+
+            <DialogFooter className="mt-1 sm:justify-center">
+              <Button variant="ghost" onClick={() => handleClose()} className="w-full sm:w-auto">
+                {onDone ? "No, volver al panel" : "No, cerrar"}
               </Button>
-              {prescriptionsEnabled && onCreatePrescription && (
-                <Button variant="outline" onClick={handleCreatePrescription} className="flex-1">
-                  <Pill className="mr-2 h-4 w-4" />
-                  Crear Receta
-                </Button>
-              )}
-              {studyOrdersEnabled && onCreateStudyOrder && (
-                <Button variant="outline" onClick={handleCreateStudyOrder} className="flex-1">
-                  <ClipboardList className="mr-2 h-4 w-4" />
-                  Ordenar estudio
-                </Button>
-              )}
-              {onScheduleNext && (
-                <Button onClick={handleScheduleNext} className="flex-1">
-                  <CalendarPlus className="mr-2 h-4 w-4" />
-                  Proximo turno
-                </Button>
-              )}
-              {onScheduleRecurring && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    onScheduleRecurring(shift.patientId, shift.userId);
-                    onOpenChange(false);
-                  }}
-                  className="flex-1"
-                >
-                  <Repeat className="mr-2 h-4 w-4" />
-                  Turno recurrente
-                </Button>
-              )}
             </DialogFooter>
           </>
         )}
