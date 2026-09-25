@@ -22,7 +22,7 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
     const { id } = await params;
-    const existing = await prisma.walkInArrival.findUnique({ where: { id }, select: { id: true } });
+    const existing = await prisma.walkInArrival.findUnique({ where: { id }, select: { id: true, arrivedAt: true } });
     if (!existing) {
       return NextResponse.json({ success: false, error: "Llegada no encontrada" }, { status: 404 });
     }
@@ -47,6 +47,12 @@ export async function PATCH(
       if (data.leftAt instanceof Date) await closeTicketForWalkIn(tx, id, "LEFT");
       if (typeof body.assignedShiftId === "string" && body.assignedShiftId) {
         await moveTicketToShift(tx, { walkInId: id, shiftId: body.assignedShiftId });
+        // El walk-in ya está en sala: el turno nuevo hereda la llegada (y el número, arriba),
+        // así el paciente sigue en la sala de espera bajo su profesional.
+        await tx.shift.updateMany({
+          where: { id: body.assignedShiftId, arrivedAt: null },
+          data: { arrivedAt: existing.arrivedAt },
+        });
       }
       return row;
     });

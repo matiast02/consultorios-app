@@ -5,6 +5,7 @@ import { updateShiftSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { canAssignTo, canSeeShift, getShiftActor, SHIFT_FORBIDDEN, SHIFT_NOT_FOUND, SHIFT_OWN_ONLY } from "@/lib/shift-access";
 import { closeTicketForShift, TICKET_CLOSE_BY_STATUS } from "@/lib/waiting-room/tickets";
+import { coverageData, resolveShiftCoverage } from "@/lib/shift-coverage";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
           },
         },
         consultationType: true,
+        coverageInsurance: { select: { id: true, name: true, code: true } },
         user: {
           select: {
             id: true,
@@ -173,6 +175,19 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       }
     }
 
+    // Cambió el paciente o el profesional: se recalcula la cobertura.
+    const patientChanged = !!data.patientId && data.patientId !== existing.patientId;
+    const medicChanged = !!data.userId && data.userId !== existing.userId;
+    const coverage =
+      patientChanged || medicChanged
+        ? coverageData(
+            await resolveShiftCoverage(prisma, {
+              userId: data.userId || existing.userId,
+              patientId: data.patientId || existing.patientId,
+            }),
+          )
+        : null;
+
     // If changing time, check for conflicts
     if (data.start || data.end) {
       const newStart = data.start ? new Date(data.start) : existing.start;
@@ -212,6 +227,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         ...(data.end && { end: new Date(data.end) }),
         ...(data.patientId && { patientId: data.patientId }),
         ...(data.userId && { userId: data.userId }),
+        ...(coverage ?? {}),
       },
       include: {
         patient: {
@@ -226,6 +242,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         user: {
           select: { id: true, name: true, firstName: true, lastName: true },
         },
+        coverageInsurance: { select: { id: true, name: true, code: true } },
       },
     });
 

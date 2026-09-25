@@ -281,11 +281,19 @@ export function ShiftQuickDialog({
   const medicColor = shift.user?.specialization?.color ?? "#0d4f4d";
   const age = calcAge(patient?.birthDate ?? null);
   const dni = formatDni(patient?.dni);
-  const osLabel = patient?.os
+  // Cobertura del turno (obra social aceptada o particular); turnos viejos: la obra social del paciente.
+  const patientOsLabel = patient?.os
     ? patient.osNumber
       ? `${patient.os.name} ${patient.osNumber}`
       : patient.os.name
     : null;
+  const osLabel = shift.coverageInsurance
+    ? patient?.osNumber && patient.os?.id === shift.coverageInsurance.id
+      ? `${shift.coverageInsurance.name} ${patient.osNumber}`
+      : shift.coverageInsurance.name
+    : shift.isPrivate
+      ? `Particular${patient?.os ? ` (no acepta ${patient.os.name})` : ""}`
+      : patientOsLabel;
 
   const savedLabel = savedAt ? `✓ guardado ${relativeAgo(savedAt)}` : null;
 

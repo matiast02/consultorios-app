@@ -65,6 +65,17 @@ function osShortFromName(name: string | null | undefined): string | null {
   return up.split(/\s+/)[0].slice(0, 6);
 }
 
+/** Cobertura del turno (obra social aceptada o particular); turnos viejos sin cobertura: la obra social del paciente. */
+function coverageShort(s: {
+  isPrivate: boolean;
+  coverageInsurance: { name: string } | null;
+  patient: { os: { name: string } | null } | null;
+}): string | null {
+  if (s.coverageInsurance) return osShortFromName(s.coverageInsurance.name);
+  if (s.isPrivate) return "PART";
+  return osShortFromName(s.patient?.os?.name);
+}
+
 function pickAutoMode(activeCount: number): AgendaAutoMode {
   if (activeCount <= 2) return "columns-detailed";
   if (activeCount <= 5) return "columns-compact";
@@ -118,6 +129,7 @@ export async function GET() {
             },
           },
           consultationType: { select: { id: true, name: true, color: true } },
+          coverageInsurance: { select: { name: true } },
           user: {
             select: {
               id: true,
@@ -246,7 +258,7 @@ export async function GET() {
             firstName: s.patient?.firstName ?? "",
             lastName: s.patient?.lastName ?? "",
             telephone: s.patient?.telephone ?? null,
-            osShort: osShortFromName(s.patient?.os?.name),
+            osShort: coverageShort(s),
           },
           shift: {
             id: s.id,

@@ -152,7 +152,7 @@ describe("POST /api/walk-ins", () => {
 describe("PATCH / DELETE /api/walk-ins/{id}", () => {
   beforeEach(() => {
     resetAllMocks();
-    prismaMock.walkInArrival.findUnique.mockResolvedValue({ id: "w1" });
+    prismaMock.walkInArrival.findUnique.mockResolvedValue({ id: "w1", arrivedAt: new Date("2026-09-25T12:00:00.000Z") });
     prismaMock.walkInArrival.update.mockResolvedValue({ id: "w1", leftAt: new Date() });
   });
 
@@ -175,9 +175,16 @@ describe("PATCH / DELETE /api/walk-ins/{id}", () => {
     expect(prismaMock.waitingTicket.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "t1" }, data: { shiftId: "s9", medicId: "m1" } }),
     );
+    // y el turno hereda la llegada del walk-in (solo si no la tenía)
+    expect(prismaMock.shift.updateMany).toHaveBeenCalledWith({
+      where: { id: "s9", arrivedAt: null },
+      data: { arrivedAt: new Date("2026-09-25T12:00:00.000Z") },
+    });
   });
 
   it("cambiar solo la nota no toca el número", async () => {
+    await patchWalkIn(req("PATCH", { note: "vuelve mañana" }), params("w1"));
+    expect(prismaMock.shift.updateMany).not.toHaveBeenCalled();
     await patchWalkIn(req("PATCH", { note: "vuelve mañana" }), params("w1"));
     expect(prismaMock.waitingTicket.updateMany).not.toHaveBeenCalled();
     expect(prismaMock.waitingTicket.update).not.toHaveBeenCalled();

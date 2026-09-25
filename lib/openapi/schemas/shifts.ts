@@ -54,6 +54,15 @@ const shiftFields = {
   source: ShiftSourceSchema.describe("STAFF: cargado por el consultorio. ONLINE: reserva web (entra PENDING y recepción confirma)."),
   arrivedAt: IsoDateTime.nullable().describe("El paciente llegó (sala de espera)."),
   consultationStartedAt: IsoDateTime.nullable().describe("El paciente pasó a consulta."),
+  coverageInsuranceId: z
+    .string()
+    .nullable()
+    .describe(
+      "Obra social con la que se atiende (aceptada por el profesional; `lib/shift-coverage.ts`). null si es particular o si el turno es anterior a esta versión.",
+    ),
+  isPrivate: z
+    .boolean()
+    .describe("Se atiende como particular: sin obra social, o ninguna aceptada por el profesional. false también en turnos anteriores a esta versión."),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 };
@@ -104,6 +113,9 @@ export const ShiftSchema = z
     ...shiftFields,
     patient: ShiftPatientRefSchema,
     user: ShiftMedicRefSchema,
+    coverageInsurance: HealthInsuranceSchema.nullable()
+      .optional()
+      .describe("Obra social de la cobertura; null si particular. Ausente en `GET /api/shifts/rescheduled`."),
     consultationType: ShiftConsultationTypeRefSchema.nullable()
       .optional()
       .describe("Solo en `GET /api/shifts` y `POST /api/shifts`; ausente en el PUT, las series recurrentes y los reprogramados."),
@@ -145,6 +157,7 @@ export const ShiftDetailSchema = z
     patient: ShiftDetailPatientSchema,
     consultationType: ConsultationTypeSchema.nullable().describe("Tipo de consulta completo (sin `_count`)."),
     user: ShiftDetailMedicRefSchema,
+    coverageInsurance: HealthInsuranceSchema.nullable().describe("Obra social de la cobertura; null si particular o turno anterior a esta versión."),
   })
   .openapi({ ref: "ShiftDetail" });
 

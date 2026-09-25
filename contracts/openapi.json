@@ -12127,7 +12127,7 @@
       "patch": {
         "operationId": "patchWalkInsById",
         "summary": "Actualizar una llegada (retiró, turno asignado, nota)",
-        "description": "Actualización parcial: solo los campos presentes. Módulo `waiting_room`: `markLeftNow`/`leftAt` cierran el número de sala (`LEFT`); `assignedShiftId` lo traslada al turno con el mismo número (si el turno ya tenía número, el del walk-in se anula).\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
+        "description": "Actualización parcial: solo los campos presentes. Módulo `waiting_room`: `markLeftNow`/`leftAt` cierran el número de sala (`LEFT`); `assignedShiftId` lo traslada al turno con el mismo número (si el turno ya tenía número, el del walk-in se anula). Además `assignedShiftId` marca la llegada en el turno (`arrivedAt` = la del walk-in) si no la tenía: el paciente sigue en sala bajo su profesional.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -17839,6 +17839,17 @@
             "example": "2026-09-24T14:30:00.000Z",
             "description": "El paciente pasó a consulta."
           },
+          "coverageInsuranceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Obra social con la que se atiende (aceptada por el profesional; `lib/shift-coverage.ts`). null si es particular o si el turno es anterior a esta versión."
+          },
+          "isPrivate": {
+            "type": "boolean",
+            "description": "Se atiende como particular: sin obra social, o ninguna aceptada por el profesional. false también en turnos anteriores a esta versión."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -17854,6 +17865,17 @@
           },
           "user": {
             "$ref": "#/components/schemas/ShiftMedicRef"
+          },
+          "coverageInsurance": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HealthInsurance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Obra social de la cobertura; null si particular. Ausente en `GET /api/shifts/rescheduled`."
           },
           "consultationType": {
             "oneOf": [
@@ -17885,6 +17907,8 @@
           "source",
           "arrivedAt",
           "consultationStartedAt",
+          "coverageInsuranceId",
+          "isPrivate",
           "createdAt",
           "updatedAt",
           "patient",
@@ -18234,6 +18258,17 @@
             "example": "2026-09-24T14:30:00.000Z",
             "description": "El paciente pasó a consulta."
           },
+          "coverageInsuranceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Obra social con la que se atiende (aceptada por el profesional; `lib/shift-coverage.ts`). null si es particular o si el turno es anterior a esta versión."
+          },
+          "isPrivate": {
+            "type": "boolean",
+            "description": "Se atiende como particular: sin obra social, o ninguna aceptada por el profesional. false también en turnos anteriores a esta versión."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -18260,6 +18295,17 @@
           },
           "user": {
             "$ref": "#/components/schemas/ShiftDetailMedicRef"
+          },
+          "coverageInsurance": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HealthInsurance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Obra social de la cobertura; null si particular o turno anterior a esta versión."
           }
         },
         "required": [
@@ -18280,11 +18326,14 @@
           "source",
           "arrivedAt",
           "consultationStartedAt",
+          "coverageInsuranceId",
+          "isPrivate",
           "createdAt",
           "updatedAt",
           "patient",
           "consultationType",
-          "user"
+          "user",
+          "coverageInsurance"
         ]
       },
       "ShiftDetailPatient": {
@@ -21353,6 +21402,29 @@
               "null"
             ],
             "description": "Número de sala del día (módulo `waiting_room`); null sin módulo o sin número."
+          },
+          "coverage": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "description": "Obra social con la que se atiende (aceptada por el médico); null si particular o turno anterior a esta versión."
+          },
+          "isPrivate": {
+            "type": "boolean",
+            "description": "Se atiende como particular."
           }
         },
         "required": [
@@ -21368,7 +21440,9 @@
           "arrivedAt",
           "consultationStartedAt",
           "minutesWaiting",
-          "ticketNumber"
+          "ticketNumber",
+          "coverage",
+          "isPrivate"
         ]
       },
       "DashboardShiftPatient": {
@@ -24049,6 +24123,17 @@
             "example": "2026-09-24T14:30:00.000Z",
             "description": "El paciente pasó a consulta."
           },
+          "coverageInsuranceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Obra social con la que se atiende (aceptada por el profesional; `lib/shift-coverage.ts`). null si es particular o si el turno es anterior a esta versión."
+          },
+          "isPrivate": {
+            "type": "boolean",
+            "description": "Se atiende como particular: sin obra social, o ninguna aceptada por el profesional. false también en turnos anteriores a esta versión."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -24058,6 +24143,17 @@
             "type": "string",
             "format": "date-time",
             "example": "2026-09-24T14:30:00.000Z"
+          },
+          "coverageInsurance": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HealthInsurance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Obra social de la cobertura; null si particular. Ausente en `GET /api/shifts/rescheduled`."
           },
           "patient": {
             "$ref": "#/components/schemas/UserExportShiftPatient"
@@ -24120,6 +24216,8 @@
           "source",
           "arrivedAt",
           "consultationStartedAt",
+          "coverageInsuranceId",
+          "isPrivate",
           "createdAt",
           "updatedAt",
           "patient",

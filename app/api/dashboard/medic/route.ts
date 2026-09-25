@@ -98,6 +98,7 @@ export async function GET() {
             },
           },
           consultationType: { select: { id: true, name: true, color: true } },
+          coverageInsurance: { select: { id: true, name: true } },
         },
         orderBy: { start: "asc" },
       }),
@@ -224,6 +225,8 @@ export async function GET() {
             ? Math.max(0, Math.round((now.getTime() - new Date(s.arrivedAt).getTime()) / 60000))
             : null,
         ticketNumber: tickets.byShift.get(s.id)?.number ?? null,
+        coverage: s.coverageInsurance ? { id: s.coverageInsurance.id, name: s.coverageInsurance.name } : null,
+        isPrivate: s.isPrivate,
       };
     };
 

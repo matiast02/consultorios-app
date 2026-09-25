@@ -73,7 +73,8 @@ interface CreateShiftDialogProps {
   defaultDurationMinutes?: number;
   /** When true, hide the medic selector (the caller already locked the medic) */
   lockMedic?: boolean;
-  onCreated: () => void;
+  /** Recibe el turno creado (id) para vincularlo, p. ej., a un walk-in. Sin id en series recurrentes. */
+  onCreated: (shift?: { id: string }) => void;
 }
 
 export function CreateShiftDialog({
@@ -153,6 +154,30 @@ export function CreateShiftDialog({
     }
     loadRecent();
   }, [open]);
+
+  // Paciente preseleccionado (p. ej. walk-in → turno): si no está entre los recientes se carga
+  // aparte, para que el selector muestre nombre, DNI y obra social.
+  useEffect(() => {
+    if (!open || !defaultPatientId) return;
+    if (patients.some((p) => p.id === defaultPatientId)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/patients/${defaultPatientId}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const p: Patient | undefined = json.data;
+        if (p && !cancelled) {
+          setPatients((prev) => (prev.some((x) => x.id === p.id) ? prev : [p, ...prev]));
+        }
+      } catch {
+        /* non-critical */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, defaultPatientId, patients]);
 
   // Async search when typing
   useEffect(() => {
@@ -461,6 +486,12 @@ export function CreateShiftDialog({
     }
   }
 
+  // Cobertura del turno (misma regla que lib/shift-coverage.ts), para verla antes de guardar.
+  const medicConfigured = medicInsuranceIds.length > 0;
+  const coverageAccepted = medicConfigured
+    ? patientInsuranceIds.some((id) => medicInsuranceIds.includes(id))
+    : null;
+
   const hasErrors = availabilityWarnings.some((w) => w.type === "error");
 
   // When search is active, patients are already filtered by API
@@ -510,7 +541,7 @@ export function CreateShiftDialog({
     const isOverbook = (body.isOverbook as boolean) ?? false;
     toast.success(isOverbook ? "Sobreturno creado exitosamente" : "Turno creado exitosamente");
     setConflictInfo(null);
-    onCreated();
+    onCreated(resJson.data?.id ? { id: resJson.data.id } : undefined);
   }
 
   async function onSubmit(data: CreateShiftForm) {
@@ -770,6 +801,15 @@ export function CreateShiftDialog({
               <p className="text-sm text-destructive">
                 {errors.patientId.message}
               </p>
+            )}
+            {selectedPatient && (
+              <CoverageHint
+                patient={selectedPatient}
+                medicSelected={!!medicId}
+                medicConfigured={medicConfigured}
+                accepted={coverageAccepted}
+                primaryAccepted={!!selectedPatient.osId && medicInsuranceIds.includes(selectedPatient.osId)}
+              />
             )}
           </div>
 
@@ -1066,5 +1106,47 @@ export function CreateShiftDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Obra social del paciente y con qué cobertura se va a atender (misma regla que el servidor). */
+function CoverageHint({
+  patient,
+  medicSelected,
+  medicConfigured,
+  accepted,
+  primaryAccepted,
+}: {
+  patient: Patient;
+  medicSelected: boolean;
+  medicConfigured: boolean;
+  accepted: boolean | null;
+  primaryAccepted: boolean;
+}) {
+  const osName = patient.os?.name ?? null;
+  const noInsurance = !osName || osName.trim().toLowerCase() === "particular";
+  let text: string;
+  let tone = "text-muted-foreground";
+  if (noInsurance) {
+    text = "Sin obra social: se atiende como particular";
+  } else if (!medicSelected) {
+    text = `Obra social: ${osName}`;
+  } else if (!medicConfigured || accepted === null) {
+    text = `Obra social: ${osName} (el profesional no tiene lista de obras sociales)`;
+  } else if (accepted && primaryAccepted) {
+    text = `Obra social: ${osName} · aceptada por el profesional`;
+    tone = "text-emerald-700 dark:text-emerald-300";
+  } else if (accepted) {
+    text = `El profesional no acepta ${osName}, pero sí otra obra social del paciente`;
+    tone = "text-emerald-700 dark:text-emerald-300";
+  } else {
+    text = `El profesional no acepta ${osName}: se atiende como particular`;
+    tone = "text-amber-700 dark:text-amber-300";
+  }
+  return (
+    <p className={`text-xs ${tone}`} data-testid="coverage-hint">
+      {patient.dni ? `DNI ${patient.dni} · ` : ""}
+      {text}
+    </p>
   );
 }
