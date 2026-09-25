@@ -32,7 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Shift, ShiftStatus } from "@/types";
+import type { Shift } from "@/types";
 import { calcAge, formatDateShortAR, formatDni, formatTime } from "@/lib/format";
 import { initials, medicShortName } from "@/lib/names";
 import { ShiftStatusBadge } from "@/components/shifts/shift-status-badge";

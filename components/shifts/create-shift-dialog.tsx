@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useCachedFetch } from "@/hooks/use-cached-fetch";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -47,6 +47,8 @@ import { cn } from "@/lib/utils";
 import type { Patient, Medic, UserPreference, BlockDay, ConsultationType, HealthInsurance } from "@/types";
 import { DAY_NAMES } from "@/types";
 import { toLocalDateISO } from "@/lib/format";
+import { usePatientSearch } from "@/hooks/use-patient-search";
+import { PatientCombobox } from "@/components/shifts/patient-combobox";
 
 
 const createShiftSchema = z.object({
@@ -87,10 +89,7 @@ export function CreateShiftDialog({
   lockMedic = false,
   onCreated,
 }: CreateShiftDialogProps) {
-  const [patients, setPatients] = useState<Patient[]>([]);
   const [patientSearch, setPatientSearch] = useState("");
-  const [patientPopoverOpen, setPatientPopoverOpen] = useState(false);
-  const [loadingPatients, setLoadingPatients] = useState(false);
   const [medicSearch, setMedicSearch] = useState("");
   const [medicPopoverOpen, setMedicPopoverOpen] = useState(false);
 
@@ -114,15 +113,16 @@ export function CreateShiftDialog({
 
   const selectedPatientId = watch("patientId");
 
-  // Mantiene en la lista al paciente elegido (o preseleccionado) aunque no esté entre
-  // los recientes ni en el resultado de la búsqueda.
-  const pinnedIdRef = useRef<string | undefined>(defaultPatientId);
-  pinnedIdRef.current = selectedPatientId || defaultPatientId;
-  const withPinned = useCallback((prev: Patient[], list: Patient[]) => {
-    const id = pinnedIdRef.current;
-    const pinned = id ? prev.find((p) => p.id === id) : undefined;
-    return pinned && !list.some((p) => p.id === id) ? [pinned, ...list] : list;
-  }, []);
+  // Pacientes: recientes sin búsqueda, búsqueda con debounce y el elegido o
+  // preseleccionado siempre en la lista (hooks/use-patient-search.ts, compartido
+  // con el registro de llegadas). Antes eran tres effects y dos refs acá.
+  const { patients, loading: loadingPatients } = usePatientSearch({
+    enabled: open,
+    query: patientSearch,
+    recent: true,
+    limit: 15,
+    pinnedId: selectedPatientId || defaultPatientId,
+  });
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -136,79 +136,6 @@ export function CreateShiftDialog({
       });
     }
   }, [open, defaultDate, defaultStartTime, defaultEndTime, defaultPatientId, defaultMedicId, reset]);
-
-  // Fetch patients: initial recent + async search with debounce
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    async function loadRecent() {
-      setLoadingPatients(true);
-      try {
-        const res = await fetch("/api/patients?limit=15");
-        if (res.ok) {
-          const json = await res.json();
-          const list = json.data ?? [];
-          setPatients((prev) => withPinned(prev, Array.isArray(list) ? list : []));
-        }
-      } catch {
-        toast.error("Error al cargar pacientes");
-      } finally {
-        setLoadingPatients(false);
-      }
-    }
-    loadRecent();
-  }, [open, withPinned]);
-
-  // Paciente preseleccionado (p. ej. walk-in → turno): si no está entre los recientes se carga
-  // aparte, para que el selector muestre nombre, DNI y obra social.
-  const patientsRef = useRef<Patient[]>([]);
-  patientsRef.current = patients;
-  useEffect(() => {
-    if (!open || !defaultPatientId) return;
-    if (patientsRef.current.some((p) => p.id === defaultPatientId)) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/patients/${defaultPatientId}`);
-        if (!res.ok) return;
-        const json = await res.json();
-        const p: Patient | undefined = json.data;
-        if (p && !cancelled) {
-          setPatients((prev) => (prev.some((x) => x.id === p.id) ? prev : [p, ...prev]));
-        }
-      } catch {
-        /* non-critical */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, defaultPatientId]);
-
-  // Async search when typing
-  useEffect(() => {
-    if (!open || !patientSearch || patientSearch.length < 2) return;
-
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-
-    searchTimeoutRef.current = setTimeout(async () => {
-      setLoadingPatients(true);
-      try {
-        const res = await fetch(`/api/patients?search=${encodeURIComponent(patientSearch)}&limit=20`);
-        if (res.ok) {
-          const json = await res.json();
-          const list = json.data ?? [];
-          setPatients((prev) => withPinned(prev, Array.isArray(list) ? list : []));
-        }
-      } catch { /* non-critical */ }
-      finally { setLoadingPatients(false); }
-    }, 300); // 300ms debounce
-
-    return () => {
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    };
-  }, [open, patientSearch, withPinned]);
 
   // Profesionales: cacheados entre aperturas (SWR); antes se pedían en cada apertura.
   const { data: medicsData } = useCachedFetch<Medic[]>(open ? "/api/users/medics" : null);
@@ -501,10 +428,6 @@ export function CreateShiftDialog({
 
   const hasErrors = availabilityWarnings.some((w) => w.type === "error");
 
-  // When search is active, patients are already filtered by API
-  // When no search, show all loaded patients (recent 15)
-  const filteredPatients = patients;
-
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
   // Recurring shift state
@@ -738,72 +661,14 @@ export function CreateShiftDialog({
           {/* Patient selector */}
           <div className="space-y-2">
             <Label>Paciente</Label>
-            <Popover
-              open={patientPopoverOpen}
-              onOpenChange={setPatientPopoverOpen}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  className="w-full justify-between"
-                >
-                  {selectedPatient
-                    ? `${selectedPatient.lastName}, ${selectedPatient.firstName}`
-                    : "Seleccionar paciente..."}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-full p-0" align="start">
-                <Command>
-                  <CommandInput
-                    placeholder="Buscar por nombre o DNI..."
-                    value={patientSearch}
-                    onValueChange={setPatientSearch}
-                  />
-                  <CommandList>
-                    <CommandEmpty>
-                      {loadingPatients
-                        ? "Buscando..."
-                        : patientSearch.length < 2
-                        ? "Escribe al menos 2 caracteres para buscar"
-                        : "No se encontraron pacientes."}
-                    </CommandEmpty>
-                    <CommandGroup>
-                      {filteredPatients.map((patient) => (
-                        <CommandItem
-                          key={patient.id}
-                          value={`${patient.lastName} ${patient.firstName} ${patient.dni ?? ""}`}
-                          onSelect={() => {
-                            setValue("patientId", patient.id);
-                            setPatientPopoverOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              selectedPatientId === patient.id
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          <div>
-                            <span className="font-medium">
-                              {patient.lastName}, {patient.firstName}
-                            </span>
-                            {patient.dni && (
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                DNI: {patient.dni}
-                              </span>
-                            )}
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+            <PatientCombobox
+              patients={patients}
+              loading={loadingPatients}
+              query={patientSearch}
+              onQueryChange={setPatientSearch}
+              value={selectedPatientId}
+              onChange={(id) => setValue("patientId", id)}
+            />
             {errors.patientId && (
               <p className="text-sm text-destructive">
                 {errors.patientId.message}
