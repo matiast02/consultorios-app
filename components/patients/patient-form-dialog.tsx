@@ -340,7 +340,8 @@ export function PatientFormDialog({
       const resJson = await res.json();
       const patientId = isEdit ? patient.id : resJson.data?.id;
 
-      if (patientId && additionalInsurances.length > 0) {
+      // En edición se sincroniza siempre: si se quitaron todas las adicionales hay que borrarlas.
+      if (patientId && (isEdit || additionalInsurances.length > 0)) {
         let currentInsurances: { healthInsuranceId: string }[] = [];
         if (isEdit) {
           try {

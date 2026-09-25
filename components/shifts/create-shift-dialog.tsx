@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useCachedFetch } from "@/hooks/use-cached-fetch";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -90,7 +91,6 @@ export function CreateShiftDialog({
   onCreated,
 }: CreateShiftDialogProps) {
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [medics, setMedics] = useState<Medic[]>([]);
   const [patientSearch, setPatientSearch] = useState("");
   const [patientPopoverOpen, setPatientPopoverOpen] = useState(false);
   const [loadingPatients, setLoadingPatients] = useState(false);
@@ -117,14 +117,22 @@ export function CreateShiftDialog({
 
   const selectedPatientId = watch("patientId");
 
+  // Mantiene en la lista al paciente elegido (o preseleccionado) aunque no esté entre
+  // los recientes ni en el resultado de la búsqueda.
+  const pinnedIdRef = useRef<string | undefined>(defaultPatientId);
+  pinnedIdRef.current = selectedPatientId || defaultPatientId;
+  const withPinned = useCallback((prev: Patient[], list: Patient[]) => {
+    const id = pinnedIdRef.current;
+    const pinned = id ? prev.find((p) => p.id === id) : undefined;
+    return pinned && !list.some((p) => p.id === id) ? [pinned, ...list] : list;
+  }, []);
+
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       reset({
         patientId: defaultPatientId ?? "",
-        date: defaultDate
-          ? defaultDate.toISOString().split("T")[0]
-          : new Date().toISOString().split("T")[0],
+        date: toLocalDateISO(defaultDate ?? new Date()),
         startTime: defaultStartTime ?? "09:00",
         endTime: defaultEndTime ?? "09:30",
         medicId: defaultMedicId ?? "",
@@ -144,7 +152,7 @@ export function CreateShiftDialog({
         if (res.ok) {
           const json = await res.json();
           const list = json.data ?? [];
-          setPatients(Array.isArray(list) ? list : []);
+          setPatients((prev) => withPinned(prev, Array.isArray(list) ? list : []));
         }
       } catch {
         toast.error("Error al cargar pacientes");
@@ -153,13 +161,15 @@ export function CreateShiftDialog({
       }
     }
     loadRecent();
-  }, [open]);
+  }, [open, withPinned]);
 
   // Paciente preseleccionado (p. ej. walk-in → turno): si no está entre los recientes se carga
   // aparte, para que el selector muestre nombre, DNI y obra social.
+  const patientsRef = useRef<Patient[]>([]);
+  patientsRef.current = patients;
   useEffect(() => {
     if (!open || !defaultPatientId) return;
-    if (patients.some((p) => p.id === defaultPatientId)) return;
+    if (patientsRef.current.some((p) => p.id === defaultPatientId)) return;
     let cancelled = false;
     (async () => {
       try {
@@ -177,7 +187,7 @@ export function CreateShiftDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, defaultPatientId, patients]);
+  }, [open, defaultPatientId]);
 
   // Async search when typing
   useEffect(() => {
@@ -192,7 +202,7 @@ export function CreateShiftDialog({
         if (res.ok) {
           const json = await res.json();
           const list = json.data ?? [];
-          setPatients(Array.isArray(list) ? list : []);
+          setPatients((prev) => withPinned(prev, Array.isArray(list) ? list : []));
         }
       } catch { /* non-critical */ }
       finally { setLoadingPatients(false); }
@@ -201,25 +211,11 @@ export function CreateShiftDialog({
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     };
-  }, [open, patientSearch]);
+  }, [open, patientSearch, withPinned]);
 
-  // Fetch medics
-  useEffect(() => {
-    if (!open) return;
-    async function loadMedics() {
-      try {
-        const res = await fetch("/api/users/medics");
-        if (res.ok) {
-          const json = await res.json();
-          const list = json.data ?? [];
-          setMedics(Array.isArray(list) ? list : []);
-        }
-      } catch {
-        // Not critical - medic selection is optional
-      }
-    }
-    loadMedics();
-  }, [open]);
+  // Profesionales: cacheados entre aperturas (SWR); antes se pedían en cada apertura.
+  const { data: medicsData } = useCachedFetch<Medic[]>(open ? "/api/users/medics" : null);
+  const medics = useMemo(() => (Array.isArray(medicsData) ? medicsData : []), [medicsData]);
 
   const selectedMedic = medics.find((m) => m.id === watch("medicId")) ?? null;
 
@@ -236,30 +232,27 @@ export function CreateShiftDialog({
   const [consultationTypes, setConsultationTypes] = useState<ConsultationType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
 
+  // Tipos de consulta: cacheados entre aperturas (SWR). Los slots esperan a tenerlos
+  // para no pedirse con duración 30 y otra vez al aplicar el tipo por defecto.
+  const { data: typesData, error: typesError } = useCachedFetch<ConsultationType[]>(
+    open ? "/api/consultation-types" : null,
+  );
+  const typesLoaded = open && (typesData !== undefined || typesError !== undefined);
   useEffect(() => {
-    if (!open) return;
-    async function loadTypes() {
-      try {
-        const res = await fetch("/api/consultation-types");
-        if (res.ok) {
-          const json = await res.json();
-          const list: ConsultationType[] = json.data ?? [];
-          setConsultationTypes(list);
-          // Prefer a type matching the pre-filled duration; else fall back to the default flag
-          if (defaultDurationMinutes) {
-            const match = list.find((t) => t.durationMinutes === defaultDurationMinutes);
-            if (match) {
-              setSelectedTypeId(match.id);
-              return;
-            }
-          }
-          const def = list.find((t) => t.isDefault);
-          if (def) setSelectedTypeId(def.id);
-        }
-      } catch { /* non-critical */ }
+    if (!open || !typesData) return;
+    const list = Array.isArray(typesData) ? typesData : [];
+    setConsultationTypes(list);
+    // Prefer a type matching the pre-filled duration; else fall back to the default flag
+    if (defaultDurationMinutes) {
+      const match = list.find((t) => t.durationMinutes === defaultDurationMinutes);
+      if (match) {
+        setSelectedTypeId(match.id);
+        return;
+      }
     }
-    loadTypes();
-  }, [open, defaultDurationMinutes]);
+    const def = list.find((t) => t.isDefault);
+    if (def) setSelectedTypeId(def.id);
+  }, [open, typesData, defaultDurationMinutes]);
 
   // Auto-calculate endTime when consultation type or startTime changes
   useEffect(() => {
@@ -285,10 +278,15 @@ export function CreateShiftDialog({
   const [slotsMessage, setSlotsMessage] = useState<string>("");
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Fetch slots when medic + date + duration change
+  const watchedDate = watch("date");
+  const watchedMedicId = watch("medicId");
+
+  // Fetch slots when medic + date + duration change. Espera los tipos de consulta
+  // (si no se pedía con duración 30 y otra vez al cargar el tipo) y cancela el
+  // pedido anterior si se cambia rápido la fecha.
   useEffect(() => {
-    const medicId = watch("medicId") || defaultMedicId;
-    const date = watch("date");
+    const medicId = watchedMedicId || defaultMedicId;
+    const date = watchedDate;
     const ct = consultationTypes.find((t) => t.id === selectedTypeId);
     const duration = ct?.durationMinutes ?? 30;
 
@@ -297,21 +295,26 @@ export function CreateShiftDialog({
       setSlotsMessage("");
       return;
     }
+    if (!typesLoaded) return;
 
+    const ac = new AbortController();
     async function fetchSlots() {
       setLoadingSlots(true);
       try {
-        const res = await fetch(`/api/users/${medicId}/available-slots?date=${date}&duration=${duration}`);
+        const res = await fetch(`/api/users/${medicId}/available-slots?date=${date}&duration=${duration}`, {
+          signal: ac.signal,
+        });
         if (res.ok) {
           const json = await res.json();
           setAvailableSlots(json.data?.slots ?? []);
           setSlotsMessage(json.data?.message ?? "");
         }
-      } catch { /* non-critical */ }
-      finally { setLoadingSlots(false); }
+      } catch { /* cancelado o no crítico */ }
+      finally { if (!ac.signal.aborted) setLoadingSlots(false); }
     }
     fetchSlots();
-  }, [open, watch("medicId"), defaultMedicId, watch("date"), selectedTypeId, consultationTypes]);
+    return () => ac.abort();
+  }, [open, watchedMedicId, defaultMedicId, watchedDate, selectedTypeId, consultationTypes, typesLoaded]);
 
   function selectSlot(slot: TimeSlot) {
     if (!slot.available) return;
@@ -325,10 +328,8 @@ export function CreateShiftDialog({
   const [medicPreferences, setMedicPreferences] = useState<UserPreference[]>([]);
   const [medicBlockDays, setMedicBlockDays] = useState<BlockDay[]>([]);
 
-  const watchedDate = watch("date");
   const watchedStartTime = watch("startTime");
   const watchedEndTime = watch("endTime");
-  const watchedMedicId = watch("medicId");
 
   // Fetch availability when medic or date changes
   useEffect(() => {
@@ -378,16 +379,19 @@ export function CreateShiftDialog({
     loadMedicInsurances();
   }, [open, watchedMedicId, defaultMedicId]);
 
-  // Fetch patient's insurances (legacy osId + additional)
+  // Fetch patient's insurances (legacy osId + additional). Depende del paciente
+  // elegido y de su obra social principal, no de la lista de resultados: antes se
+  // volvía a pedir con cada búsqueda y sin cancelar.
+  const selectedPatientOsId = patients.find((p) => p.id === selectedPatientId)?.osId ?? null;
   useEffect(() => {
     if (!open || !selectedPatientId) {
       setPatientInsuranceIds([]);
       return;
     }
-    const pat = patients.find((p) => p.id === selectedPatientId);
     const ids: string[] = [];
-    if (pat?.osId) ids.push(pat.osId);
+    if (selectedPatientOsId) ids.push(selectedPatientOsId);
 
+    let cancelled = false;
     async function loadPatientInsurances() {
       try {
         const res = await fetch(`/api/patients/${selectedPatientId}/insurances`);
@@ -401,10 +405,13 @@ export function CreateShiftDialog({
           }
         }
       } catch { /* non-critical */ }
-      setPatientInsuranceIds([...ids]);
+      if (!cancelled) setPatientInsuranceIds([...ids]);
     }
     loadPatientInsurances();
-  }, [open, selectedPatientId, patients]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedPatientId, selectedPatientOsId]);
 
   // Compute validation warnings
   const availabilityWarnings: { type: "error" | "warning"; message: string }[] = [];

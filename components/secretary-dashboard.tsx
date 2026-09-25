@@ -85,12 +85,19 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     createPatientOpen ||
     !!callTarget ||
     !!detailShiftId;
+  // Con la pestaña oculta no se pide nada (son ~8 consultas por vuelta); al volver
+  // a verla se refresca en el acto.
   useEffect(() => {
     if (anyDialogOpen) return;
-    const id = setInterval(() => {
-      fetchDashboard();
-    }, 30_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (document.visibilityState === "visible") fetchDashboard();
+    };
+    const id = setInterval(tick, 30_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, [fetchDashboard, anyDialogOpen]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────

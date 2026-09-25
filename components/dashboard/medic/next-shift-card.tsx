@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ArrowRight, Megaphone, Phone, Play, User } from "lucide-react";
 import type { DashboardShift } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
@@ -36,6 +37,13 @@ export function NextShiftCard({
   onViewPatient,
   waitingRoomEnabled = false,
 }: NextShiftCardProps) {
+  // El «en N min» avanza solo cada minuto, sin re-renderizar el dashboard entero.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   if (!shift || !shift.patient) {
     return (
       <div className="rounded-2xl border border-dashed bg-card p-6 shadow-sm">

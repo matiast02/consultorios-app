@@ -136,14 +136,23 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  // Auto-refresh next shift countdown every minute
+  // Refresco real cada 60 s (llegadas y llamados que registra recepción), pausado con
+  // la pestaña oculta o con un diálogo abierto. Antes solo se forzaba un re-render de
+  // todas las cards para mover el contador, que ahora avanza solo en NextShiftCard.
+  const anyDialogOpen =
+    !!attendShift || createShiftOpen || createPatientOpen || !!callTarget || !!detailShiftId;
   useEffect(() => {
-    const id = setInterval(() => {
-      // Force a re-render by reseting state to itself
-      setData((prev) => (prev ? { ...prev } : prev));
-    }, 60_000);
-    return () => clearInterval(id);
-  }, []);
+    if (anyDialogOpen) return;
+    const tick = () => {
+      if (document.visibilityState === "visible") fetchDashboard();
+    };
+    const id = setInterval(tick, 60_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [fetchDashboard, anyDialogOpen]);
 
   // ─── Action handlers ───
   const openNewShift = () => setCreateShiftOpen(true);
@@ -257,7 +266,8 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     }
   };
 
-  if (checkingSchedule || loading) {
+  // Spinner de página solo en la primera carga; los refrescos no tapan el panel.
+  if (checkingSchedule || (loading && !data)) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -367,7 +377,7 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
             }
           }}
           shift={attendShift}
-          onSaved={() => fetchDashboard()}
+          onSaved={() => {}} // onOpenChange ya refresca al cerrar; antes se pedía dos veces
           onScheduleNext={() => {
             setAttendShift(null);
           }}
