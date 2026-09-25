@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { isModuleEnabled } from "@/lib/modules";
+import { WAITING_ROOM_MODULE, emptyOpenTickets, openTicketsByTarget } from "@/lib/waiting-room/tickets";
 import { staffSummary } from "@/lib/online-booking";
 import {
   REMINDER_ITEM_INCLUDE,
@@ -18,6 +20,7 @@ import type {
   SecretaryAgendaData,
   SecretaryDashboardData,
   SecretaryRemindersData,
+  CalledItem,
   WaitingRoomItem,
 } from "@/types";
 
@@ -181,6 +184,10 @@ export async function GET() {
       }),
     ]);
 
+    // ─── Números de sala (módulo waiting_room) ──────────────────────────────
+    const waitingRoomEnabled = await isModuleEnabled(WAITING_ROOM_MODULE);
+    const tickets = waitingRoomEnabled ? await openTicketsByTarget() : emptyOpenTickets();
+
     // ─── Active professionals for today ────────────────────────────────────
     const todayActive = activeMedics.filter(
       (m) => m.shifts.length > 0 || m.preferences.length > 0,
@@ -192,10 +199,29 @@ export async function GET() {
     let esperandoMas15 = 0;
 
     const scheduledWaitingItems: WaitingRoomItem[] = [];
+    const llamados: CalledItem[] = [];
     for (const s of todayShifts) {
       if (s.consultationStartedAt && !["FINISHED", "ABSENT", "CANCELLED"].includes(s.status)) {
-        // Pacient still in consultation
+        // Paciente en consulta (ya llamado): pestaña «En consulta» de recepción.
         enConsulta++;
+        const ticket = tickets.byShift.get(s.id);
+        const lastCall = ticket?.lastCalledAt ?? new Date(s.consultationStartedAt);
+        llamados.push({
+          shiftId: s.id,
+          patient: {
+            id: s.patient?.id ?? null,
+            firstName: s.patient?.firstName ?? "",
+            lastName: s.patient?.lastName ?? "",
+          },
+          medicId: s.userId,
+          medicShortName: shortMedicName(s.user),
+          medicColor: s.user.specialization?.color ?? null,
+          room: ticket?.room ?? s.user.defaultRoom ?? null,
+          calledAt: lastCall.toISOString(),
+          minutesSinceCall: diffMinutes(now, lastCall),
+          ticketNumber: ticket?.number ?? null,
+          callCount: ticket?.callCount ?? 0,
+        });
         continue;
       }
       if (
@@ -213,6 +239,7 @@ export async function GET() {
           arrivedAt: new Date(s.arrivedAt).toISOString(),
           minutesWaiting: min,
           isNext: false,
+          ticketNumber: tickets.byShift.get(s.id)?.number ?? null,
           note: s.observations ?? null,
           patient: {
             id: s.patient?.id ?? null,
@@ -232,6 +259,7 @@ export async function GET() {
             medicShortName: shortMedicName(s.user),
             medicColor: s.user.specialization?.color ?? null,
             consultationTypeName: s.consultationType?.name ?? null,
+            room: s.user.defaultRoom ?? null,
           },
         });
       }
@@ -248,6 +276,7 @@ export async function GET() {
         arrivedAt: new Date(w.arrivedAt).toISOString(),
         minutesWaiting: min,
         isNext: false,
+        ticketNumber: tickets.byWalkIn.get(w.id)?.number ?? null,
         note: w.note ?? null,
         patient: {
           id: w.patientId,
@@ -291,6 +320,7 @@ export async function GET() {
         room: sourceShift.user.defaultRoom ?? null,
         shiftStart: new Date(sourceShift.start).toISOString(),
         minutesWaiting: nextToCallShift.minutesWaiting,
+        ticketNumber: tickets.byShift.get(nextToCallShift.id)?.number ?? null,
       };
     }
 
@@ -467,6 +497,8 @@ export async function GET() {
       recordatorios,
       huecosHoy,
       agenda,
+      llamados: llamados.sort((a, b) => b.calledAt.localeCompare(a.calledAt)),
+      waitingRoom: { enabled: waitingRoomEnabled },
       ...(reservasOnline ? { reservasOnline } : {}),
     };
 

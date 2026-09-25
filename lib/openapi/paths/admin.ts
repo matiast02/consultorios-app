@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 import { clinicHoursWeekSchema, clinicSettingsSchema } from "@/lib/validations";
-import { defineRoutes, errors, IdParam, ok, TAGS } from "../registry";
+import { defineRoutes, errors, IdParam, ok, okEmpty, TAGS } from "../registry";
 import {
   ClinicHoursDaySchema,
   ClinicSettingsSchema,
@@ -14,6 +14,7 @@ import {
   RegisterResponseSchema,
   UserModuleAccessSchema,
 } from "../schemas/admin";
+import { WaitingRoomDisplayKeyCreatedSchema, WaitingRoomDisplayKeyStatusSchema } from "../schemas/waiting-room";
 
 const ModuleParam = z.object({ module: z.string().describe('Clave del módulo (p. ej. "prescriptions").') });
 
@@ -244,6 +245,45 @@ export const adminRoutes = defineRoutes([
     responses: {
       200: { description: "Acceso resultante.", schema: ok(UserModuleAccessSchema) },
       ...errors({ 400: "Faltan `userId` (string) o `enabled` (boolean)." }, 401, 403, { 404: "`userId` inexistente o dado de baja." }),
+    },
+  },
+
+  // ─── Pantalla de la sala de espera: clave de dispositivo ──────────────────
+  {
+    method: "get",
+    path: "/api/admin/waiting-room-display-key",
+    summary: "Estado de la clave de la pantalla de la sala",
+    description: "Solo admin. Dice si hay clave configurada y desde cuándo; nunca devuelve la clave.",
+    tags: [TAGS.admin],
+    auth: { kind: "session", roles: ["admin"] },
+    responses: {
+      200: { description: "Estado.", schema: ok(WaitingRoomDisplayKeyStatusSchema) },
+      ...errors(401, 403),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/admin/waiting-room-display-key",
+    summary: "Generar o rotar la clave de la pantalla",
+    description:
+      "Solo admin. Genera una clave nueva (la anterior deja de valer) y la devuelve UNA sola vez junto con el link `/sala?k=…`; en la base queda el hash. Audita `UPDATE` sobre `clinic_settings` (`created` / `rotated`). Sin body.",
+    tags: [TAGS.admin],
+    auth: { kind: "session", roles: ["admin"] },
+    responses: {
+      200: { description: "Clave nueva.", schema: ok(WaitingRoomDisplayKeyCreatedSchema) },
+      ...errors(401, 403),
+    },
+  },
+  {
+    method: "delete",
+    path: "/api/admin/waiting-room-display-key",
+    summary: "Revocar la clave de la pantalla",
+    description: "Solo admin. Borra el hash: la pantalla recibe 404 hasta que se genere otra. Audita `UPDATE` (`revoked`).",
+    tags: [TAGS.admin],
+    auth: { kind: "session", roles: ["admin"] },
+    responses: {
+      200: { description: "Revocada.", schema: okEmpty },
+      ...errors(401, 403),
     },
   },
 ]);

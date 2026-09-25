@@ -17,6 +17,7 @@ export const dashboardsRoutes = defineRoutes([
       "- `week`: turnos por día de la semana actual (lunes a domingo).",
       "- `pendientes`: evoluciones sin cerrar (7 días), recetas para renovar, órdenes de estudio pendientes y solicitudes de acceso a la HC que puede decidir.",
       "- `recentPatients`: últimos 5 pacientes atendidos.",
+      "- `waitingRoom`: si el módulo de sala de espera está activo y el consultorio habitual del médico; cada turno de hoy trae `arrivedAt`, `consultationStartedAt`, `minutesWaiting` y `ticketNumber`.",
       "Sin contenido clínico (los `summary` solo llevan nombres, fechas y conteos).",
     ].join("\n"),
     tags: [TAGS.dashboard],
@@ -33,7 +34,8 @@ export const dashboardsRoutes = defineRoutes([
     summary: "Dashboard de recepción",
     description: [
       "Recepción (secretaria) o admin; los médicos reciben 403. Vista de todo el consultorio para hoy:",
-      "- `salaDeEspera` y `proximoALlamar`: pacientes con llegada registrada y espontáneos, con minutos de espera.",
+      "- `salaDeEspera` y `proximoALlamar`: pacientes con llegada registrada y espontáneos, con minutos de espera y, con el módulo `waiting_room`, su número de sala.",
+      "- `llamados`: pacientes en consulta (ya llamados) con consultorio, último llamado y cantidad de llamados; `waitingRoom.enabled` dice si el módulo está activo.",
       "- `recordatorios`: los recordatorios de los turnos de **mañana** (con `waLink` para los WhatsApp manuales).",
       "- `huecosHoy`: huecos libres restantes por médico según su horario de atención.",
       "- `agenda`: turnos de hoy por profesional activo y un `autoMode` de layout sugerido.",

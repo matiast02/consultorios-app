@@ -24,6 +24,7 @@ import {
   PublicShiftConfirmationSchema,
   PublicShiftConflictSchema,
 } from "../schemas/public";
+import { WaitingRoomFeedSchema } from "../schemas/waiting-room";
 
 const TokenParam = z.object({
   token: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/).describe("Token del link (base64url). Solo su hash vive en la base."),
@@ -232,6 +233,23 @@ export const publicRoutes = defineRoutes([
         schema: PublicShiftConflictSchema,
       },
       ...errors(429, 500),
+    },
+  },
+
+  // ─── Pantalla de la sala de espera (módulo waiting_room) ──────────────────
+  {
+    method: "get",
+    path: "/api/public/waiting-room/feed",
+    summary: "Feed de la pantalla de la sala de espera",
+    description:
+      "Para el televisor de la sala (`/sala`). Se autentica con la clave de dispositivo en el header `X-Display-Key` (la genera el admin en Configuración → Consultorio). Devuelve solo números, consultorios y horas: nunca nombres. Excluye a los profesionales con el módulo deshabilitado por usuario. Módulo apagado, clave ausente o clave incorrecta → el mismo 404. " +
+      rateLimit(90, "minuto") +
+      " `Cache-Control: no-store`.",
+    tags: [TAGS.public],
+    auth: { kind: "secret", header: "X-Display-Key" },
+    responses: {
+      200: { description: "Estado actual de la pantalla.", schema: ok(WaitingRoomFeedSchema) },
+      ...errors({ 404: "Módulo apagado o clave inválida (respuesta uniforme)." }, 429, 500),
     },
   },
 ]);

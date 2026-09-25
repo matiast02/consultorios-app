@@ -359,6 +359,7 @@ model Shift {
   reminders        ShiftReminder[]
   walkInArrivals   WalkInArrival[]
   onlineBooking    OnlineBookingRequest?
+  waitingTicket    WaitingTicket? // número de sala (módulo waiting_room)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -942,6 +943,7 @@ model WalkInArrival {
 
   patient       Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
   assignedShift Shift?   @relation(fields: [assignedShiftId], references: [id], onDelete: SetNull)
+  waitingTicket WaitingTicket? // número de sala (módulo waiting_room)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -949,6 +951,33 @@ model WalkInArrival {
   @@index([patientId])
   @@index([assignedShiftId])
   @@index([arrivedAt])
+}
+
+// ─── Sala de espera: número de sala (módulo waiting_room) ────────────────────
+// Ticket diario que recepción entrega al registrar la llegada (turno o walk-in).
+// La pantalla pública lee SOLO esta tabla (números y consultorios, nunca
+// nombres). Ver docs/SALA-DE-ESPERA.md.
+
+model WaitingTicket {
+  id           String    @id @default(cuid())
+  date         String // YYYY-MM-DD en el día del consultorio (lib/clinic-time.ts)
+  number       Int // correlativo diario desde 1; identifica, no promete orden
+  shiftId      String?   @unique
+  walkInId     String?   @unique
+  medicId      String? // profesional que atiende; null en walk-ins sin turno
+  room         String? // consultorio al que se lo llamó
+  issuedAt     DateTime  @default(now())
+  calledAt     DateTime? // primer llamado
+  lastCalledAt DateTime? // último (re)llamado
+  callCount    Int       @default(0)
+  closedAt     DateTime?
+  closedReason String? // ATTENDED | ABSENT | LEFT | VOID
+
+  shift  Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  walkIn WalkInArrival? @relation(fields: [walkInId], references: [id], onDelete: SetNull)
+
+  @@unique([date, number])
+  @@index([date, calledAt])
 }
 
 // ─── Clinic public site (singleton + weekly hours + contact inbox) ──────────
@@ -986,6 +1015,10 @@ model ClinicSettings {
   onlineBookingMinAdvanceHours Int     @default(2) // anticipación mínima
   onlineBookingMaxDaysAhead    Int     @default(30) // hasta cuántos días adelante
   onlineBookingNotes           String? @db.Text // aviso que ve el paciente (p.ej. "Traé tu credencial")
+
+  // Sala de espera (módulo waiting_room): clave de la pantalla pública /sala (solo el hash)
+  waitingRoomDisplayKeyHash      String?
+  waitingRoomDisplayKeyCreatedAt DateTime?
 
   updatedAt              DateTime @updatedAt
 }

@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, Check, User as UserIcon, Pencil, Search, X } from "lucide-react";
+import { CalendarDays, Check, Megaphone, User as UserIcon, Pencil, RotateCcw, Search, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OsBadge } from "./os-badge";
 import type { DashboardShift, ShiftStatus } from "@/types";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
 
 interface TodayShiftsCardProps {
   shifts: DashboardShift[];
@@ -14,6 +15,10 @@ interface TodayShiftsCardProps {
   onEditObs: (shift: DashboardShift) => void;
   /** Click on a shift row (anywhere outside the quick-action buttons). */
   onSelectShift?: (shift: DashboardShift) => void;
+  /** Módulo waiting_room activo: «Llamar» para los pacientes en sala y «Volver a llamar» en consulta. */
+  waitingRoomEnabled?: boolean;
+  onCall?: (shift: DashboardShift) => void;
+  onRecall?: (shift: DashboardShift) => void;
 }
 
 type TabKey = "todos" | "porAtender" | "atendidos" | "ausentes";
@@ -62,6 +67,42 @@ function shiftMatches(s: DashboardShift, q: string): boolean {
   return haystack.includes(q);
 }
 
+const ACTIVE_STATUSES: ShiftStatus[] = ["PENDING", "CONFIRMED"];
+
+/** Llegó y todavía no pasó a consulta. */
+function inWaitingRoom(s: DashboardShift): boolean {
+  return !!s.arrivedAt && !s.consultationStartedAt && ACTIVE_STATUSES.includes(s.status);
+}
+
+/** Ya fue llamado / pasó a consulta y el turno sigue abierto. */
+function inConsultation(s: DashboardShift): boolean {
+  return !!s.consultationStartedAt && ACTIVE_STATUSES.includes(s.status);
+}
+
+/** Estado de sala de espera del turno (recepción registra llegadas; el número es del módulo waiting_room). */
+function WaitingBadge({ shift: s }: { shift: DashboardShift }) {
+  if (inWaitingRoom(s)) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+        En sala
+        {s.ticketNumber != null && <> · N.º {formatTicketNumber(s.ticketNumber)}</>}
+        {s.minutesWaiting != null && <> · {s.minutesWaiting} min</>}
+      </span>
+    );
+  }
+  if (inConsultation(s)) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+        En consulta
+        {s.ticketNumber != null && <> · N.º {formatTicketNumber(s.ticketNumber)}</>}
+        {s.consultationStartedAt && <> · {formatTime(s.consultationStartedAt)}</>}
+      </span>
+    );
+  }
+  return null;
+}
+
 function StatusBadge({ status }: { status: ShiftStatus }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-[12.5px] font-medium ${STATUS_TEXT[status]} dark:text-foreground/80`}>
@@ -78,6 +119,9 @@ export function TodayShiftsCard({
   onViewPatient,
   onEditObs,
   onSelectShift,
+  waitingRoomEnabled = false,
+  onCall,
+  onRecall,
 }: TodayShiftsCardProps) {
   // Arranca en "Por atender" (lo que importa durante la jornada); si ya no
   // queda nada por atender, en "Todos" para no mostrar una lista vacía.
@@ -278,6 +322,7 @@ export function TodayShiftsCard({
                           Próximo
                         </span>
                       )}
+                      <WaitingBadge shift={s} />
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] text-muted-foreground">
                       <span>{s.consultationType?.name ?? "Consulta"}</span>
@@ -302,6 +347,27 @@ export function TodayShiftsCard({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <StatusBadge status={s.status} />
+                    {waitingRoomEnabled && onCall && inWaitingRoom(s) && (
+                      <button
+                        type="button"
+                        onClick={() => onCall(s)}
+                        className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-[#0d4f4d] px-2.5 py-1 text-[12px] font-semibold text-white transition hover:bg-[#0a3f3d]"
+                      >
+                        <Megaphone className="h-3 w-3" />
+                        Llamar
+                      </button>
+                    )}
+                    {waitingRoomEnabled && onRecall && inConsultation(s) && s.ticketNumber != null && (
+                      <button
+                        type="button"
+                        title="Volver a llamar"
+                        aria-label="Volver a llamar"
+                        onClick={() => onRecall(s)}
+                        className="ml-1 grid h-7 w-7 place-items-center rounded-md border bg-card text-foreground/70 transition hover:bg-muted hover:text-foreground"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {isNext && (
                       <div className="flex items-center gap-0.5 ml-1">
                         <button

@@ -42,6 +42,18 @@ export const DashboardShiftSchema = z
     durationMinutes: z.number().int(),
     patient: DashboardShiftPatientSchema.nullable(),
     consultationType: z.object({ id: z.string(), name: z.string(), color: z.string().nullable() }).nullable(),
+    arrivedAt: IsoDateTime.nullable().describe("Llegada registrada por recepción (sala de espera)."),
+    consultationStartedAt: IsoDateTime.nullable().describe("Pase a consulta / llamado."),
+    minutesWaiting: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Minutos en sala (llegó y todavía no pasó a consulta); null en otro caso."),
+    ticketNumber: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Número de sala del día (módulo `waiting_room`); null sin módulo o sin número."),
   })
   .openapi({ ref: "DashboardShift" });
 
@@ -113,12 +125,20 @@ export const DashboardRecentPatientSchema = z
   })
   .openapi({ ref: "DashboardRecentPatient" });
 
+export const MedicWaitingRoomSchema = z
+  .object({
+    enabled: z.boolean().describe("Módulo «Sala de espera y llamado» (`waiting_room`) activo: el médico puede llamar desde sus turnos de hoy."),
+    room: z.string().nullable().describe("Consultorio habitual del médico (`defaultRoom`), para prellenar el llamado."),
+  })
+  .openapi({ ref: "MedicWaitingRoom" });
+
 export const MedicDashboardSchema = z
   .object({
     today: DashboardTodaySchema,
     week: DashboardWeekSchema,
     pendientes: DashboardPendientesSchema,
     recentPatients: z.array(DashboardRecentPatientSchema).max(5).describe("Últimos 5 pacientes atendidos (turnos FINISHED pasados), sin repetir."),
+    waitingRoom: MedicWaitingRoomSchema,
   })
   .openapi({ ref: "MedicDashboard" });
 
@@ -164,6 +184,7 @@ export const WaitingRoomItemShiftSchema = z
     medicShortName: z.string(),
     medicColor: specialtyColor,
     consultationTypeName: z.string().nullable(),
+    room: z.string().nullable().describe("Consultorio habitual del profesional (prellena el llamado)."),
   })
   .openapi({ ref: "WaitingRoomItemShift" });
 
@@ -174,6 +195,11 @@ export const WaitingRoomItemSchema = z
     arrivedAt: IsoDateTime,
     minutesWaiting: z.number().int(),
     isNext: z.boolean().describe("Es el próximo a llamar (turno con llegada registrada de hora más temprana)."),
+    ticketNumber: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Número de sala del día (módulo `waiting_room`); null con el módulo apagado."),
     note: z.string().nullable().describe("Observación administrativa del turno o nota de la llegada espontánea."),
     patient: WaitingRoomItemPatientSchema,
     shift: WaitingRoomItemShiftSchema.nullable().describe("null en espontáneos."),
@@ -190,8 +216,38 @@ export const NextToCallSchema = z
     room: z.string().nullable().describe("Consultorio por defecto del profesional."),
     shiftStart: IsoDateTime.nullable(),
     minutesWaiting: z.number().int(),
+    ticketNumber: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Número de sala del día (módulo `waiting_room`); null con el módulo apagado."),
   })
   .openapi({ ref: "NextToCall" });
+
+export const CalledItemSchema = z
+  .object({
+    shiftId: z.string(),
+    patient: z.object({ id: z.string().nullable(), firstName: z.string(), lastName: z.string() }),
+    medicId: z.string(),
+    medicShortName: z.string(),
+    medicColor: specialtyColor,
+    room: z.string().nullable().describe("Consultorio del llamado (ticket) o el habitual del profesional."),
+    calledAt: IsoDateTime.describe("Último llamado (`lastCalledAt` del ticket, o `consultationStartedAt` sin número)."),
+    minutesSinceCall: z.number().int(),
+    ticketNumber: z.number().int().nullable(),
+    callCount: z.number().int().describe("Cantidad de llamados; 0 si no tiene número."),
+  })
+  .openapi({ ref: "CalledItem" });
+
+export const SecretaryWaitingRoomSchema = z
+  .object({
+    enabled: z
+      .boolean()
+      .describe(
+        "Módulo «Sala de espera y llamado» (`waiting_room`) activo: las llegadas emiten número de sala y los ítems traen `ticketNumber`.",
+      ),
+  })
+  .openapi({ ref: "SecretaryWaitingRoom" });
 
 export const SecretaryRemindersSchema = z
   .object({
@@ -268,6 +324,8 @@ export const SecretaryDashboardSchema = z
     recordatorios: SecretaryRemindersSchema,
     huecosHoy: z.array(MedicSlotsGroupSchema).describe("Solo médicos con al menos un hueco; ordenados por su primer hueco. Excluye médicos con día bloqueado."),
     agenda: SecretaryAgendaSchema,
+    llamados: z.array(CalledItemSchema).describe("Pacientes en consulta (ya llamados) hoy, el último llamado primero."),
+    waitingRoom: SecretaryWaitingRoomSchema,
     reservasOnline: SecretaryOnlineBookingsSchema.optional().describe("Ausente si el resumen de reservas online falló (el resto del dashboard se sirve igual)."),
   })
   .openapi({ ref: "SecretaryDashboard" });

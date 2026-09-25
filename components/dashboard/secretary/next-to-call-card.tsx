@@ -2,6 +2,7 @@
 
 import { Phone, PhoneCall } from "lucide-react";
 import type { NextToCallData } from "@/types";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
 
 interface NextToCallCardProps {
   data: NextToCallData | null;
@@ -60,17 +61,29 @@ export function NextToCallCard({ data, onCall }: NextToCallCardProps) {
           </span>
         </div>
 
-        <div className="mt-2.5">
-          <h2 className="text-xl font-bold text-white">{fullName}</h2>
-          <p className="mt-1 text-[13px] leading-snug text-emerald-100/85">
-            {data.medicShortName}
-            {data.room ? <> · {data.room}</> : null}
-            {data.shiftStart ? <> · turno {formatTimeAmPm(data.shiftStart)}</> : null}
-            {" · "}
-            <span className="text-emerald-100/95">
-              esperando hace {data.minutesWaiting} min
-            </span>
-          </p>
+        <div className="mt-2.5 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white">{fullName}</h2>
+            <p className="mt-1 text-[13px] leading-snug text-emerald-100/85">
+              {data.medicShortName}
+              {data.room ? <> · {data.room}</> : null}
+              {data.shiftStart ? <> · turno {formatTimeAmPm(data.shiftStart)}</> : null}
+              {" · "}
+              <span className="text-emerald-100/95">
+                esperando hace {data.minutesWaiting} min
+              </span>
+            </p>
+          </div>
+          {data.ticketNumber != null && (
+            <div className="shrink-0 text-right" title="Número de sala">
+              <div className="text-[9.5px] font-semibold uppercase tracking-[0.16em] text-emerald-100/70">
+                N.º de sala
+              </div>
+              <div className="font-mono text-4xl font-black leading-none tabular-nums text-white">
+                {formatTicketNumber(data.ticketNumber)}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">

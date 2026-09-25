@@ -193,6 +193,12 @@ export async function seedBase(prisma: PrismaClient) {
     update: {},
     create: { module: "study_orders", name: "Ordenes de Estudio", enabled: true },
   });
+  // Sala de espera y llamado: apagado por defecto (docs/SALA-DE-ESPERA.md)
+  await prisma.moduleConfig.upsert({
+    where: { module: "waiting_room" },
+    update: {},
+    create: { module: "waiting_room", name: "Sala de espera y llamado", enabled: false },
+  });
   console.log("✅ Module config created");
 
   // ─── Medications (Vademécum) ──────────────────────────────────────────────
