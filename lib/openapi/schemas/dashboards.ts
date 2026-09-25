@@ -54,6 +54,11 @@ export const DashboardShiftSchema = z
       .int()
       .nullable()
       .describe("Número de sala del día (módulo `waiting_room`); null sin módulo o sin número."),
+    coverage: z
+      .object({ id: z.string(), name: z.string() })
+      .nullable()
+      .describe("Obra social con la que se atiende (aceptada por el médico); null si particular o turno anterior a esta versión."),
+    isPrivate: z.boolean().describe("Se atiende como particular."),
   })
   .openapi({ ref: "DashboardShift" });
 

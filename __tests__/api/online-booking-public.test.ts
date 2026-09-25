@@ -343,6 +343,9 @@ describe("POST /api/public/booking", () => {
       source: "ONLINE",
       observations: ONLINE_SHIFT_OBSERVATIONS,
       consultationTypeId: null,
+      // Cobertura (lib/shift-coverage.ts): paciente nuevo sin obra social → particular.
+      coverageInsuranceId: null,
+      isPrivate: true,
     });
     const reqData = prismaMock.onlineBookingRequest.create.mock.calls[0][0].data;
     expect(reqData).toMatchObject({

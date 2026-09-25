@@ -43,6 +43,8 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const [createPatientOpen, setCreatePatientOpen] = useState(false);
   // Llamado a consultorio (módulo waiting_room): a quién y adónde.
   const [callTarget, setCallTarget] = useState<CallToRoomTarget | null>(null);
+  // Walk-in al que se le está asignando un turno: se vincula al crearlo (hereda llegada y número).
+  const [pendingWalkIn, setPendingWalkIn] = useState<{ id: string; patientId: string } | null>(null);
 
   // Pre-fill state for "crear turno a partir de un hueco"
   const [slotDefaults, setSlotDefaults] = useState<{
@@ -240,9 +242,45 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     }
   };
 
-  const handleAssignShift = (walkInId: string) => {
-    void walkInId;
+  /** Walk-in → turno: abre el diálogo con el paciente preseleccionado, hoy y la hora actual. */
+  const startAssignShift = (walkIn: { id: string; patientId: string | null }) => {
+    if (!walkIn.patientId) {
+      toast.info("Este walk-in no tiene ficha: cargá al paciente y después asignale el turno");
+      return;
+    }
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), Math.ceil(now.getMinutes() / 5) * 5, 0);
+    const end = new Date(start.getTime() + 30 * 60_000);
+    const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    setPendingWalkIn({ id: walkIn.id, patientId: walkIn.patientId });
+    setSlotDefaults({
+      medicId: "",
+      date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0),
+      startTime: hhmm(start),
+      endTime: hhmm(end),
+      durationMinutes: 30,
+    });
     setCreateShiftOpen(true);
+  };
+
+  const handleAssignShift = (walkInId: string) => {
+    const item = data?.salaDeEspera.find((w) => w.id === walkInId && w.kind === "walkin");
+    startAssignShift({ id: walkInId, patientId: item?.patient.id ?? null });
+  };
+
+  /** Vincula el walk-in al turno creado: el turno hereda la llegada y el número de sala. */
+  const linkWalkInToShift = async (walkInId: string, shiftId: string) => {
+    try {
+      const res = await fetch(`/api/walk-ins/${walkInId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedShiftId: shiftId }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Turno asignado: el paciente sigue en sala con su número");
+    } catch {
+      toast.error("Se creó el turno pero no se pudo vincular al walk-in");
+    }
   };
 
   const handleWalkInLeft = async (walkInId: string) => {
@@ -417,6 +455,10 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
         onOpenChange={setRegisterArrivalOpen}
         todayShifts={dialogShifts}
         onArrived={fetchDashboard}
+        onAssignShift={(walkIn) => {
+          setRegisterArrivalOpen(false);
+          startAssignShift(walkIn);
+        }}
       />
 
       <CallToRoomDialog
@@ -432,7 +474,10 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
           open={createShiftOpen}
           onOpenChange={(open) => {
             setCreateShiftOpen(open);
-            if (!open) setSlotDefaults(null);
+            if (!open) {
+              setSlotDefaults(null);
+              setPendingWalkIn(null);
+            }
           }}
           defaultDate={slotDefaults?.date}
           defaultStartTime={slotDefaults?.startTime}
@@ -440,9 +485,12 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
           defaultMedicId={slotDefaults?.medicId}
           defaultDurationMinutes={slotDefaults?.durationMinutes}
           lockMedic={!!slotDefaults?.medicId}
-          onCreated={() => {
+          defaultPatientId={pendingWalkIn?.patientId}
+          onCreated={async (shift) => {
             setCreateShiftOpen(false);
             setSlotDefaults(null);
+            if (pendingWalkIn && shift) await linkWalkInToShift(pendingWalkIn.id, shift.id);
+            setPendingWalkIn(null);
             fetchDashboard();
           }}
         />

@@ -353,3 +353,52 @@ describe("POST /api/shifts", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cobertura (lib/shift-coverage.ts)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/shifts — cobertura", () => {
+  beforeEach(() => {
+    resetAllMocks();
+    mockHappyPath();
+  });
+
+  it("guarda la obra social aceptada por el profesional, sin aviso", async () => {
+    prismaMock.patient.findUnique.mockResolvedValue({ osId: "osde", os: { id: "osde", name: "OSDE" } });
+    prismaMock.userInsurance.findMany.mockResolvedValue([{ healthInsuranceId: "osde" }]);
+
+    const res = await POST(createRequest(VALID_BODY));
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(json.warning).toBeUndefined();
+    expect(prismaMock.shift.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ coverageInsuranceId: "osde", isPrivate: false }) }),
+    );
+  });
+
+  it("si el profesional no acepta la obra social: particular con aviso", async () => {
+    prismaMock.patient.findUnique.mockResolvedValue({ osId: "osde", os: { id: "osde", name: "OSDE" } });
+    prismaMock.userInsurance.findMany.mockResolvedValue([{ healthInsuranceId: "pami" }]);
+
+    const res = await POST(createRequest(VALID_BODY));
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(json.warning?.code).toBe("INSURANCE_MISMATCH");
+    expect(prismaMock.shift.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ coverageInsuranceId: null, isPrivate: true }) }),
+    );
+  });
+
+  it("sin obra social: particular sin aviso", async () => {
+    prismaMock.patient.findUnique.mockResolvedValue({ osId: null, os: null });
+    const res = await POST(createRequest(VALID_BODY));
+    const json = await res.json();
+    expect(json.warning).toBeUndefined();
+    expect(prismaMock.shift.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ coverageInsuranceId: null, isPrivate: true }) }),
+    );
+  });
+});

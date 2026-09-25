@@ -51,7 +51,7 @@ export const receptionRoutes = defineRoutes([
     path: "/api/walk-ins/{id}",
     summary: "Actualizar una llegada (retiró, turno asignado, nota)",
     description:
-      "Actualización parcial: solo los campos presentes. Módulo `waiting_room`: `markLeftNow`/`leftAt` cierran el número de sala (`LEFT`); `assignedShiftId` lo traslada al turno con el mismo número (si el turno ya tenía número, el del walk-in se anula).",
+      "Actualización parcial: solo los campos presentes. Módulo `waiting_room`: `markLeftNow`/`leftAt` cierran el número de sala (`LEFT`); `assignedShiftId` lo traslada al turno con el mismo número (si el turno ya tenía número, el del walk-in se anula). Además `assignedShiftId` marca la llegada en el turno (`arrivedAt` = la del walk-in) si no la tenía: el paciente sigue en sala bajo su profesional.",
     tags: [TAGS.shifts],
     auth: RECEPTION_ROLES,
     mobile: true,

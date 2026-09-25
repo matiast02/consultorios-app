@@ -67,6 +67,13 @@ function shiftMatches(s: DashboardShift, q: string): boolean {
   return haystack.includes(q);
 }
 
+/** Cobertura del turno (obra social aceptada o particular); turnos viejos: la obra social del paciente. */
+function coverageName(s: DashboardShift): string | null {
+  if (s.coverage) return s.coverage.name;
+  if (s.isPrivate) return "Particular";
+  return s.patient?.os?.name ?? null;
+}
+
 const ACTIVE_STATUSES: ShiftStatus[] = ["PENDING", "CONFIRMED"];
 
 /** Llegó y todavía no pasó a consulta. */
@@ -326,10 +333,10 @@ export function TodayShiftsCard({
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] text-muted-foreground">
                       <span>{s.consultationType?.name ?? "Consulta"}</span>
-                      {s.patient?.os?.name && (
+                      {coverageName(s) && (
                         <>
                           <span className="text-muted-foreground/40">·</span>
-                          <OsBadge name={s.patient.os.name} />
+                          <OsBadge name={coverageName(s)!} />
                         </>
                       )}
                       {s.observations && (

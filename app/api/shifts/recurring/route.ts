@@ -3,6 +3,7 @@ import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createRecurringShiftsSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { coverageData, resolveShiftCoverage } from "@/lib/shift-coverage";
 import { canAssignTo, getShiftActor, SHIFT_FORBIDDEN, SHIFT_OWN_ONLY } from "@/lib/shift-access";
 
 // POST /api/shifts/recurring — Create a recurring series of shifts
@@ -197,6 +198,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Cobertura (la misma para toda la serie: mismo profesional y paciente)
+    const coverage = coverageData(await resolveShiftCoverage(prisma, { userId, patientId }));
+
     // 6. Create all valid shifts in a transaction
     let created: Awaited<ReturnType<typeof prisma.shift.create>>[] = [];
 
@@ -204,7 +208,7 @@ export async function POST(req: NextRequest) {
       created = await prisma.$transaction(
         toCreate.map((shiftData) =>
           prisma.shift.create({
-            data: shiftData,
+            data: { ...shiftData, ...coverage },
             include: {
               patient: {
                 select: {
@@ -218,6 +222,7 @@ export async function POST(req: NextRequest) {
               user: {
                 select: { id: true, name: true, firstName: true, lastName: true },
               },
+              coverageInsurance: { select: { id: true, name: true, code: true } },
             },
           })
         )

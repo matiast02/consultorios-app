@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { coverageData, INSURANCE_MISMATCH_WARNING, resolveShiftCoverage } from "@/lib/shift-coverage";
 import { createShiftSchema, shiftsQuerySchema } from "@/lib/validations";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logAudit } from "@/lib/audit";
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
         user: {
           select: { id: true, name: true, firstName: true, lastName: true },
         },
+        coverageInsurance: { select: { id: true, name: true, code: true } },
         consultationType: {
           select: { id: true, name: true, durationMinutes: true, color: true },
         },
@@ -241,39 +243,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Insurance mismatch check (warning only, not a hard block)
-    let insuranceWarning: { code: string; message: string } | null = null;
-
-    const professionalInsurances = await prisma.userInsurance.findMany({
-      where: { userId: data.userId },
-    });
-
-    if (professionalInsurances.length > 0) {
-      // Professional has configured accepted insurances — check patient match
-      const acceptedIds = new Set(professionalInsurances.map((ui) => ui.healthInsuranceId));
-
-      // Gather all patient insurance IDs: legacy osId + patientInsurance records
-      const patientInsuranceIds: string[] = [];
-      if (patient.osId) patientInsuranceIds.push(patient.osId);
-
-      const patientInsuranceRecords = await prisma.patientInsurance.findMany({
-        where: { patientId: data.patientId },
-      });
-      for (const pi of patientInsuranceRecords) {
-        if (!patientInsuranceIds.includes(pi.healthInsuranceId)) {
-          patientInsuranceIds.push(pi.healthInsuranceId);
-        }
-      }
-
-      const hasMatch = patientInsuranceIds.some((id) => acceptedIds.has(id));
-
-      if (!hasMatch) {
-        insuranceWarning = {
-          code: "INSURANCE_MISMATCH",
-          message: "El paciente no tiene una obra social aceptada por este profesional. Se atendera como particular.",
-        };
-      }
-    }
+    // Cobertura: obra social aceptada por el profesional, o particular (aviso si no acepta ninguna).
+    const coverage = await resolveShiftCoverage(prisma, { userId: data.userId, patientId: data.patientId });
+    const insuranceWarning = coverage.mismatch ? INSURANCE_MISMATCH_WARNING : null;
 
     const shift = await prisma.shift.create({
       data: {
@@ -285,6 +257,7 @@ export async function POST(req: NextRequest) {
         status: data.status,
         isOverbook: data.isOverbook ?? false,
         consultationTypeId: data.consultationTypeId ?? null,
+        ...coverageData(coverage),
       },
       include: {
         patient: {
@@ -299,6 +272,7 @@ export async function POST(req: NextRequest) {
         user: {
           select: { id: true, name: true, firstName: true, lastName: true },
         },
+        coverageInsurance: { select: { id: true, name: true, code: true } },
         consultationType: {
           select: { id: true, name: true, durationMinutes: true, color: true },
         },

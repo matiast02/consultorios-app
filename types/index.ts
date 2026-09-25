@@ -96,6 +96,11 @@ export interface Shift {
   // Reception flow (secretary dashboard)
   arrivedAt?: string | null;
   consultationStartedAt?: string | null;
+  // Cobertura con la que se atiende (obra social aceptada por el profesional, o particular).
+  // Ambos vacíos en turnos anteriores a esta versión: la UI muestra la obra social del paciente.
+  coverageInsuranceId?: string | null;
+  isPrivate?: boolean;
+  coverageInsurance?: HealthInsurance | null;
   // Confirmación y origen
   confirmedAt?: string | null;
   confirmedVia?: "PATIENT_LINK" | "STAFF" | "PHONE" | null;
@@ -514,6 +519,9 @@ export interface DashboardShift {
   minutesWaiting?: number | null;
   /** Número de sala del día (módulo waiting_room); null sin módulo o sin número. */
   ticketNumber?: number | null;
+  /** Cobertura del turno: obra social aceptada por el médico, o particular. Ausentes en turnos viejos. */
+  coverage?: { id: string; name: string } | null;
+  isPrivate?: boolean;
 }
 
 export interface DashboardTodayStats {

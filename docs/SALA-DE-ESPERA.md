@@ -93,7 +93,7 @@ Registrar llegada ──► issued ──► Llamar ──► called ──► A
       │                  │                     │
       └─ Deshacer ───────┴─► VOID              └─ Volver a llamar (callCount++)
 Walk-in «Retiró» ──► LEFT
-Walk-in con turno asignado ──► el ticket pasa al turno (mismo número)
+Walk-in con turno asignado ──► el ticket pasa al turno (mismo número) y el turno hereda la llegada
 ```
 
 - **Emisión**: `POST /api/shifts/{id}/arrival` y `POST /api/walk-ins`, en la misma

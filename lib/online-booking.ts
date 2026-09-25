@@ -21,6 +21,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { coverageData, resolveShiftCoverage } from "@/lib/shift-coverage";
 import {
   addDaysToKey,
   arDateKey,
@@ -581,10 +582,12 @@ async function createInTx(
   }
 
   // 6) Turno + request con token de gestión (vence con el turno).
+  const coverage = coverageData(await resolveShiftCoverage(tx, { userId: medic.id, patientId }));
   const shift = await tx.shift.create({
     data: {
       userId: medic.id,
       patientId,
+      ...coverage,
       start,
       end: new Date(start.getTime() + durationMinutes * MINUTE_MS),
       status: "PENDING",

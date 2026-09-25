@@ -276,6 +276,7 @@ model HealthInsurance {
   patients          Patient[]
   patientInsurances PatientInsurance[]
   userInsurances    UserInsurance[]
+  coveredShifts     Shift[]            @relation("ShiftCoverage")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -349,8 +350,14 @@ model Shift {
   arrivedAt             DateTime? // Paciente llegó al consultorio (en sala de espera)
   consultationStartedAt DateTime? // Pasó a consulta
 
+  // Cobertura con la que se atiende (lib/shift-coverage.ts): obra social aceptada por
+  // el profesional, o particular. Ambos vacíos en turnos anteriores a esta versión.
+  coverageInsuranceId String?
+  isPrivate           Boolean @default(false) // se atiende como particular
+
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   consultationType ConsultationType? @relation(fields: [consultationTypeId], references: [id], onDelete: SetNull)
+  coverageInsurance HealthInsurance? @relation("ShiftCoverage", fields: [coverageInsuranceId], references: [id], onDelete: SetNull)
   patient          Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
   evolution        Evolution?
   prescriptions    Prescription[]
@@ -368,6 +375,7 @@ model Shift {
   @@index([patientId])
   @@index([start])
   @@index([arrivedAt])
+  @@index([coverageInsuranceId])
 }
 
 // ─── User Preferences ────────────────────────────────────────────────────────
