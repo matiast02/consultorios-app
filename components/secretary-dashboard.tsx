@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
-import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+import { ShiftQuickDialogLoader } from "@/components/shifts/shift-quick-dialog-loader";
 
 import { SecretaryDashboardHeader } from "@/components/dashboard/secretary/dashboard-header";
 import { SecretaryStatsRow } from "@/components/dashboard/secretary/stats-row";

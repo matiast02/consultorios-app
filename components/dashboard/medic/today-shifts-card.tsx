@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { ArrowRight, CalendarDays, Check, Megaphone, User as UserIcon, Pencil, Play, RotateCcw, Search, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { OsBadge } from "./os-badge";
+import { OsBadge } from "@/components/shifts/os-badge";
 import type { DashboardShift, ShiftStatus } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
 

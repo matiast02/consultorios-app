@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
-import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+import { ShiftQuickDialogLoader } from "@/components/shifts/shift-quick-dialog-loader";
 
 import { CalendarToolbar, type ViewMode, type StateFilter } from "@/components/calendar/toolbar";
 import { MonthView } from "@/components/calendar/month-view";
