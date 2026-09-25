@@ -1,6 +1,11 @@
 import * as React from "react";
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 import { cn } from "@/lib/utils";
+import { initialsFromName } from "@/lib/names";
+
+function getInitials(name?: string | null): string {
+  return name ? initialsFromName(name) : "U";
+}
 
 interface UserAvatarProps {
   name?: string | null;
@@ -39,12 +44,3 @@ export function UserAvatar({ name, image, className }: UserAvatarProps) {
   );
 }
 
-function getInitials(name?: string | null): string {
-  if (!name) return "U";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (
-    parts[0].charAt(0).toUpperCase() +
-    parts[parts.length - 1].charAt(0).toUpperCase()
-  );
-}

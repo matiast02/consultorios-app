@@ -6,22 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Users, CalendarCheck, TrendingUp, BarChart3, Shield } from "lucide-react";
 import type { StatsData, ShiftStatus } from "@/types";
 import { SHIFT_STATUS_LABELS, MONTH_NAMES } from "@/types";
-
-const STATUS_BAR_COLORS: Record<ShiftStatus, string> = {
-  PENDING: "bg-amber-500",
-  CONFIRMED: "bg-cyan-500",
-  ABSENT: "bg-red-500",
-  FINISHED: "bg-emerald-500",
-  CANCELLED: "bg-slate-400",
-};
-
-const STATUS_LABEL_COLORS: Record<ShiftStatus, string> = {
-  PENDING: "text-amber-600 dark:text-amber-400",
-  CONFIRMED: "text-cyan-600 dark:text-cyan-400",
-  ABSENT: "text-red-600 dark:text-red-400",
-  FINISHED: "text-emerald-600 dark:text-emerald-400",
-  CANCELLED: "text-slate-500 dark:text-slate-400",
-};
+import { SHIFT_STATUS_DOT as STATUS_BAR_COLORS, SHIFT_STATUS_TEXT as STATUS_LABEL_COLORS } from "@/lib/shift-status";
 
 export default function EstadisticasPage() {
   const [stats, setStats] = useState<StatsData | null>(null);

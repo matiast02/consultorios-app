@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -45,6 +45,7 @@ import {
   PencilLine,
 } from "lucide-react";
 import type { Specialization, UserNotifications, NotificationKey } from "@/types";
+import { changePasswordFormSchema } from "@/lib/validations";
 
 // ─── Profile (identity + professional info) ──────────────────────────────────
 
@@ -591,20 +592,8 @@ function RegionalCard() {
 
 // ─── Security (change password) ──────────────────────────────────────────────
 
-const passwordSchema = z
-  .object({
-    currentPassword: z.string().min(1, "Contraseña actual requerida"),
-    newPassword: z
-      .string()
-      .min(8, "Mínimo 8 caracteres")
-      .regex(/[A-Z]/, "Debe contener una mayúscula")
-      .regex(/[0-9]/, "Debe contener un número"),
-    confirmPassword: z.string(),
-  })
-  .refine((d) => d.newPassword === d.confirmPassword, {
-    message: "Las contraseñas no coinciden",
-    path: ["confirmPassword"],
-  });
+// Regla única de contraseña (lib/password-policy.ts vía lib/validations.ts).
+const passwordSchema = changePasswordFormSchema;
 
 type PasswordFormValues = z.infer<typeof passwordSchema>;
 

@@ -35,6 +35,10 @@ interface EvolutionFormDialogProps {
   onOpenChange: (open: boolean) => void;
   patientId: string;
   onCreated: () => void;
+  /** Turno al que se vincula la evolución (consulta en curso desde la ficha). Un turno admite una sola. */
+  shiftId?: string | null;
+  /** Texto corto del turno para el encabezado ("Turno de hoy 11:15"). */
+  shiftLabel?: string | null;
 }
 
 export function EvolutionFormDialog({
@@ -42,6 +46,8 @@ export function EvolutionFormDialog({
   onOpenChange,
   patientId,
   onCreated,
+  shiftId,
+  shiftLabel,
 }: EvolutionFormDialogProps) {
   const {
     register,
@@ -66,6 +72,7 @@ export function EvolutionFormDialog({
       const body: Record<string, string> = {
         reason: data.reason,
       };
+      if (shiftId) body.shiftId = shiftId;
       if (data.physicalExam) body.physicalExam = data.physicalExam;
       if (data.diagnosis) body.diagnosis = data.diagnosis;
       if (data.diagnosisCode) body.diagnosisCode = data.diagnosisCode;
@@ -107,6 +114,12 @@ export function EvolutionFormDialog({
           <DialogTitle>Nueva Evolucion</DialogTitle>
           <DialogDescription>
             Registra una nueva evolucion clinica para este paciente.
+            {shiftId && (
+              <>
+                {" "}
+                Queda vinculada a la consulta en curso{shiftLabel ? ` (${shiftLabel})` : ""}.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 

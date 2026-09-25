@@ -1,32 +1,36 @@
 "use client";
 
-import { Phone, Play, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, Megaphone, Phone, Play, User } from "lucide-react";
 import type { DashboardShift } from "@/types";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { formatEta, formatTime, minutesUntil } from "@/lib/format";
 
 interface NextShiftCardProps {
   shift: DashboardShift | null;
+  /** Atender: ir a la ficha en modo consulta (llamando primero si hay módulo de sala). */
   onStartConsultation: (shift: DashboardShift) => void;
   onViewPatient: (patientId: string) => void;
+  /** Módulo waiting_room activo: el botón dice «Llamar a consultorio» si el paciente está en sala. */
+  waitingRoomEnabled?: boolean;
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
 
-function minutesUntil(iso: string): number {
-  return Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 60000));
-}
 
-function formatCountdown(mins: number): string {
-  if (mins < 60) return `en ${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (m === 0) return `en ${h} h`;
-  return `en ${h} h ${m} min`;
-}
 
-export function NextShiftCard({ shift, onStartConsultation, onViewPatient }: NextShiftCardProps) {
+export function NextShiftCard({
+  shift,
+  onStartConsultation,
+  onViewPatient,
+  waitingRoomEnabled = false,
+}: NextShiftCardProps) {
+  // El «en N min» avanza solo cada minuto, sin re-renderizar el dashboard entero.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   if (!shift || !shift.patient) {
     return (
       <div className="rounded-2xl border border-dashed bg-card p-6 shadow-sm">
@@ -45,9 +49,18 @@ export function NextShiftCard({ shift, onStartConsultation, onViewPatient }: Nex
   }
 
   const patientName = `${shift.patient.firstName} ${shift.patient.lastName}`;
-  const osName = shift.patient.os?.name;
+  // Cobertura del turno; en turnos viejos, la obra social del paciente.
+  const osName = shift.coverage?.name ?? (shift.isPrivate ? "Particular" : shift.patient.os?.name);
   const ctName = shift.consultationType?.name ?? "Consulta";
   const mins = minutesUntil(shift.start);
+  const inConsultation = !!shift.consultationStartedAt;
+  const waiting = !!shift.arrivedAt && !inConsultation;
+  const startLabel = inConsultation
+    ? "Continuar consulta"
+    : waiting && waitingRoomEnabled
+      ? "Llamar a consultorio"
+      : "Iniciar consulta";
+  const StartIcon = inConsultation ? ArrowRight : waiting && waitingRoomEnabled ? Megaphone : Play;
 
   return (
     <div
@@ -78,7 +91,7 @@ export function NextShiftCard({ shift, onStartConsultation, onViewPatient }: Nex
             <div className="text-3xl font-bold leading-none text-white tabular-nums">
               {formatTime(shift.start)}
             </div>
-            <div className="mt-1 text-xs text-emerald-100/70">{formatCountdown(mins)}</div>
+            <div className="mt-1 text-xs text-emerald-100/70">{formatEta(mins)}</div>
           </div>
         </div>
 
@@ -89,6 +102,14 @@ export function NextShiftCard({ shift, onStartConsultation, onViewPatient }: Nex
             {osName ? <> · {osName}</> : null}
             {shift.durationMinutes ? <> · {shift.durationMinutes} min</> : null}
           </p>
+          {waiting && (
+            <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-0.5 text-xs font-medium text-emerald-50">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
+              En sala
+              {shift.ticketNumber != null && <> · N.º {formatTicketNumber(shift.ticketNumber)}</>}
+              {shift.minutesWaiting != null && <> · {shift.minutesWaiting} min</>}
+            </p>
+          )}
         </div>
 
         {shift.observations && (
@@ -103,8 +124,8 @@ export function NextShiftCard({ shift, onStartConsultation, onViewPatient }: Nex
             onClick={() => onStartConsultation(shift)}
             className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-[#0d4f4d] shadow-sm transition hover:bg-emerald-50"
           >
-            <Play className="h-4 w-4" />
-            Iniciar consulta
+            <StartIcon className="h-4 w-4" />
+            {startLabel}
           </button>
           <button
             type="button"

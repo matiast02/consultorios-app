@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signOut } from "@/lib/auth-client";
 import { useProfessionLabels } from "@/hooks/use-profession-labels";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  BookOpen,
   LayoutDashboard,
   Calendar,
   Users,
@@ -29,6 +30,7 @@ import {
   Shield,
   Puzzle,
   Inbox,
+  ShieldCheck,
   LogOut,
 } from "lucide-react";
 import { useState } from "react";
@@ -117,6 +119,16 @@ const adminOnlyItems = [
     href: "/dashboard/administracion/modulos",
     icon: Puzzle,
   },
+  {
+    label: "Integridad HC",
+    href: "/dashboard/administracion/integridad",
+    icon: ShieldCheck,
+  },
+  {
+    label: "API",
+    href: "/dashboard/administracion/api-docs",
+    icon: BookOpen,
+  },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -128,8 +140,8 @@ const ROLE_LABELS: Record<string, string> = {
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const role = (session?.user as { role?: string } | undefined)?.role;
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const role = session?.user.role;
+  const userId = session?.user.id;
   const profLabels = useProfessionLabels(role === "medic" ? userId : null);
   const roleLabel = role === "medic"
     ? profLabels.professionName !== "Profesional" ? profLabels.professionName : (ROLE_LABELS[role] ?? role)

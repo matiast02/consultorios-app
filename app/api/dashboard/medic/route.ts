@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMedic } from "@/lib/auth-utils";
+import { treatedPatientWhere } from "@/lib/clinical-access";
+import { isModuleEnabled } from "@/lib/modules";
+import { WAITING_ROOM_MODULE, emptyOpenTickets, openTicketsByTarget } from "@/lib/waiting-room/tickets";
+import { isSameLocalDay as isSameDay } from "@/lib/format";
+import { initials as getInitials } from "@/lib/names";
 
 const DAY_LABELS = ["LU", "MA", "MI", "JU", "VI", "SÁ", "DO"] as const;
 const RENEWAL_WINDOW_DAYS = 14;
@@ -32,12 +37,10 @@ function addDays(d: Date, n: number): Date {
   return x;
 }
 
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
 
-function getInitials(firstName: string, lastName: string): string {
-  return `${(firstName[0] ?? "").toUpperCase()}${(lastName[0] ?? "").toUpperCase()}`;
+
+function displayName(u: { name: string; firstName: string | null; lastName: string | null }): string {
+  return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.name || "Profesional";
 }
 
 function summarizeDays(dates: Date[]): string {
@@ -52,7 +55,7 @@ function summarizeDays(dates: Date[]): string {
 
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -75,6 +78,7 @@ export async function GET() {
       prescriptionsForRenewal,
       pendingStudyOrders,
       recentShiftsForPatients,
+      pendingAccessRequests,
     ] = await Promise.all([
       // Today's shifts (with patient, OS, type)
       prisma.shift.findMany({
@@ -90,6 +94,7 @@ export async function GET() {
             },
           },
           consultationType: { select: { id: true, name: true, color: true } },
+          coverageInsurance: { select: { id: true, name: true } },
         },
         orderBy: { start: "asc" },
       }),
@@ -142,6 +147,25 @@ export async function GET() {
         orderBy: { start: "desc" },
         take: 30,
       }),
+
+      // Solicitudes de acceso a la HC que este médico puede decidir: PENDING,
+      // de pacientes (activos) de los que es tratante, y que no son suyas.
+      prisma.clinicalAccessGrant.findMany({
+        where: {
+          status: "PENDING",
+          grantedToUserId: { not: userId },
+          patient: { deletedAt: null, ...treatedPatientWhere(userId) },
+        },
+        select: {
+          id: true,
+          patientId: true,
+          createdAt: true,
+          patient: { select: { firstName: true, lastName: true } },
+          grantedTo: { select: { name: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: "asc" },
+        take: 100,
+      }),
     ]);
 
     // ─── Today stats ────────────────────────────────────────────────────────
@@ -157,6 +181,13 @@ export async function GET() {
     }
 
     // ─── Next shift today ────────────────────────────────────────────────────
+    // ─── Sala de espera (módulo waiting_room) ────────────────────────────────
+    const waitingRoomEnabled = await isModuleEnabled(WAITING_ROOM_MODULE);
+    const [tickets, medicUser] = await Promise.all([
+      waitingRoomEnabled ? openTicketsByTarget() : Promise.resolve(emptyOpenTickets()),
+      prisma.user.findUnique({ where: { id: userId }, select: { defaultRoom: true } }),
+    ]);
+
     const nextShift = todayShifts.find(
       (s) => (s.status === "PENDING" || s.status === "CONFIRMED") && new Date(s.start) > now,
     ) ?? null;
@@ -183,6 +214,15 @@ export async function GET() {
             }
           : null,
         consultationType: s.consultationType,
+        arrivedAt: s.arrivedAt ? new Date(s.arrivedAt).toISOString() : null,
+        consultationStartedAt: s.consultationStartedAt ? new Date(s.consultationStartedAt).toISOString() : null,
+        minutesWaiting:
+          s.arrivedAt && !s.consultationStartedAt
+            ? Math.max(0, Math.round((now.getTime() - new Date(s.arrivedAt).getTime()) / 60000))
+            : null,
+        ticketNumber: tickets.byShift.get(s.id)?.number ?? null,
+        coverage: s.coverageInsurance ? { id: s.coverageInsurance.id, name: s.coverageInsurance.name } : null,
+        isPrivate: s.isPrivate,
       };
     };
 
@@ -242,6 +282,16 @@ export async function GET() {
       }
     }
 
+    // Solicitudes de acceso a la HC (la más antigua primero)
+    const oldestAccessRequest = pendingAccessRequests[0] ?? null;
+    let accessSummary = "Sin solicitudes pendientes";
+    if (oldestAccessRequest) {
+      const p = oldestAccessRequest.patient;
+      const who = `${displayName(oldestAccessRequest.grantedTo)} — ${p.lastName}, ${(p.firstName[0] ?? "").toUpperCase()}.`;
+      const more = pendingAccessRequests.length - 1;
+      accessSummary = more > 0 ? `${who} · y ${more} más` : who;
+    }
+
     // Avoid unused warning for finishedRecentWithEvolution
     void finishedRecentWithEvolution;
 
@@ -288,6 +338,7 @@ export async function GET() {
             pendientes,
           },
         },
+        waitingRoom: { enabled: waitingRoomEnabled, room: medicUser?.defaultRoom ?? null },
         week: {
           totalShifts: totalWeekShifts,
           weekStart: weekStart.toISOString(),
@@ -308,6 +359,11 @@ export async function GET() {
           estudiosPendientes: {
             count: pendingStudyOrders.length,
             summary: studySummary,
+          },
+          solicitudesDeAcceso: {
+            count: pendingAccessRequests.length,
+            summary: accessSummary,
+            patientId: oldestAccessRequest?.patientId ?? null,
           },
         },
         recentPatients,

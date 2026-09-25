@@ -3,6 +3,8 @@ process.env.TZ = "UTC";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { prismaMock, authMock, resetAllMocks } from "../setup";
+import { getUserRole } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/audit";
 
 vi.mock("@/lib/modules", () => ({
   checkModuleAccess: vi.fn().mockResolvedValue(true),
@@ -14,6 +16,7 @@ vi.mock("@/lib/audit", () => ({
 
 import { GET, POST } from "@/app/api/study-orders/route";
 import {
+  GET as GET_ONE,
   PUT,
   DELETE,
 } from "@/app/api/study-orders/[id]/route";
@@ -48,9 +51,11 @@ function createPutRequest(body: Record<string, unknown>): NextRequest {
   });
 }
 
-function createDeleteRequest(): NextRequest {
+function createDeleteRequest(body?: Record<string, unknown>): NextRequest {
   return new NextRequest("http://localhost:3000/api/study-orders/order-1", {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
   });
 }
 
@@ -86,6 +91,8 @@ const STUDY_ORDER_RESULT = {
 describe("POST /api/study-orders", () => {
   beforeEach(() => {
     resetAllMocks();
+    // Autor de STUDY_ORDER_RESULT (user-1) con rol clínico.
+    vi.mocked(getUserRole).mockResolvedValue("medic");
   });
 
   it("crea orden de estudio valida", async () => {
@@ -146,6 +153,8 @@ describe("POST /api/study-orders", () => {
 describe("GET /api/study-orders", () => {
   beforeEach(() => {
     resetAllMocks();
+    // Autor de STUDY_ORDER_RESULT (user-1) con rol clínico.
+    vi.mocked(getUserRole).mockResolvedValue("medic");
   });
 
   it("lista ordenes por patientId", async () => {
@@ -177,6 +186,8 @@ describe("GET /api/study-orders", () => {
 describe("PUT /api/study-orders/[id]", () => {
   beforeEach(() => {
     resetAllMocks();
+    // Autor de STUDY_ORDER_RESULT (user-1) con rol clínico.
+    vi.mocked(getUserRole).mockResolvedValue("medic");
   });
 
   it("actualiza estado a COMPLETED", async () => {
@@ -217,22 +228,128 @@ describe("PUT /api/study-orders/[id]", () => {
 describe("DELETE /api/study-orders/[id]", () => {
   beforeEach(() => {
     resetAllMocks();
+    // Autor de STUDY_ORDER_RESULT (user-1) con rol clínico.
+    vi.mocked(getUserRole).mockResolvedValue("medic");
   });
 
-  it("elimina orden de estudio", async () => {
+  it("anula orden de estudio (no la borra) con motivo", async () => {
     prismaMock.studyOrder.findUnique.mockResolvedValue(STUDY_ORDER_RESULT);
-    prismaMock.studyOrder.delete.mockResolvedValue(STUDY_ORDER_RESULT);
+    prismaMock.studyOrder.update.mockResolvedValue(STUDY_ORDER_RESULT);
 
-    const res = await DELETE(createDeleteRequest(), {
+    const res = await DELETE(createDeleteRequest({ annulReason: "Cargada por error" }), {
       params: Promise.resolve({ id: "order-1" }),
     });
     const json = await res.json();
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(json.data).toEqual({ id: "order-1" });
-    expect(prismaMock.studyOrder.delete).toHaveBeenCalledWith({
-      where: { id: "order-1" },
+    expect(json.data.annulled).toBe(true);
+    expect(prismaMock.studyOrder.update).toHaveBeenCalled();
+    expect(prismaMock.studyOrder.delete).not.toHaveBeenCalled();
+  });
+
+  it("rechaza anular sin motivo", async () => {
+    prismaMock.studyOrder.findUnique.mockResolvedValue(STUDY_ORDER_RESULT);
+    const res = await DELETE(createDeleteRequest(), {
+      params: Promise.resolve({ id: "order-1" }),
     });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Política de acceso clínico (lista blanca de roles + scope por autor)
+// ---------------------------------------------------------------------------
+
+describe("study-orders: control de acceso clínico", () => {
+  const ctx = { params: Promise.resolve({ id: "order-1" }) };
+  const OTHER_AUTHOR = { ...STUDY_ORDER_RESULT, userId: "other-medic" };
+
+  beforeEach(() => {
+    resetAllMocks();
+  });
+
+  it("secretaria → 403 en GET lista, POST, GET/PUT/DELETE [id]", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("secretary");
+    prismaMock.studyOrder.findUnique.mockResolvedValue(STUDY_ORDER_RESULT);
+
+    expect((await GET(createGetRequest({ patientId: "patient-1" }))).status).toBe(403);
+    expect((await POST(createPostRequest(VALID_BODY))).status).toBe(403);
+    expect((await GET_ONE(createGetRequest(), ctx)).status).toBe(403);
+    expect((await PUT(createPutRequest({ status: "COMPLETED" }), ctx)).status).toBe(403);
+    expect((await DELETE(createDeleteRequest({ annulReason: "x" }), ctx)).status).toBe(403);
+    expect(prismaMock.studyOrder.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.studyOrder.create).not.toHaveBeenCalled();
+    expect(prismaMock.studyOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("usuario sin rol → 403 (lista blanca, no lista negra)", async () => {
+    vi.mocked(getUserRole).mockResolvedValue(null);
+    expect((await GET(createGetRequest({ patientId: "patient-1" }))).status).toBe(403);
+  });
+
+  it("médico: el listado se filtra por autor + registra VIEW_SENSITIVE", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("medic");
+    await GET(createGetRequest({ patientId: "patient-1" }));
+
+    expect(prismaMock.studyOrder.findMany.mock.calls[0][0].where).toEqual({
+      patientId: "patient-1",
+      userId: "user-1",
+    });
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "VIEW_SENSITIVE",
+        resource: "study_order",
+        resourceId: "patient-1",
+      })
+    );
+  });
+
+  it("admin: el listado no se filtra por autor", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("admin");
+    await GET(createGetRequest({ patientId: "patient-1" }));
+
+    expect(prismaMock.studyOrder.findMany.mock.calls[0][0].where).toEqual({
+      patientId: "patient-1",
+    });
+  });
+
+  it("médico no autor → 404 en GET/PUT/DELETE [id] (no revela existencia)", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("medic");
+    prismaMock.studyOrder.findUnique.mockResolvedValue(OTHER_AUTHOR);
+
+    expect((await GET_ONE(createGetRequest(), ctx)).status).toBe(404);
+    expect((await PUT(createPutRequest({ status: "COMPLETED" }), ctx)).status).toBe(404);
+    expect((await DELETE(createDeleteRequest({ annulReason: "x" }), ctx)).status).toBe(404);
+    expect(prismaMock.studyOrder.update).not.toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  it("médico autor → 200 en GET [id] + VIEW_SENSITIVE", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("medic");
+    prismaMock.studyOrder.findUnique.mockResolvedValue(STUDY_ORDER_RESULT);
+
+    const res = await GET_ONE(createGetRequest(), ctx);
+    expect(res.status).toBe(200);
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "VIEW_SENSITIVE", resource: "study_order", resourceId: "order-1" })
+    );
+  });
+
+  it("admin → 200 en GET [id] de otro autor", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("admin");
+    prismaMock.studyOrder.findUnique.mockResolvedValue(OTHER_AUTHOR);
+    expect((await GET_ONE(createGetRequest(), ctx)).status).toBe(200);
+  });
+
+  it("la anulación no guarda el motivo (texto libre) en audit", async () => {
+    vi.mocked(getUserRole).mockResolvedValue("medic");
+    prismaMock.studyOrder.findUnique.mockResolvedValue(STUDY_ORDER_RESULT);
+
+    const res = await DELETE(createDeleteRequest({ annulReason: "Paciente con VIH, repetir" }), ctx);
+    expect(res.status).toBe(200);
+    const call = vi.mocked(logAudit).mock.calls.find((c) => c[0].action === "DELETE");
+    expect(call?.[0].details).toEqual({ patientId: "patient-1", annulled: true });
+    expect(JSON.stringify(call?.[0])).not.toContain("VIH");
   });
 });

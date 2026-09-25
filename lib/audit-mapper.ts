@@ -11,7 +11,7 @@ import type { AuditEvent, AuditAction, AuditSeverity } from "@/types";
 export interface AuditLogWithUser {
   id: string;
   createdAt: Date;
-  userId: string;
+  userId: string | null;
   action: string;
   resource: string;
   resourceId: string;
@@ -47,12 +47,16 @@ const SENSITIVE_DELETE_RESOURCES = new Set([
   "clinical_record",
   "evolution",
   "prescription",
+  "attachment",
+  "study_order",
+  "meal_plan",
 ]);
 
 /**
  * Derive a UI severity classification for an audit event.
  *
- * - critical: LOGIN_BLOCKED, or DELETE on patient/clinical_record/evolution/prescription
+ * - critical: LOGIN_BLOCKED, or DELETE on patient/clinical_record/evolution/
+ *   prescription/study_order/meal_plan
  * - warn: LOGIN_FAILED, VIEW_SENSITIVE
  * - info: everything else
  */

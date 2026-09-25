@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { coverageData, INSURANCE_MISMATCH_WARNING, resolveShiftCoverage } from "@/lib/shift-coverage";
 import { createShiftSchema, shiftsQuerySchema } from "@/lib/validations";
-import { isMedic } from "@/lib/auth-utils";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit";
+import { canAssignTo, getShiftActor, SHIFT_FORBIDDEN, SHIFT_OWN_ONLY, shiftScope } from "@/lib/shift-access";
 
 // GET /api/shifts — List shifts filtered by month/year/userId
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -32,16 +34,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { month, year, userId, status, patientId } = query.data;
-    const where: Record<string, unknown> = {};
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
 
-    // Medics can only see their own shifts
-    const currentUserId = session.user.id;
-    if (await isMedic(currentUserId)) {
-      where.userId = currentUserId;
-    } else if (userId) {
-      where.userId = userId;
-    }
+    const { month, year, userId, status, patientId } = query.data;
+    // El médico solo ve los suyos (se ignora `userId`); recepción y admin filtran a gusto.
+    const where: Record<string, unknown> = { ...shiftScope(actor) };
+    if (actor.seesAll && userId) where.userId = userId;
 
     if (status) where.status = status;
     if (patientId) where.patientId = patientId;
@@ -70,6 +69,7 @@ export async function GET(req: NextRequest) {
         user: {
           select: { id: true, name: true, firstName: true, lastName: true },
         },
+        coverageInsurance: { select: { id: true, name: true, code: true } },
         consultationType: {
           select: { id: true, name: true, durationMinutes: true, color: true },
         },
@@ -90,13 +90,16 @@ export async function GET(req: NextRequest) {
 // POST /api/shifts — Create shift with conflict checking
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
+
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
 
     // Rate limit: 30 requests per minute per user
     const { allowed } = await checkRateLimit(`shifts-create:${session.user.id}`, { maxRequests: 30, windowMs: 60000 });
@@ -118,6 +121,10 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
+    // Un profesional solo agenda para sí mismo; recepción y admin para cualquiera.
+    if (!canAssignTo(actor, data.userId)) {
+      return NextResponse.json(SHIFT_OWN_ONLY, { status: 403 });
+    }
     const start = new Date(data.start);
     const end = new Date(data.end);
 
@@ -236,39 +243,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Insurance mismatch check (warning only, not a hard block)
-    let insuranceWarning: { code: string; message: string } | null = null;
-
-    const professionalInsurances = await prisma.userInsurance.findMany({
-      where: { userId: data.userId },
-    });
-
-    if (professionalInsurances.length > 0) {
-      // Professional has configured accepted insurances — check patient match
-      const acceptedIds = new Set(professionalInsurances.map((ui) => ui.healthInsuranceId));
-
-      // Gather all patient insurance IDs: legacy osId + patientInsurance records
-      const patientInsuranceIds: string[] = [];
-      if (patient.osId) patientInsuranceIds.push(patient.osId);
-
-      const patientInsuranceRecords = await prisma.patientInsurance.findMany({
-        where: { patientId: data.patientId },
-      });
-      for (const pi of patientInsuranceRecords) {
-        if (!patientInsuranceIds.includes(pi.healthInsuranceId)) {
-          patientInsuranceIds.push(pi.healthInsuranceId);
-        }
-      }
-
-      const hasMatch = patientInsuranceIds.some((id) => acceptedIds.has(id));
-
-      if (!hasMatch) {
-        insuranceWarning = {
-          code: "INSURANCE_MISMATCH",
-          message: "El paciente no tiene una obra social aceptada por este profesional. Se atendera como particular.",
-        };
-      }
-    }
+    // Cobertura: obra social aceptada por el profesional, o particular (aviso si no acepta ninguna).
+    const coverage = await resolveShiftCoverage(prisma, { userId: data.userId, patientId: data.patientId });
+    const insuranceWarning = coverage.mismatch ? INSURANCE_MISMATCH_WARNING : null;
 
     const shift = await prisma.shift.create({
       data: {
@@ -280,6 +257,7 @@ export async function POST(req: NextRequest) {
         status: data.status,
         isOverbook: data.isOverbook ?? false,
         consultationTypeId: data.consultationTypeId ?? null,
+        ...coverageData(coverage),
       },
       include: {
         patient: {
@@ -294,10 +272,20 @@ export async function POST(req: NextRequest) {
         user: {
           select: { id: true, name: true, firstName: true, lastName: true },
         },
+        coverageInsurance: { select: { id: true, name: true, code: true } },
         consultationType: {
           select: { id: true, name: true, durationMinutes: true, color: true },
         },
       },
+    });
+
+    logAudit({
+      userId: session.user.id,
+      action: "CREATE",
+      resource: "shift",
+      resourceId: shift.id,
+      details: { medicId: data.userId, patientId: data.patientId, status: data.status, isOverbook: data.isOverbook ?? false },
+      req,
     });
 
     return NextResponse.json(

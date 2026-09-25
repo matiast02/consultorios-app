@@ -1,6 +1,8 @@
 import { PrismaClient, ShiftStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { seedBase } from "./seed-base";
+import { setUserPassword } from "../lib/credentials";
+import { confirmationUrl, generateConfirmationToken } from "../lib/reminders/tokens";
 
 const prisma = new PrismaClient();
 
@@ -33,10 +35,10 @@ async function main() {
       name: "Martín Gervilla",
       firstName: "Martín",
       lastName: "Gervilla",
-      password: hashedPassword,
       specializationId: specMedGen.id,
     },
   });
+  await setUserPassword(prisma, drGervilla.id, { hash: hashedPassword });
 
   const draLopez = await prisma.user.upsert({
     where: { email: "dra.lopez@consultorio.com" },
@@ -46,10 +48,10 @@ async function main() {
       name: "Carolina López",
       firstName: "Carolina",
       lastName: "López",
-      password: hashedPassword,
       specializationId: specPediatria.id,
     },
   });
+  await setUserPassword(prisma, draLopez.id, { hash: hashedPassword });
 
   const secMaria = await prisma.user.upsert({
     where: { email: "maria@consultorio.com" },
@@ -59,9 +61,9 @@ async function main() {
       name: "María González",
       firstName: "María",
       lastName: "González",
-      password: hashedPassword,
     },
   });
+  await setUserPassword(prisma, secMaria.id, { hash: hashedPassword });
 
   const adminUser = await prisma.user.upsert({
     where: { email: "admin@consultorio.com" },
@@ -71,9 +73,9 @@ async function main() {
       name: "Admin Sistema",
       firstName: "Admin",
       lastName: "Sistema",
-      password: hashedPassword,
     },
   });
+  await setUserPassword(prisma, adminUser.id, { hash: hashedPassword });
 
   console.log("✅ Users created");
 
@@ -1178,12 +1180,12 @@ async function main() {
         firstName: m.firstName,
         lastName: m.lastName,
         name: `${m.firstName} ${m.lastName}`,
-        password: hashedPassword,
-        specializationId: m.specId,
+          specializationId: m.specId,
         defaultRoom: m.defaultRoom,
         isActive: true,
       },
     });
+    await setUserPassword(prisma, u.id, { hash: hashedPassword });
     // Asignar role medic idempotente
     await prisma.userRole.upsert({
       where: { userId_roleId: { userId: u.id, roleId: medicRole.id } },
@@ -1664,54 +1666,97 @@ async function main() {
   console.log(`✅ ${createdTomorrowShifts.length} turnos creados para MAÑANA`);
 
   // ─── ShiftReminders para los turnos de mañana ──────────────────────────────
-  // Idempotencia: borrar reminders cuyo scheduledFor cae en mañana.
-  await prisma.shiftReminder.deleteMany({
-    where: { scheduledFor: { gte: tomorrowRecep, lt: dayAfterTomorrow } },
-  });
-
-  // Mapeo statuses según specs:
-  //   08:00 — Rodríguez → Gervilla   (PENDING)
-  //   08:30 — Sánchez   → López      (SENT, sentAt = hace 30 min)
-  //   09:00 — Álvarez   → Romero     (PENDING)
-  //   10:00 — Moreno    → Suárez     (PENDING)
-  //   10:30 — López     → Vega       (PENDING)
-  //   11:00 — Ruiz      → Méndez     (PENDING)
-  const remindersScheduledAt = setHM(tomorrowRecep, 8, 0);
-  const sentAtForLopez = new Date(nowRecep.getTime() - 30 * 60_000);
-
-  const reminderConfig: { hh: number; mm: number; status: "PENDING" | "SENT"; sentAt?: Date }[] = [
-    { hh: 8,  mm: 0,  status: "PENDING" },
-    { hh: 8,  mm: 30, status: "SENT", sentAt: sentAtForLopez },
-    { hh: 9,  mm: 0,  status: "PENDING" },
-    { hh: 10, mm: 0,  status: "PENDING" },
-    { hh: 10, mm: 30, status: "PENDING" },
-    { hh: 11, mm: 0,  status: "PENDING" },
+  // Idempotencia: los turnos de mañana se recrean arriba (el cascade borra sus
+  // recordatorios) y cada recordatorio se upsertea por (shiftId, offsetHours).
+  // Recordatorio de 24 h → scheduledFor = inicio del turno - 24 h (hoy).
+  //
+  //   08:00 — Rodríguez → Gervilla   EMAIL     PENDING
+  //   08:30 — Sánchez   → López      EMAIL     SENT (hace 30 min) + confirmado por el paciente
+  //   09:00 — Álvarez   → Romero     WHATSAPP  PENDING manual (recepción)
+  //   10:00 — Moreno    → Suárez     WHATSAPP  PENDING manual (recepción)
+  //   10:30 — López     → Vega       EMAIL     PENDING
+  //   11:00 — Ruiz      → Méndez     EMAIL     FAILED (rebote)
+  //
+  // Los emails son de demo (dominio reservado example.com). Los pacientes de
+  // WhatsApp quedan sin email para que el canal no cambie al despachar.
+  type ReminderSeed = {
+    hh: number;
+    mm: number;
+    channel: "EMAIL" | "WHATSAPP";
+    status: "PENDING" | "SENT" | "FAILED";
+    email?: string;
+    sentMinutesAgo?: number;
+    response?: "CONFIRMED";
+    errorMessage?: string;
+  };
+  const reminderConfig: ReminderSeed[] = [
+    { hh: 8,  mm: 0,  channel: "EMAIL",    status: "PENDING", email: "lucas.rodriguez@example.com" },
+    { hh: 8,  mm: 30, channel: "EMAIL",    status: "SENT",    email: "tomas.sanchez@example.com", sentMinutesAgo: 30, response: "CONFIRMED" },
+    { hh: 9,  mm: 0,  channel: "WHATSAPP", status: "PENDING" },
+    { hh: 10, mm: 0,  channel: "WHATSAPP", status: "PENDING" },
+    { hh: 10, mm: 30, channel: "EMAIL",    status: "PENDING", email: "familia.lopez@example.com" },
+    { hh: 11, mm: 0,  channel: "EMAIL",    status: "FAILED",  email: "bruno.ruiz@example.com", errorMessage: "Casilla inexistente (rebote del servidor de correo)" },
   ];
 
+  let demoConfirmationLink: string | null = null;
+  let createdReminders = 0;
   for (const cfg of reminderConfig) {
     const shift = createdTomorrowShifts.find((s) => s.hh === cfg.hh && s.mm === cfg.mm);
-    if (!shift) {
+    const def = tomorrowShifts.find((t) => t.h === cfg.hh && t.m === cfg.mm);
+    if (!shift || !def) {
       console.warn(`⚠️  No se encontró turno mañana ${cfg.hh}:${cfg.mm} para crear reminder`);
       continue;
     }
-    await prisma.shiftReminder.create({
-      data: {
-        shiftId: shift.id,
-        scheduledFor: remindersScheduledAt,
-        status: cfg.status,
-        channel: "email",
-        sentAt: cfg.sentAt ?? null,
-      },
+    const patientId = ppid(def.patientKey);
+    const telephone = receptionPatientsData.find((p) => `${p.firstName} ${p.lastName}` === def.patientKey)?.telephone ?? null;
+    await prisma.patient.update({
+      where: { id: patientId },
+      data: { email: cfg.channel === "EMAIL" ? cfg.email ?? null : null, reminderOptOut: false, reminderOptOutAt: null },
     });
+
+    const start = setHM(tomorrowRecep, cfg.hh, cfg.mm);
+    const sentAt = cfg.sentMinutesAgo !== undefined ? new Date(nowRecep.getTime() - cfg.sentMinutesAgo * 60_000) : null;
+    const respondedAt = cfg.response && sentAt ? new Date(sentAt.getTime() + 10 * 60_000) : null;
+    const { token, hash } = generateConfirmationToken();
+    const data = {
+      scheduledFor: new Date(start.getTime() - 24 * 60 * 60_000),
+      status: cfg.status,
+      channel: cfg.channel,
+      offsetHours: 24,
+      manual: cfg.channel === "WHATSAPP",
+      deliveredTo: cfg.channel === "EMAIL" ? cfg.email ?? null : telephone,
+      tokenHash: hash,
+      tokenExpiresAt: start,
+      response: cfg.response ?? null,
+      respondedAt,
+      sentAt,
+      errorMessage: cfg.errorMessage ?? null,
+    };
+    await prisma.shiftReminder.upsert({
+      where: { shiftId_offsetHours: { shiftId: shift.id, offsetHours: 24 } },
+      update: data,
+      create: { shiftId: shift.id, ...data },
+    });
+    createdReminders++;
+
+    if (cfg.response === "CONFIRMED") {
+      await prisma.shift.update({
+        where: { id: shift.id },
+        data: { status: ShiftStatus.CONFIRMED, confirmedAt: respondedAt, confirmedVia: "PATIENT_LINK" },
+      });
+      // El token de un recordatorio SENT no se recalcula: este link queda válido para probar /turno/<token>.
+      demoConfirmationLink = confirmationUrl(token);
+    }
   }
-  console.log(`✅ ${reminderConfig.length} ShiftReminders creados para mañana`);
+  console.log(`✅ ${createdReminders} ShiftReminders creados para mañana (2 WhatsApp manuales, 1 confirmado)`);
+  if (demoConfirmationLink) console.log(`   • Link de confirmación de demo: ${demoConfirmationLink}`);
 
   console.log("\n📊 RECEPCIÓN summary:");
   console.log(`   • ${medicosRecep.length} médicos activos (C1..C12)`);
   console.log(`   • ${createdRecepShifts} turnos hoy (6 en sala, 2 en consulta, mix FINISHED/ABSENT/PENDING)`);
   console.log(`   • 1 walk-in (Antonia Díaz)`);
   console.log(`   • 8 huecos disponibles distribuidos`);
-  console.log(`   • ${createdTomorrowShifts.length} turnos mañana con ${reminderConfig.length} reminders`);
+  console.log(`   • ${createdTomorrowShifts.length} turnos mañana con ${createdReminders} reminders`);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ADMIN DASHBOARD — Historical audit log demo data

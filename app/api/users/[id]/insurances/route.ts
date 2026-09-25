@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateUserInsurancesSchema } from "@/lib/validations";
 
@@ -8,7 +8,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 // GET /api/users/[id]/insurances — List insurances accepted by this user (with copago)
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -50,7 +50,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 //   { insuranceIds: ["abc", "def"] }              — legacy shape (copago=0)
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

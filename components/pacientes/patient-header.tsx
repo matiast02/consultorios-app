@@ -12,9 +12,11 @@ import {
   Edit,
   MessageCircle,
   Phone,
+  FileText,
 } from "lucide-react";
 import type { Patient } from "@/types";
 import { cn } from "@/lib/utils";
+import { calcAge, formatDateAR as fmtDateAR } from "@/lib/format";
 
 interface PatientHeaderProps {
   patient: Patient;
@@ -24,27 +26,11 @@ interface PatientHeaderProps {
   activePrescriptions: { count: number; nextExpiry?: Date | null } | null;
   onEdit: () => void;
   onNewShift: () => void;
+  /** Abre el flujo de copia de la historia clínica para el paciente (Ley 26.529 art. 14). */
+  onHcCopy?: () => void;
 }
 
-function calcAge(birth?: string | null): number | null {
-  if (!birth) return null;
-  const b = new Date(birth);
-  if (isNaN(b.getTime())) return null;
-  const t = new Date();
-  let age = t.getFullYear() - b.getFullYear();
-  const m = t.getMonth() - b.getMonth();
-  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) age--;
-  return age;
-}
 
-function fmtDateAR(d: Date | null | undefined) {
-  if (!d) return "—";
-  return d.toLocaleDateString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
 
 function fmtMonthDay(d: Date | null | undefined) {
   if (!d) return "—";
@@ -100,6 +86,7 @@ export function PatientHeader({
   activePrescriptions,
   onEdit,
   onNewShift,
+  onHcCopy,
 }: PatientHeaderProps) {
   const router = useRouter();
   const age = calcAge(patient.birthDate);
@@ -219,6 +206,12 @@ export function PatientHeader({
             <Edit className="mr-1.5 h-4 w-4" />
             Editar
           </Button>
+          {onHcCopy && (
+            <Button variant="outline" size="sm" className="h-9" onClick={onHcCopy} title="Copia de la historia clínica para el paciente">
+              <FileText className="mr-1.5 h-4 w-4" />
+              Copia de HC
+            </Button>
+          )}
         </div>
       </div>
 

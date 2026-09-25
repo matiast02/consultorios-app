@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
+import { sendPasswordResetEmail } from "@/lib/password-setup-email";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 import { forgotPasswordSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
@@ -25,6 +26,19 @@ export async function POST(req: NextRequest) {
       message: "Si el email existe, se envio un enlace de recuperacion",
     });
 
+    // Rate limit por IP y por email: evita spam de tokens y enumeración por tiempo.
+    const ip = (req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "unknown")
+      .split(",")[0]
+      .trim()
+      .slice(0, 100);
+    const [byIp, byEmail] = await Promise.all([
+      checkRateLimit(`forgot:ip:${ip}`, { maxRequests: 5, windowMs: 15 * 60 * 1000 }),
+      checkRateLimit(`forgot:email:${email.toLowerCase()}`, { maxRequests: 3, windowMs: 60 * 60 * 1000 }),
+    ]);
+    if (!byIp.allowed || !byEmail.allowed) {
+      return successResponse; // misma respuesta: no revela nada
+    }
+
     const user = await prisma.user.findFirst({
       where: { email, deletedAt: null },
     });
@@ -33,28 +47,12 @@ export async function POST(req: NextRequest) {
       return successResponse;
     }
 
-    // Mark any previous unused tokens for this email as used
-    await prisma.resetToken.updateMany({
-      where: { email, used: false },
-      data: { used: true },
-    });
-
-    // Generate secure random token
-    const token = crypto.randomBytes(32).toString("hex");
-
-    // Create reset token with 1-hour expiry
-    await prisma.resetToken.create({
-      data: {
-        email,
-        token,
-        expires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
-      },
-    });
-
-    // Log the reset URL (email integration later)
-    console.log(
-      `[RESET PASSWORD] URL: http://localhost:3000/reset-password?token=${token}`
-    );
+    // Link de un solo uso (solo el hash en DB) por el proveedor de email
+    // configurado (Resend/SMTP; en desarrollo, la consola).
+    const sent = await sendPasswordResetEmail({ email: user.email, name: user.name });
+    if (!sent.ok) {
+      console.warn(`[forgot-password] email a ${email} no enviado (${sent.provider}): ${sent.error ?? "?"}`);
+    }
 
     logAudit({
       userId: user.id,

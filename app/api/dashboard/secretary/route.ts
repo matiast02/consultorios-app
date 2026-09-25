@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { isModuleEnabled } from "@/lib/modules";
+import { WAITING_ROOM_MODULE, emptyOpenTickets, openTicketsByTarget } from "@/lib/waiting-room/tickets";
+import { staffSummary } from "@/lib/online-booking";
+import { medicShortName as shortMedicName } from "@/lib/names";
+import {
+  REMINDER_ITEM_INCLUDE,
+  loadReminderConfig,
+  reminderRowToItem,
+} from "@/lib/reminders/scheduler";
 import type {
   AgendaAutoMode,
   AgendaProfessional,
@@ -12,6 +21,7 @@ import type {
   SecretaryAgendaData,
   SecretaryDashboardData,
   SecretaryRemindersData,
+  CalledItem,
   WaitingRoomItem,
 } from "@/types";
 
@@ -27,23 +37,10 @@ function addDays(d: Date, n: number): Date {
   return x;
 }
 
-function formatHHmm(d: Date): string {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
 function diffMinutes(a: Date, b: Date): number {
   return Math.max(0, Math.round((a.getTime() - b.getTime()) / 60000));
 }
 
-function shortMedicName(u: { firstName: string | null; lastName: string | null; name: string | null }): string {
-  // Try to infer gender from firstName ending (es-AR): "a" → Dra., else Dr.
-  const fn = u.firstName?.trim() ?? "";
-  const ln = u.lastName?.trim() ?? "";
-  const honor = fn.toLowerCase().endsWith("a") ? "Dra." : "Dr.";
-  if (ln) return `${honor} ${ln}`;
-  if (fn) return `${honor} ${fn}`;
-  return u.name ?? "Profesional";
-}
 
 function osShortFromName(name: string | null | undefined): string | null {
   if (!name) return null;
@@ -60,6 +57,17 @@ function osShortFromName(name: string | null | undefined): string | null {
   return up.split(/\s+/)[0].slice(0, 6);
 }
 
+/** Cobertura del turno (obra social aceptada o particular); turnos viejos sin cobertura: la obra social del paciente. */
+function coverageShort(s: {
+  isPrivate: boolean;
+  coverageInsurance: { name: string } | null;
+  patient: { os: { name: string } | null } | null;
+}): string | null {
+  if (s.coverageInsurance) return osShortFromName(s.coverageInsurance.name);
+  if (s.isPrivate) return "PART";
+  return osShortFromName(s.patient?.os?.name);
+}
+
 function pickAutoMode(activeCount: number): AgendaAutoMode {
   if (activeCount <= 2) return "columns-detailed";
   if (activeCount <= 5) return "columns-compact";
@@ -68,7 +76,7 @@ function pickAutoMode(activeCount: number): AgendaAutoMode {
 
 export async function GET() {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -113,6 +121,7 @@ export async function GET() {
             },
           },
           consultationType: { select: { id: true, name: true, color: true } },
+          coverageInsurance: { select: { name: true } },
           user: {
             select: {
               id: true,
@@ -127,26 +136,13 @@ export async function GET() {
         orderBy: { start: "asc" },
       }),
 
-      // Reminders scheduled for tomorrow's shifts (regardless of status — we list all)
+      // Recordatorios de los turnos de mañana (todos los estados y offsets).
+      // Se filtra por el inicio del turno: con offset 24 h el recordatorio se
+      // envía hoy, así que filtrar por scheduledFor los dejaría afuera.
       prisma.shiftReminder.findMany({
-        where: { scheduledFor: { gte: tomorrow, lt: dayAfter } },
-        include: {
-          shift: {
-            include: {
-              patient: { select: { firstName: true, lastName: true } },
-              user: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  name: true,
-                  specialization: { select: { color: true } },
-                },
-              },
-            },
-          },
-        },
-        orderBy: { scheduledFor: "asc" },
+        where: { shift: { start: { gte: tomorrow, lt: dayAfter } } },
+        include: REMINDER_ITEM_INCLUDE,
+        orderBy: [{ shift: { start: "asc" } }, { offsetHours: "desc" }],
       }),
 
       // Active professionals: medics that are isActive AND have at least one shift today OR a preference covering today
@@ -192,6 +188,10 @@ export async function GET() {
       }),
     ]);
 
+    // ─── Números de sala (módulo waiting_room) ──────────────────────────────
+    const waitingRoomEnabled = await isModuleEnabled(WAITING_ROOM_MODULE);
+    const tickets = waitingRoomEnabled ? await openTicketsByTarget() : emptyOpenTickets();
+
     // ─── Active professionals for today ────────────────────────────────────
     const todayActive = activeMedics.filter(
       (m) => m.shifts.length > 0 || m.preferences.length > 0,
@@ -203,10 +203,29 @@ export async function GET() {
     let esperandoMas15 = 0;
 
     const scheduledWaitingItems: WaitingRoomItem[] = [];
+    const llamados: CalledItem[] = [];
     for (const s of todayShifts) {
       if (s.consultationStartedAt && !["FINISHED", "ABSENT", "CANCELLED"].includes(s.status)) {
-        // Pacient still in consultation
+        // Paciente en consulta (ya llamado): pestaña «En consulta» de recepción.
         enConsulta++;
+        const ticket = tickets.byShift.get(s.id);
+        const lastCall = ticket?.lastCalledAt ?? new Date(s.consultationStartedAt);
+        llamados.push({
+          shiftId: s.id,
+          patient: {
+            id: s.patient?.id ?? null,
+            firstName: s.patient?.firstName ?? "",
+            lastName: s.patient?.lastName ?? "",
+          },
+          medicId: s.userId,
+          medicShortName: shortMedicName(s.user),
+          medicColor: s.user.specialization?.color ?? null,
+          room: ticket?.room ?? s.user.defaultRoom ?? null,
+          calledAt: lastCall.toISOString(),
+          minutesSinceCall: diffMinutes(now, lastCall),
+          ticketNumber: ticket?.number ?? null,
+          callCount: ticket?.callCount ?? 0,
+        });
         continue;
       }
       if (
@@ -224,13 +243,14 @@ export async function GET() {
           arrivedAt: new Date(s.arrivedAt).toISOString(),
           minutesWaiting: min,
           isNext: false,
+          ticketNumber: tickets.byShift.get(s.id)?.number ?? null,
           note: s.observations ?? null,
           patient: {
             id: s.patient?.id ?? null,
             firstName: s.patient?.firstName ?? "",
             lastName: s.patient?.lastName ?? "",
             telephone: s.patient?.telephone ?? null,
-            osShort: osShortFromName(s.patient?.os?.name),
+            osShort: coverageShort(s),
           },
           shift: {
             id: s.id,
@@ -243,6 +263,7 @@ export async function GET() {
             medicShortName: shortMedicName(s.user),
             medicColor: s.user.specialization?.color ?? null,
             consultationTypeName: s.consultationType?.name ?? null,
+            room: s.user.defaultRoom ?? null,
           },
         });
       }
@@ -259,6 +280,7 @@ export async function GET() {
         arrivedAt: new Date(w.arrivedAt).toISOString(),
         minutesWaiting: min,
         isNext: false,
+        ticketNumber: tickets.byWalkIn.get(w.id)?.number ?? null,
         note: w.note ?? null,
         patient: {
           id: w.patientId,
@@ -302,28 +324,17 @@ export async function GET() {
         room: sourceShift.user.defaultRoom ?? null,
         shiftStart: new Date(sourceShift.start).toISOString(),
         minutesWaiting: nextToCallShift.minutesWaiting,
+        ticketNumber: tickets.byShift.get(nextToCallShift.id)?.number ?? null,
       };
     }
 
     // ─── Recordatorios ───────────────────────────────────────────────────────
-    const reminderItems: ReminderItem[] = tomorrowReminders.map((r) => {
-      const time = formatHHmm(new Date(r.shift.start));
-      const lastName = r.shift.patient?.lastName ?? "";
-      const firstInitial = (r.shift.patient?.firstName?.[0] ?? "").toUpperCase();
-      const patientShortName = lastName
-        ? `${lastName}, ${(r.shift.patient?.firstName ?? "").trim().split(/\s+/)[0]}`
-        : "Paciente";
-      void firstInitial;
-      return {
-        id: r.id,
-        shiftId: r.shiftId,
-        time,
-        patientShortName,
-        medicShortName: shortMedicName(r.shift.user),
-        medicColor: r.shift.user.specialization?.color ?? null,
-        status: r.status,
-      };
-    });
+    // Canal, offset, respuesta del paciente y, para los WhatsApp manuales
+    // pendientes, el waLink con el mensaje y el link de confirmación.
+    const reminderConfig = await loadReminderConfig();
+    const reminderItems: ReminderItem[] = await Promise.all(
+      tomorrowReminders.map((r) => reminderRowToItem(r, reminderConfig, now)),
+    );
 
     const pending = reminderItems.filter((x) => x.status === "PENDING").length;
     const sent = reminderItems.filter((x) => x.status === "SENT").length;
@@ -466,6 +477,13 @@ export async function GET() {
       secretaryUser?.name ||
       "Recepción";
 
+    // ─── Reservas online pendientes de confirmar ─────────────────────────────
+    // Opcional: si falla, el resto del dashboard se sirve igual.
+    const reservasOnline = await staffSummary(now).catch((e: unknown) => {
+      console.error("[dashboard/secretary] reservas online:", e);
+      return undefined;
+    });
+
     const payload: SecretaryDashboardData = {
       header: {
         secretaryName: fullName,
@@ -483,6 +501,9 @@ export async function GET() {
       recordatorios,
       huecosHoy,
       agenda,
+      llamados: llamados.sort((a, b) => b.calledAt.localeCompare(a.calledAt)),
+      waitingRoom: { enabled: waitingRoomEnabled },
+      ...(reservasOnline ? { reservasOnline } : {}),
     };
 
     return NextResponse.json({ success: true, data: payload });

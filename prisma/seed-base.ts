@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { setUserPassword } from "../lib/credentials";
 
 /**
  * Seed base — datos maestros para produccion y desarrollo.
@@ -193,6 +193,12 @@ export async function seedBase(prisma: PrismaClient) {
     update: {},
     create: { module: "study_orders", name: "Ordenes de Estudio", enabled: true },
   });
+  // Sala de espera y llamado: apagado por defecto (docs/SALA-DE-ESPERA.md)
+  await prisma.moduleConfig.upsert({
+    where: { module: "waiting_room" },
+    update: {},
+    create: { module: "waiting_room", name: "Sala de espera y llamado", enabled: false },
+  });
   console.log("✅ Module config created");
 
   // ─── Medications (Vademécum) ──────────────────────────────────────────────
@@ -258,17 +264,16 @@ export async function seedBase(prisma: PrismaClient) {
     });
 
     if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash(adminPassword, 12);
-
       const adminUser = await prisma.user.create({
         data: {
           email: adminEmail,
           name: "Administrador",
           firstName: "Admin",
           lastName: "Sistema",
-          password: hashedPassword,
         },
       });
+      // Credencial en Account (providerId "credential"), hash bcrypt.
+      await setUserPassword(prisma, adminUser.id, { plain: adminPassword });
 
       const adminRole = await prisma.role.findUnique({
         where: { name: "admin" },

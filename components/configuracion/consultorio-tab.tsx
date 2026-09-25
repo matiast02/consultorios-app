@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, type Control } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Loader2, Inbox, Settings, Clock as ClockIcon, MessageCircle, Check, Archive, Mail, Phone, MapPin } from "lucide-react";
 import { ClinicLocationPicker, type LocationValue } from "./clinic-location-picker";
+import { WaitingRoomDisplaySection } from "./waiting-room-display-section";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,10 +22,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { clinicSettingsSchema, clinicHoursWeekSchema, type ClinicSettingsInput } from "@/lib/validations";
-import type { ClinicHoursDay, ClinicSettings, ClinicContactRequest } from "@/types";
+import { clinicHoursWeekSchema } from "@/lib/validations";
+import type {
+  ClinicHoursDay,
+  ClinicSettings,
+  ClinicContactRequest,
+  OnlineBookingSettings,
+  ReminderSettings,
+} from "@/types";
 import { dayLongLabel } from "@/lib/clinic-hours-format";
 import { buildWhatsappLink } from "@/lib/whatsapp";
+import {
+  ReminderSettingsCard,
+  REMINDER_FORM_DEFAULTS,
+  clinicSettingsFormSchema,
+  reminderValuesFromSettings,
+  type ClinicSettingsFormValues,
+} from "./reminder-settings-card";
+import {
+  ONLINE_BOOKING_FORM_DEFAULTS,
+  OnlineBookingSettingsCard,
+  onlineBookingValuesFromSettings,
+} from "./online-booking-settings-card";
+
+/** GET /api/admin/clinic-settings: fila de ClinicSettings (+ recordatorios, reservas online y, si el backend lo expone, emailConfigured). */
+type ClinicSettingsResponse = ClinicSettings &
+  Partial<Record<keyof ReminderSettings, unknown>> &
+  Partial<Record<keyof OnlineBookingSettings, unknown>> & { emailConfigured?: boolean };
 
 // ────────────────────────────────────────────────────────────────────────────
 // Settings sub-card
@@ -32,14 +56,11 @@ import { buildWhatsappLink } from "@/lib/whatsapp";
 
 function SettingsCard() {
   const [loading, setLoading] = useState(true);
-  const {
-    register,
-    handleSubmit,
-    reset,
-    control,
-    formState: { errors, isSubmitting, isDirty },
-  } = useForm<ClinicSettingsInput>({
-    resolver: zodResolver(clinicSettingsSchema),
+  const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
+  // Un solo form (y un solo PUT) para "Datos del consultorio", "Recordatorios" y
+  // "Reservas online": el PUT reescribe la fila completa, así que las cards se guardan juntas.
+  const form = useForm<ClinicSettingsFormValues>({
+    resolver: zodResolver(clinicSettingsFormSchema),
     defaultValues: {
       name: "",
       tagline: "",
@@ -59,8 +80,19 @@ function SettingsCard() {
       showContactForm: true,
       yearsOfService: null,
       patientsServedDisplay: "",
+      ...REMINDER_FORM_DEFAULTS,
+      reminderChannels: [...REMINDER_FORM_DEFAULTS.reminderChannels],
+      ...ONLINE_BOOKING_FORM_DEFAULTS,
     },
   });
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    setError,
+    formState: { errors, isSubmitting, isDirty },
+  } = form;
 
   useEffect(() => {
     let cancelled = false;
@@ -68,7 +100,9 @@ function SettingsCard() {
       .then((r) => r.json())
       .then((j) => {
         if (cancelled || !j?.success) return;
-        const s: ClinicSettings = j.data;
+        const s: ClinicSettingsResponse = j.data;
+        const ec = s.emailConfigured ?? j.emailConfigured;
+        setEmailConfigured(typeof ec === "boolean" ? ec : null);
         reset({
           name: s.name ?? "",
           tagline: s.tagline ?? "",
@@ -88,6 +122,8 @@ function SettingsCard() {
           showContactForm: s.showContactForm,
           yearsOfService: s.yearsOfService,
           patientsServedDisplay: s.patientsServedDisplay ?? "",
+          ...reminderValuesFromSettings(s),
+          ...onlineBookingValuesFromSettings(s),
         });
       })
       .finally(() => !cancelled && setLoading(false));
@@ -96,203 +132,221 @@ function SettingsCard() {
     };
   }, [reset]);
 
-  async function onSubmit(values: ClinicSettingsInput) {
+  async function onSubmit(values: ClinicSettingsFormValues) {
+    const payload: ClinicSettingsFormValues = {
+      ...values,
+      reminderTemplate: values.reminderTemplate?.trim() ? values.reminderTemplate : null,
+      onlineBookingNotes: values.onlineBookingNotes?.trim() ? values.onlineBookingNotes.trim() : null,
+    };
     try {
       const res = await fetch("/api/admin/clinic-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok) {
+        // 400 con details.fieldErrors (zod flatten): marcar cada campo en el form.
+        const fieldErrors: Record<string, string[] | undefined> = json.details?.fieldErrors ?? {};
+        for (const [field, messages] of Object.entries(fieldErrors)) {
+          if (messages?.[0]) setError(field as keyof ClinicSettingsFormValues, { message: messages[0] });
+        }
         toast.error(json.error ?? "Error al guardar");
         return;
       }
       toast.success("Configuración actualizada");
-      reset(values);
+      reset(payload);
     } catch {
       toast.error("Error de conexión");
     }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Settings className="h-4 w-4 text-primary" /> Datos del consultorio
-        </CardTitle>
-        <CardDescription>
-          Información que se muestra en el sitio público. Todos los campos son opcionales — solo se muestra lo cargado.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-name">Nombre del consultorio</Label>
-                <Input id="cs-name" placeholder="ConsultorioApp" {...register("name")} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-tagline">Tagline corto</Label>
-                <Input id="cs-tagline" placeholder="Centro médico" {...register("tagline")} />
-              </div>
+    <form
+      onSubmit={handleSubmit(onSubmit, () => toast.error("Revisá los campos marcados"))}
+      className="space-y-6"
+      noValidate
+    >
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="h-4 w-4 text-primary" /> Datos del consultorio
+          </CardTitle>
+          <CardDescription>
+            Información que se muestra en el sitio público. Todos los campos son opcionales — solo se muestra lo cargado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
             </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-name">Nombre del consultorio</Label>
+                  <Input id="cs-name" placeholder="ConsultorioApp" {...register("name")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-tagline">Tagline corto</Label>
+                  <Input id="cs-tagline" placeholder="Centro médico" {...register("tagline")} />
+                </div>
+              </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-email">Email de contacto</Label>
-                <Input id="cs-email" type="email" placeholder="turnos@consultorio.com" {...register("contactEmail")} />
-                {errors.contactEmail && (
-                  <p className="text-xs text-destructive">{errors.contactEmail.message}</p>
-                )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-email">Email de contacto</Label>
+                  <Input id="cs-email" type="email" placeholder="turnos@consultorio.com" {...register("contactEmail")} />
+                  {errors.contactEmail && (
+                    <p className="text-xs text-destructive">{errors.contactEmail.message}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-phone">Teléfono visible</Label>
+                  <Input id="cs-phone" placeholder="+54 11 4000-1234" {...register("phoneDisplay")} />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-phone">Teléfono visible</Label>
-                <Input id="cs-phone" placeholder="+54 11 4000-1234" {...register("phoneDisplay")} />
-              </div>
-            </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-wa1">WhatsApp principal</Label>
-                <Input id="cs-wa1" inputMode="numeric" placeholder="5491140001234 (sólo dígitos)" {...register("whatsappPrimary")} />
-                {errors.whatsappPrimary && (
-                  <p className="text-xs text-destructive">{errors.whatsappPrimary.message}</p>
-                )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-wa1">WhatsApp principal</Label>
+                  <Input id="cs-wa1" inputMode="numeric" placeholder="5491140001234 (sólo dígitos)" {...register("whatsappPrimary")} />
+                  {errors.whatsappPrimary && (
+                    <p className="text-xs text-destructive">{errors.whatsappPrimary.message}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-wa2">WhatsApp secundario (opcional)</Label>
+                  <Input id="cs-wa2" inputMode="numeric" placeholder="5491140005678" {...register("whatsappSecondary")} />
+                  {errors.whatsappSecondary && (
+                    <p className="text-xs text-destructive">{errors.whatsappSecondary.message}</p>
+                  )}
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-wa2">WhatsApp secundario (opcional)</Label>
-                <Input id="cs-wa2" inputMode="numeric" placeholder="5491140005678" {...register("whatsappSecondary")} />
-                {errors.whatsappSecondary && (
-                  <p className="text-xs text-destructive">{errors.whatsappSecondary.message}</p>
-                )}
-              </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="cs-greet">Saludo prellenado de WhatsApp</Label>
-              <Textarea
-                id="cs-greet"
-                rows={2}
-                placeholder="Hola, quería solicitar un turno"
-                {...register("prefillWhatsappMessage")}
-              />
-              <p className="text-xs text-muted-foreground">
-                El sistema agrega el nombre, especialidad y día preferido del visitante a este saludo.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="cs-addr1">Dirección (línea 1)</Label>
-                <Input id="cs-addr1" placeholder="Av. Corrientes 1234, piso 3" {...register("addressLine1")} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-addr2">Dirección (línea 2)</Label>
-                <Input id="cs-addr2" placeholder="Ciudad Autónoma de Buenos Aires" {...register("addressLine2")} />
-              </div>
-            </div>
-
-            <div className="rounded-lg border bg-muted/30 p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-primary" />
-                <p className="text-sm font-semibold">Ubicación en el mapa</p>
-              </div>
-              <p className="mb-4 text-xs text-muted-foreground">
-                Buscá tu dirección y arrastrá el pin para marcar la entrada exacta del consultorio.
-              </p>
-              <Controller
-                control={control}
-                name="mapLat"
-                render={({ field: latField }) => (
-                  <Controller
-                    control={control}
-                    name="mapLng"
-                    render={({ field: lngField }) => (
-                      <Controller
-                        control={control}
-                        name="mapZoom"
-                        render={({ field: zoomField }) => {
-                          const current: LocationValue | null =
-                            latField.value != null && lngField.value != null
-                              ? {
-                                  lat: latField.value,
-                                  lng: lngField.value,
-                                  zoom: zoomField.value ?? 16,
-                                  label: null,
-                                }
-                              : null;
-                          return (
-                            <ClinicLocationPicker
-                              value={current}
-                              onChange={(v) => {
-                                latField.onChange(v?.lat ?? null);
-                                lngField.onChange(v?.lng ?? null);
-                                zoomField.onChange(v?.zoom ?? null);
-                              }}
-                            />
-                          );
-                        }}
-                      />
-                    )}
-                  />
-                )}
-              />
-              {(errors.mapLat || errors.mapLng) && (
-                <p className="mt-2 text-xs text-destructive">
-                  {errors.mapLat?.message ?? errors.mapLng?.message}
+                <Label htmlFor="cs-greet">Saludo prellenado de WhatsApp</Label>
+                <Textarea
+                  id="cs-greet"
+                  rows={2}
+                  placeholder="Hola, quería solicitar un turno"
+                  {...register("prefillWhatsappMessage")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  El sistema agrega el nombre, especialidad y día preferido del visitante a este saludo.
                 </p>
-              )}
-            </div>
+              </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-years">Años de trayectoria (stat)</Label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-addr1">Dirección (línea 1)</Label>
+                  <Input id="cs-addr1" placeholder="Av. Corrientes 1234, piso 3" {...register("addressLine1")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-addr2">Dirección (línea 2)</Label>
+                  <Input id="cs-addr2" placeholder="Ciudad Autónoma de Buenos Aires" {...register("addressLine2")} />
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold">Ubicación en el mapa</p>
+                </div>
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Buscá tu dirección y arrastrá el pin para marcar la entrada exacta del consultorio.
+                </p>
                 <Controller
                   control={control}
-                  name="yearsOfService"
-                  render={({ field }) => (
-                    <Input
-                      id="cs-years"
-                      type="number"
-                      min={0}
-                      placeholder="15"
-                      value={field.value ?? ""}
-                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                  name="mapLat"
+                  render={({ field: latField }) => (
+                    <Controller
+                      control={control}
+                      name="mapLng"
+                      render={({ field: lngField }) => (
+                        <Controller
+                          control={control}
+                          name="mapZoom"
+                          render={({ field: zoomField }) => {
+                            const current: LocationValue | null =
+                              latField.value != null && lngField.value != null
+                                ? {
+                                    lat: latField.value,
+                                    lng: lngField.value,
+                                    zoom: zoomField.value ?? 16,
+                                    label: null,
+                                  }
+                                : null;
+                            return (
+                              <ClinicLocationPicker
+                                value={current}
+                                onChange={(v) => {
+                                  latField.onChange(v?.lat ?? null);
+                                  lngField.onChange(v?.lng ?? null);
+                                  zoomField.onChange(v?.zoom ?? null);
+                                }}
+                              />
+                            );
+                          }}
+                        />
+                      )}
                     />
                   )}
                 />
+                {(errors.mapLat || errors.mapLng) && (
+                  <p className="mt-2 text-xs text-destructive">
+                    {errors.mapLat?.message ?? errors.mapLng?.message}
+                  </p>
+                )}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cs-patients">Pacientes atendidos (stat)</Label>
-                <Input id="cs-patients" placeholder="+12k" {...register("patientsServedDisplay")} />
-              </div>
-            </div>
 
-            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-              <p className="text-sm font-semibold">Visibilidad en el sitio público</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <SwitchRow control={control} name="showTeam" label="Sección Equipo" />
-                <SwitchRow control={control} name="showHours" label="Sección Horarios" />
-                <SwitchRow control={control} name="showMap" label="Mapa de ubicación" />
-                <SwitchRow control={control} name="showContactForm" label="Formulario de contacto" />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-years">Años de trayectoria (stat)</Label>
+                  <Controller
+                    control={control}
+                    name="yearsOfService"
+                    render={({ field }) => (
+                      <Input
+                        id="cs-years"
+                        type="number"
+                        min={0}
+                        placeholder="15"
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                      />
+                    )}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cs-patients">Pacientes atendidos (stat)</Label>
+                  <Input id="cs-patients" placeholder="+12k" {...register("patientsServedDisplay")} />
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                <p className="text-sm font-semibold">Visibilidad en el sitio público</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <SwitchRow control={control} name="showTeam" label="Sección Equipo" />
+                  <SwitchRow control={control} name="showHours" label="Sección Horarios" />
+                  <SwitchRow control={control} name="showMap" label="Mapa de ubicación" />
+                  <SwitchRow control={control} name="showContactForm" label="Formulario de contacto" />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <Button type="submit" disabled={isSubmitting || !isDirty}>
+                  {isSubmitting ? "Guardando…" : "Guardar cambios"}
+                </Button>
               </div>
             </div>
-
-            <div className="flex items-center justify-end">
-              <Button type="submit" disabled={isSubmitting || !isDirty}>
-                {isSubmitting ? "Guardando…" : "Guardar cambios"}
-              </Button>
-            </div>
-          </form>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </CardContent>
+      </Card>
+      {!loading && <ReminderSettingsCard form={form} emailConfigured={emailConfigured} />}
+      {!loading && <OnlineBookingSettingsCard form={form} />}
+    </form>
   );
 }
 
@@ -301,7 +355,7 @@ function SwitchRow({
   name,
   label,
 }: {
-  control: ReturnType<typeof useForm<ClinicSettingsInput>>["control"];
+  control: Control<ClinicSettingsFormValues>;
   name: "showTeam" | "showHours" | "showMap" | "showContactForm";
   label: string;
 }) {
@@ -655,6 +709,7 @@ export function ConsultorioTab() {
     <div className="space-y-6">
       <SettingsCard />
       <HoursCard />
+      <WaitingRoomDisplaySection />
       <InboxCard />
     </div>
   );

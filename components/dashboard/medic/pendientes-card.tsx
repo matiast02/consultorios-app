@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Flag, Mail, Microscope } from "lucide-react";
+import { FileText, Flag, Mail, Microscope, ShieldCheck } from "lucide-react";
 import type { DashboardPendientes } from "@/types";
 
 export function PendientesCard({ data }: { data: DashboardPendientes }) {
@@ -46,6 +46,24 @@ export function PendientesCard({ data }: { data: DashboardPendientes }) {
       href: "/dashboard/pacientes",
     },
   ];
+
+  // Solicitudes de acceso a la HC que el médico puede decidir: solo si hay.
+  // Link a la ficha del paciente de la más antigua (tab Datos → "Accesos a la HC").
+  const access = data.solicitudesDeAcceso;
+  if (access && access.count > 0) {
+    items.unshift({
+      icon: ShieldCheck,
+      iconBg: "bg-violet-50 dark:bg-violet-950/40",
+      iconColor: "text-violet-600",
+      count: access.count,
+      titleSingular: "solicitud de acceso a HC",
+      titlePlural: "solicitudes de acceso a HC",
+      summary: access.summary,
+      href: access.patientId
+        ? `/dashboard/pacientes/${access.patientId}?tab=datos`
+        : "/dashboard/pacientes",
+    });
+  }
 
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-sm">

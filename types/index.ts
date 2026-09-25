@@ -7,29 +7,12 @@ export type ShiftStatus =
   | "FINISHED"
   | "CANCELLED";
 
-export const SHIFT_STATUS_LABELS: Record<ShiftStatus, string> = {
-  PENDING: "Pendiente",
-  CONFIRMED: "Confirmado",
-  ABSENT: "Ausente",
-  FINISHED: "Finalizado",
-  CANCELLED: "Cancelado",
-};
-
-export const SHIFT_STATUS_COLORS: Record<ShiftStatus, string> = {
-  PENDING: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800",
-  CONFIRMED: "bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-950/40 dark:text-cyan-300 dark:border-cyan-800",
-  ABSENT: "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800",
-  FINISHED: "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800",
-  CANCELLED: "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700",
-};
-
-export const SHIFT_STATUS_DOT_COLORS: Record<ShiftStatus, string> = {
-  PENDING: "bg-amber-500",
-  CONFIRMED: "bg-cyan-500",
-  ABSENT: "bg-red-500",
-  FINISHED: "bg-emerald-500",
-  CANCELLED: "bg-slate-400",
-};
+// Etiquetas y colores: una sola paleta en lib/shift-status.ts (nombres históricos).
+export {
+  SHIFT_STATUS_LABEL as SHIFT_STATUS_LABELS,
+  SHIFT_STATUS_BADGE_OUTLINE as SHIFT_STATUS_COLORS,
+  SHIFT_STATUS_DOT as SHIFT_STATUS_DOT_COLORS,
+} from "@/lib/shift-status";
 
 // ─── Health Insurance ────────────────────────────────────────────────────────
 
@@ -59,6 +42,13 @@ export interface Patient {
   // Emergency contact
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
+  // Consentimiento informado (Ley 25.326)
+  consentType?: "WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE" | null;
+  consentGivenAt?: string | null;
+  consentNote?: string | null;
+  // Oposición a recordatorios de turnos (contracts/api-schemas/reminders.yaml)
+  reminderOptOut?: boolean;
+  reminderOptOutAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,6 +79,17 @@ export interface Shift {
   // Reception flow (secretary dashboard)
   arrivedAt?: string | null;
   consultationStartedAt?: string | null;
+  // Cobertura con la que se atiende (obra social aceptada por el profesional, o particular).
+  // Ambos vacíos en turnos anteriores a esta versión: la UI muestra la obra social del paciente.
+  coverageInsuranceId?: string | null;
+  isPrivate?: boolean;
+  coverageInsurance?: HealthInsurance | null;
+  // Confirmación y origen
+  confirmedAt?: string | null;
+  confirmedVia?: "PATIENT_LINK" | "STAFF" | "PHONE" | null;
+  source?: "STAFF" | "ONLINE";
+  /** Solo en `GET /api/shifts/{id}`: número de sala abierto (módulo waiting_room), o null. */
+  ticket?: WaitingTicketOpen | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -203,6 +204,8 @@ export interface MealPlan {
   avoidFoods?: string | null;
   supplements?: string | null;
   notes?: string | null;
+  annulledAt?: string | null;
+  annulReason?: string | null;
   user?: {
     id: string;
     name?: string | null;
@@ -332,6 +335,9 @@ export interface UserPreferencesConfig {
   slotDurationMinutes: number;
   bufferMinutes: number;
   minAdvanceMinutes: number;
+  acceptsOnlineBooking: boolean;
+  /** Solo el propio profesional (y el admin) modifican horarios y días bloqueados. */
+  agendaLocked: boolean;
   language: string;
   timezone: string;
   weekStart: number;
@@ -420,8 +426,10 @@ export interface Evolution {
   treatment?: string | null;
   indications?: string | null;
   notes?: string | null;
+  annulledAt?: string | null;
+  annulReason?: string | null;
   user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
-  shift?: { start: string; end: string } | null;
+  shift?: { id?: string; start: string; end: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -439,6 +447,8 @@ export interface Prescription {
   diagnosis?: string | null;
   notes?: string | null;
   durationDays?: number;
+  annulledAt?: string | null;
+  annulReason?: string | null;
   user?: { name?: string | null; firstName?: string | null; lastName?: string | null };
   patient?: Patient;
   createdAt: string;
@@ -487,6 +497,16 @@ export interface DashboardShift {
     os?: { id: string; name: string; code?: string | null } | null;
   } | null;
   consultationType?: { id: string; name: string; color?: string | null } | null;
+  /** Sala de espera: llegada registrada y pase a consulta (ISO). */
+  arrivedAt?: string | null;
+  consultationStartedAt?: string | null;
+  /** Minutos en sala (llegó y todavía no pasó a consulta); null en otro caso. */
+  minutesWaiting?: number | null;
+  /** Número de sala del día (módulo waiting_room); null sin módulo o sin número. */
+  ticketNumber?: number | null;
+  /** Cobertura del turno: obra social aceptada por el médico, o particular. Ausentes en turnos viejos. */
+  coverage?: { id: string; name: string } | null;
+  isPrivate?: boolean;
 }
 
 export interface DashboardTodayStats {
@@ -529,6 +549,11 @@ export interface DashboardPendientes {
   evolucionesSinCerrar: DashboardPendienteItem;
   recetasParaRenovar: DashboardPendienteItem;
   estudiosPendientes: DashboardPendienteItem;
+  /** Solicitudes de acceso a la HC que el médico puede decidir (tratante). */
+  solicitudesDeAcceso: DashboardPendienteItem & {
+    /** Paciente de la solicitud más antigua (link a su ficha); null si no hay. */
+    patientId: string | null;
+  };
 }
 
 export interface DashboardRecentPatient {
@@ -540,11 +565,19 @@ export interface DashboardRecentPatient {
   lastShiftTime: string;
 }
 
+export interface MedicWaitingRoomInfo {
+  /** Módulo «Sala de espera y llamado» activo: el médico puede llamar desde «Turnos de hoy». */
+  enabled: boolean;
+  /** Consultorio habitual del médico (prellena el llamado). */
+  room: string | null;
+}
+
 export interface MedicDashboardData {
   today: DashboardTodayData;
   week: DashboardWeekData;
   pendientes: DashboardPendientes;
   recentPatients: DashboardRecentPatient[];
+  waitingRoom: MedicWaitingRoomInfo;
 }
 
 // ─── Secretary Dashboard ────────────────────────────────────────────────────
@@ -580,6 +613,8 @@ export interface WaitingRoomItemShift {
   medicShortName: string;
   medicColor?: string | null;
   consultationTypeName?: string | null;
+  /** Consultorio habitual del profesional (prellena el llamado). */
+  room?: string | null;
 }
 
 export interface WaitingRoomItem {
@@ -588,6 +623,8 @@ export interface WaitingRoomItem {
   arrivedAt: string;
   minutesWaiting: number;
   isNext: boolean;
+  /** Número de sala del día (módulo waiting_room); null con el módulo apagado. */
+  ticketNumber?: number | null;
   note?: string | null;
   patient: WaitingRoomItemPatient;
   shift?: WaitingRoomItemShift | null;
@@ -602,7 +639,12 @@ export interface NextToCallData {
   room?: string | null;
   shiftStart?: string | null;
   minutesWaiting: number;
+  /** Número de sala del día (módulo waiting_room); null con el módulo apagado. */
+  ticketNumber?: number | null;
 }
+
+export type ReminderChannel = "EMAIL" | "WHATSAPP" | "SMS";
+export type ReminderResponse = "CONFIRMED" | "CANCELLED";
 
 export interface ReminderItem {
   id: string;
@@ -612,6 +654,183 @@ export interface ReminderItem {
   medicShortName: string;
   medicColor?: string | null;
   status: ReminderStatus;
+  channel?: ReminderChannel;
+  offsetHours?: number;
+  /** WhatsApp click-to-chat: lo envía recepción y lo marca como enviado. */
+  manual?: boolean;
+  /** Link wa.me con el mensaje prellenado (solo canal WHATSAPP con teléfono). */
+  waLink?: string | null;
+  deliveredTo?: string | null;
+  response?: ReminderResponse | null;
+  respondedAt?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface ReminderSettings {
+  remindersEnabled: boolean;
+  reminderHoursBefore: number;
+  reminderSecondHoursBefore: number | null;
+  reminderChannels: ReminderChannel[];
+  reminderTemplate: string | null;
+}
+
+export interface ReminderDispatchSummary {
+  planned: number;
+  sentEmail: number;
+  manualPending: number;
+  failed: number;
+  skippedOptOut: number;
+  skippedNoContact: number;
+}
+
+// ─── Adjuntos de la historia clínica ─────────────────────────────────────────
+
+export type AttachmentEntityType = "EVOLUTION" | "STUDY_ORDER" | "CLINICAL_RECORD";
+
+export const ATTACHMENT_ENTITY_LABELS: Record<AttachmentEntityType, string> = {
+  EVOLUTION: "Evolución",
+  STUDY_ORDER: "Orden de estudio",
+  CLINICAL_RECORD: "Ficha clínica",
+};
+
+export interface ClinicalAttachment {
+  id: string;
+  patientId: string;
+  entityType: AttachmentEntityType;
+  entityId: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  description: string | null;
+  uploadedBy: { id: string; shortName: string };
+  canAnnul: boolean;
+  annulledAt: string | null;
+  annulReason: string | null;
+  createdAt: string;
+  inlinePreviewable: boolean;
+  /** Solo imágenes decodificadas correctamente: GET /api/attachments/{id}/thumbnail. */
+  hasThumbnail: boolean;
+  /** Dimensiones de la imagen original (null en PDF). */
+  width: number | null;
+  height: number | null;
+}
+
+// ─── Reservas online ─────────────────────────────────────────────────────────
+
+export type OnlineBookingStatus = "PENDING_CONFIRMATION" | "CONFIRMED" | "CANCELLED" | "EXPIRED";
+
+export const ONLINE_BOOKING_STATUS_LABELS: Record<OnlineBookingStatus, string> = {
+  PENDING_CONFIRMATION: "Pendiente de confirmar",
+  CONFIRMED: "Confirmada",
+  CANCELLED: "Cancelada",
+  EXPIRED: "Vencida",
+};
+
+export interface OnlineBookingSettings {
+  onlineBookingEnabled: boolean;
+  onlineBookingMinAdvanceHours: number;
+  onlineBookingMaxDaysAhead: number;
+  onlineBookingNotes: string | null;
+}
+
+export interface PublicBookingMedic {
+  id: string;
+  shortName: string;
+  slotDurationMinutes: number;
+}
+
+export interface PublicBookingSpecialty {
+  id: string;
+  name: string;
+  color: string | null;
+  medics: PublicBookingMedic[];
+}
+
+export interface PublicBookingConfig {
+  enabled: boolean;
+  clinicName: string | null;
+  notes: string | null;
+  minAdvanceHours: number;
+  maxDaysAhead: number;
+  consultationTypes: Array<{ id: string; name: string; durationMinutes: number }>;
+  specialties: PublicBookingSpecialty[];
+}
+
+export interface PublicAvailabilityDay {
+  date: string; // YYYY-MM-DD
+  closed: boolean;
+  slots: Array<{ start: string; time: string }>;
+}
+
+export interface PublicBookingCreateInput {
+  medicId: string;
+  start: string;
+  consultationTypeId?: string | null;
+  firstName: string;
+  lastName: string;
+  dni: string;
+  phone: string;
+  email?: string | null;
+  healthInsurance?: string | null;
+  privacyAccepted: boolean;
+  _hp?: string;
+  _elapsedMs?: number;
+}
+
+export interface PublicBookingCreated {
+  requestId: string;
+  status: "PENDING_CONFIRMATION";
+  start: string;
+  medicShortName: string;
+  manageUrl: string;
+  emailSent: boolean;
+  message: string;
+}
+
+export interface PublicBookingView {
+  status: OnlineBookingStatus;
+  clinicName: string | null;
+  address: string | null;
+  patientFirstName: string;
+  start: string;
+  medicShortName: string;
+  consultationTypeName: string | null;
+  canCancel: boolean;
+}
+
+export interface OnlineBookingStaffItem {
+  id: string;
+  shiftId: string;
+  status: OnlineBookingStatus;
+  createdAt: string;
+  start: string;
+  medicShortName: string;
+  medicColor: string | null;
+  consultationTypeName: string | null;
+  requester: {
+    firstName: string;
+    lastName: string;
+    dni: string;
+    phone: string;
+    email: string | null;
+    healthInsuranceText: string | null;
+  };
+  patientId: string;
+  matchedExisting: boolean;
+  patientDataMismatch: boolean;
+}
+
+/** Vista pública mínima del turno para el link de confirmación (sin datos clínicos). */
+export interface PublicShiftConfirmation {
+  clinicName: string | null;
+  patientFirstName: string;
+  start: string;
+  medicShortName: string;
+  address: string | null;
+  status: ShiftStatus;
+  canRespond: boolean;
+  response: ReminderResponse | null;
 }
 
 export interface SecretaryRemindersData {
@@ -661,6 +880,33 @@ export interface SecretaryAgendaData {
   totalShifts: number;
 }
 
+export interface SecretaryOnlineBookingsData {
+  pending: number;
+  items: OnlineBookingStaffItem[]; // las más antiguas primero, máx. 5
+}
+
+/** Paciente en consulta (ya llamado), para la pestaña «En consulta» de recepción. */
+export interface CalledItem {
+  shiftId: string;
+  patient: { id: string | null; firstName: string; lastName: string };
+  medicId: string;
+  medicShortName: string;
+  medicColor?: string | null;
+  /** Consultorio del llamado (ticket) o el habitual del profesional. */
+  room: string | null;
+  /** Último llamado (ISO). */
+  calledAt: string;
+  minutesSinceCall: number;
+  ticketNumber: number | null;
+  /** Cantidad de llamados; 0 si no tiene número. */
+  callCount: number;
+}
+
+export interface SecretaryWaitingRoomInfo {
+  /** Módulo «Sala de espera y llamado» (waiting_room) activo: hay números de sala. */
+  enabled: boolean;
+}
+
 export interface SecretaryDashboardData {
   header: SecretaryHeaderData;
   stats: SecretaryStatsData;
@@ -669,6 +915,26 @@ export interface SecretaryDashboardData {
   recordatorios: SecretaryRemindersData;
   huecosHoy: MedicSlotsGroup[];
   agenda: SecretaryAgendaData;
+  /** Pacientes en consulta (llamados) hoy, el último llamado primero. */
+  llamados: CalledItem[];
+  waitingRoom: SecretaryWaitingRoomInfo;
+  reservasOnline?: SecretaryOnlineBookingsData;
+}
+
+/** Número de sala (módulo waiting_room). Ver docs/SALA-DE-ESPERA.md. */
+export interface WaitingTicketSummary {
+  id: string;
+  number: number;
+  /** YYYY-MM-DD en el día del consultorio. */
+  date: string;
+}
+
+/** Ticket abierto del turno (`GET /api/shifts/{id}`): llamado o todavía en sala. */
+export interface WaitingTicketOpen extends WaitingTicketSummary {
+  room: string | null;
+  calledAt: string | null;
+  lastCalledAt: string | null;
+  callCount: number;
 }
 
 export interface WalkInArrival {
@@ -793,6 +1059,8 @@ export interface CatalogHealth {
   };
   healthInsurancesUnused90d: { count: number };
   specializationsWithoutColor: { count: number };
+  /** Copias de HC PENDING y, de ellas, las vencidas (dueAt < ahora; Ley 26.529 art. 14). */
+  hcCopiesPending: { count: number; overdue: number };
   modules: { module: string; name: string; enabled: boolean }[];
 }
 
@@ -947,4 +1215,73 @@ export interface ClinicInfoResponse {
   medics: PublicMedic[];
   specializations: PublicSpecialization[];
   healthInsurances: { id: string; name: string }[];
+}
+
+// ─── Concesiones de acceso a la HC ──────────────────────────────────────────
+// Contrato: contracts/api-schemas/clinical-access-grants.yaml
+
+export type ClinicalGrantStatus = "PENDING" | "ACTIVE" | "REJECTED" | "REVOKED" | "EXPIRED";
+export type ClinicalGrantScope = "FULL" | "PARTIAL";
+export type ClinicalConsentType = "WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE";
+
+export interface ClinicalGrantUserRef {
+  id: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+export interface ClinicalAccessGrant {
+  id: string;
+  patientId: string;
+  patient?: { id: string; firstName: string; lastName: string };
+  grantedToUserId: string;
+  grantedTo?: ClinicalGrantUserRef;
+  requestedById: string;
+  decidedById: string | null;
+  decidedBy: ClinicalGrantUserRef | null;
+  revokedById: string | null;
+  revokedBy: ClinicalGrantUserRef | null;
+  /** Estado efectivo: una ACTIVE vencida llega como EXPIRED. */
+  status: ClinicalGrantStatus;
+  isActive: boolean;
+  scope: ClinicalGrantScope;
+  sections: string[];
+  entryIds: string[];
+  reason: string;
+  consentType: ClinicalConsentType | null;
+  consentEvidence: string | null;
+  consentAt: string | null;
+  startsAt: string | null;
+  expiresAt: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  permissions: { approve: boolean; reject: boolean; revoke: boolean; cancel: boolean };
+}
+
+export interface ClinicalAccessStatus {
+  isAdmin: boolean;
+  /** Tratante (asientos propios con el paciente) o admin: puede editar la ficha. */
+  hasRelationship: boolean;
+  canDecide: boolean;
+  canRequest: boolean;
+  record: { full: boolean; sections: string[] };
+  activeGrant: {
+    id: string;
+    scope: ClinicalGrantScope;
+    sections: string[];
+    entryIds: string[];
+    startsAt: string;
+    expiresAt: string;
+  } | null;
+  pendingRequest: {
+    id: string;
+    scope: ClinicalGrantScope;
+    sections: string[];
+    createdAt: string;
+  } | null;
+  pendingToDecide: number;
 }

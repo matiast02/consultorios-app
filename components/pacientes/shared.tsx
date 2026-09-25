@@ -2,6 +2,12 @@
 
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
+import { calcAge, formatDateAR, formatDateLong, formatTime } from "@/lib/format";
+// Alias históricos: la implementación vive en lib/format.ts.
+export { calcAge };
+export const fmtDateAR = formatDateAR;
+export const fmtDateLong = formatDateLong;
+export const fmtTime = formatTime;
 
 /* ─── Section heading shared by cards (matches design's .card-head) ─────── */
 export function SectionHead({
@@ -82,54 +88,34 @@ export function DataCell({
 }
 
 /* ─── Time helpers ──────────────────────────────────────────────────────── */
-export function fmtDateAR(d: Date | null | undefined) {
-  if (!d) return "—";
-  return d.toLocaleDateString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
 
-export function fmtDateLong(d: Date) {
-  const s = d.toLocaleDateString("es-AR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  return s.replace(/^./, (c) => c.toUpperCase());
-}
 
-export function fmtTime(d: Date) {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(
-    d.getMinutes(),
-  ).padStart(2, "0")}`;
-}
 
+/**
+ * Distancia en palabras respecto a `ref`: "hoy", "ayer", "hace 3 días",
+ * "hace 2 sem", "hace 1 mes", "hace 2 años", "en 5 días", "mañana".
+ */
 export function relTime(d: Date, ref: Date = new Date()): string {
   const diff = Math.round((d.getTime() - ref.getTime()) / (1000 * 60 * 60 * 24));
   if (diff === 0) return "hoy";
   if (diff === 1) return "mañana";
   if (diff === -1) return "ayer";
-  if (diff > 0 && diff < 7) return `en ${diff} días`;
-  if (diff < 0 && diff > -7) return `hace ${-diff} días`;
-  if (diff > 0 && diff < 30) return `en ${Math.round(diff / 7)} sem`;
-  if (diff < 0 && diff > -30) return `hace ${Math.round(-diff / 7)} sem`;
-  if (diff > 0) return `en ${Math.round(diff / 30)} meses`;
-  return `hace ${Math.round(-diff / 30)} meses`;
+  const abs = Math.abs(diff);
+  const amount =
+    abs < 7
+      ? plural(abs, "día", "días")
+      : abs < 30
+        ? plural(Math.round(abs / 7), "sem", "sem")
+        : abs < 345
+          ? plural(Math.round(abs / 30), "mes", "meses")
+          : plural(Math.round(abs / 365), "año", "años");
+  return diff > 0 ? `en ${amount}` : `hace ${amount}`;
 }
 
-export function calcAge(birth?: string | null): number | null {
-  if (!birth) return null;
-  const b = new Date(birth);
-  if (isNaN(b.getTime())) return null;
-  const t = new Date();
-  let age = t.getFullYear() - b.getFullYear();
-  const m = t.getMonth() - b.getMonth();
-  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) age--;
-  return age;
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
 }
+
 
 export function safeParseJSON<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;

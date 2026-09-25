@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createPrescriptionSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { checkModuleAccess } from "@/lib/modules";
-import { isMedic, isSecretary } from "@/lib/auth-utils";
+import { recordClinicalVersion, prescriptionSnapshot } from "@/lib/clinical-ledger";
+import {
+  CLINICAL_FORBIDDEN,
+  getClinicalActor,
+  grantAuditDetails,
+  readScopeForList,
+} from "@/lib/clinical-access";
 
 // GET /api/prescriptions — List prescriptions for a patient
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -17,12 +23,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Secretaries cannot read prescriptions (clinical data).
-    if (await isSecretary(session.user.id)) {
-      return NextResponse.json(
-        { success: false, error: "Sin acceso a recetas" },
-        { status: 403 }
-      );
+    // Lista blanca: solo roles clínicos leen recetas.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     const moduleEnabled = await checkModuleAccess("prescriptions", session.user.id);
@@ -43,14 +47,25 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Médicos: sus recetas + las que cubra una concesión vigente. Admin: todas.
+    const scope = await readScopeForList(actor, patientId, "prescription");
     const prescriptions = await prisma.prescription.findMany({
-      where: { patientId },
+      where: { patientId, ...scope.where },
       include: {
         user: {
           select: { id: true, name: true, email: true },
         },
       },
       orderBy: { createdAt: "desc" },
+    });
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "prescription",
+      resourceId: patientId,
+      details: { list: true, count: prescriptions.length, ...grantAuditDetails(scope.grantId) },
+      req,
     });
 
     return NextResponse.json({ success: true, data: prescriptions });
@@ -66,7 +81,7 @@ export async function GET(req: NextRequest) {
 // POST /api/prescriptions — Create a prescription (medics only)
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -74,8 +89,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Only medics can prescribe.
-    if (!(await isMedic(session.user.id))) {
+    // Solo médicos prescriben.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+    if (!actor.isMedic) {
       return NextResponse.json(
         { success: false, error: "Solo profesionales médicos pueden emitir recetas" },
         { status: 403 }
@@ -102,27 +121,41 @@ export async function POST(req: NextRequest) {
 
     const { patientId, shiftId, items, diagnosis, notes, durationDays } = parsed.data;
 
-    const prescription = await prisma.prescription.create({
-      data: {
-        patientId,
-        userId: session.user.id!,
-        shiftId: shiftId ?? null,
-        items: JSON.stringify(items),
-        diagnosis: diagnosis ?? null,
-        notes: notes ?? null,
-        ...(durationDays !== undefined ? { durationDays } : {}),
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true },
+    const authorId = session.user.id!;
+    const prescription = await prisma.$transaction(async (tx) => {
+      const created = await tx.prescription.create({
+        data: {
+          patientId,
+          userId: authorId,
+          shiftId: shiftId ?? null,
+          items: JSON.stringify(items),
+          diagnosis: diagnosis ?? null,
+          notes: notes ?? null,
+          ...(durationDays !== undefined ? { durationDays } : {}),
         },
-      },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+
+      await recordClinicalVersion(tx, {
+        entityType: "prescription",
+        entityId: created.id,
+        patientId,
+        action: "created",
+        data: prescriptionSnapshot(created),
+        authorId,
+      });
+
+      return created;
     });
 
     logAudit({
       userId: session.user.id!,
       action: "CREATE",
-      resource: "prescription" as never,
+      resource: "prescription",
       resourceId: prescription.id,
       details: { patientId, itemCount: items.length },
       req,

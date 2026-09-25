@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LandingContactInfo } from "./landing-contact-info";
 import { LandingContactForm } from "./landing-contact-form";
 import { LandingMap } from "./landing-map";
@@ -8,9 +9,17 @@ interface Props {
   specializations: PublicSpecialization[];
   healthInsurances: { id: string; name: string }[];
   weeklySummary: string | null;
+  /** Reserva online activa: se ofrece /reservar además del formulario. */
+  onlineBookingEnabled?: boolean;
 }
 
-export function LandingContact({ settings, specializations, healthInsurances, weeklySummary }: Props) {
+export function LandingContact({
+  settings,
+  specializations,
+  healthInsurances,
+  weeklySummary,
+  onlineBookingEnabled = false,
+}: Props) {
   const showInfo =
     settings.addressLine1 ||
     settings.phoneDisplay ||
@@ -41,6 +50,18 @@ export function LandingContact({ settings, specializations, healthInsurances, we
           <p className="text-[18px]" style={{ color: "var(--muted)" }}>
             Completá el formulario y te respondemos por WhatsApp el mismo día.
           </p>
+          {onlineBookingEnabled && (
+            <p className="mt-3 text-[16px]" style={{ color: "var(--ink-2)" }}>
+              ¿Preferís elegir vos el día y el horario?{" "}
+              <Link
+                href="/reservar"
+                className="font-semibold"
+                style={{ color: "var(--primary-deep)", textDecoration: "underline", textUnderlineOffset: "4px" }}
+              >
+                Reservá tu turno online
+              </Link>
+            </p>
+          )}
         </div>
 
         <div className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">

@@ -1,4 +1,20 @@
 import { z } from "zod";
+import {
+  CONSENT_TYPES,
+  GRANT_MAX_DAYS,
+  GRANT_SCOPES,
+  GRANT_SECTIONS,
+  GRANT_STATUSES,
+} from "@/lib/clinical-grants-shared";
+import { PASSWORD_MISMATCH, passwordError } from "@/lib/password-policy";
+
+// ─── Contraseña ──────────────────────────────────────────────────────────────
+
+/** Regla única (lib/password-policy.ts): alta, reset por link, cambio y reset por admin. */
+export const passwordSchema = z.string().superRefine((pw, ctx) => {
+  const err = passwordError(pw);
+  if (err) ctx.addIssue({ code: z.ZodIssueCode.custom, message: err });
+});
 
 // ─── Patients ─────────────────────────────────────────────────────────────────
 
@@ -17,7 +33,19 @@ export const createPatientSchema = z.object({
   osNumber: z.string().max(50).nullable().optional(),
   emergencyContactName: z.string().max(120).nullable().optional(),
   emergencyContactPhone: z.string().max(40).nullable().optional(),
+  // Consentimiento informado para el tratamiento de datos de salud (Ley 25.326 art. 5-6)
+  consentType: z.enum(["WRITTEN", "VERBAL_RECORDED", "DIGITAL_SIGNATURE"]).nullable().optional(),
+  consentGivenAt: z.string().nullable().optional(), // ISO date
+  consentNote: z.string().max(500).nullable().optional(),
+  // Oposición a recibir recordatorios de turnos (Ley 25.326 art. 27)
+  reminderOptOut: z.boolean().optional(),
 });
+
+export const CONSENT_TYPE_LABELS: Record<"WRITTEN" | "VERBAL_RECORDED" | "DIGITAL_SIGNATURE", string> = {
+  WRITTEN: "Escrito (firmado)",
+  VERBAL_RECORDED: "Verbal, registrado por el profesional",
+  DIGITAL_SIGNATURE: "Firma digital",
+};
 
 export const updatePatientSchema = createPatientSchema.partial();
 
@@ -189,11 +217,7 @@ export const updateHealthInsuranceSchema = z.object({
 export const createUserSchema = z.object({
   name: z.string().min(2, "El nombre es obligatorio").max(100),
   email: z.string().email("Email inválido"),
-  password: z
-    .string()
-    .min(8, "La contraseña debe tener al menos 8 caracteres")
-    .regex(/[A-Z]/, "Debe contener al menos una mayúscula")
-    .regex(/[0-9]/, "Debe contener al menos un número"),
+  password: passwordSchema,
   firstName: z.string().max(100).nullable().optional(),
   lastName: z.string().max(100).nullable().optional(),
   specializationId: z.string().nullable().optional(),
@@ -277,19 +301,27 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, "Token requerido"),
-  password: z.string()
-    .min(8, "Minimo 8 caracteres")
-    .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
-    .regex(/[0-9]/, "Debe contener al menos un numero"),
+  password: passwordSchema,
 });
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Contrasena actual requerida"),
-  newPassword: z.string()
-    .min(8, "Minimo 8 caracteres")
-    .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
-    .regex(/[0-9]/, "Debe contener al menos un numero"),
+  newPassword: passwordSchema,
 });
+
+/** Formulario de /reset-password (contraseña + confirmación). */
+export const resetPasswordFormSchema = z
+  .object({ password: passwordSchema, confirmPassword: z.string() })
+  .refine((d) => d.password === d.confirmPassword, { message: PASSWORD_MISMATCH, path: ["confirmPassword"] });
+
+/** Formulario de cambio de contraseña del perfil. */
+export const changePasswordFormSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Contraseña actual requerida"),
+    newPassword: passwordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, { message: PASSWORD_MISMATCH, path: ["confirmPassword"] });
 
 // ─── Prescriptions ───────────────────────────────────────────────────────────
 
@@ -399,6 +431,10 @@ export const updatePreferencesConfigSchema = z.object({
   language: z.string().min(2).max(10).optional(),
   timezone: z.string().min(2).max(60).optional(),
   weekStart: z.number().int().min(0).max(6).optional(),
+  // Aparece en la reserva online pública (/reservar)
+  acceptsOnlineBooking: z.boolean().optional(),
+  // "Solo yo modifico mi agenda": la secretaria no puede tocar horarios ni días bloqueados
+  agendaLocked: z.boolean().optional(),
 });
 
 // ─── User Notification Preferences ───────────────────────────────────────────
@@ -465,6 +501,8 @@ export type UpdateUserInsurancesInput = z.infer<typeof updateUserInsurancesSchem
 const PHONE_DIGITS_RE = /^[0-9]{10,15}$/;
 const TIME_HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+export const reminderChannelEnum = z.enum(["EMAIL", "WHATSAPP", "SMS"]);
+
 export const clinicSettingsSchema = z.object({
   name: z.string().max(80, "Máx. 80 caracteres").nullable().optional(),
   tagline: z.string().max(80).nullable().optional(),
@@ -488,6 +526,39 @@ export const clinicSettingsSchema = z.object({
   showContactForm: z.boolean().optional(),
   yearsOfService: z.number().int().min(0).max(200).nullable().optional(),
   patientsServedDisplay: z.string().max(40).nullable().optional(),
+  // Recordatorios de turnos
+  remindersEnabled: z.boolean().optional(),
+  reminderHoursBefore: z.number().int().min(1, "Mín. 1 hora").max(168, "Máx. 168 horas (7 días)").optional(),
+  reminderSecondHoursBefore: z
+    .number()
+    .int()
+    .min(1, "Mín. 1 hora")
+    .max(48, "Máx. 48 horas")
+    .nullable()
+    .optional(),
+  reminderChannels: z.array(reminderChannelEnum).max(3).optional(),
+  reminderTemplate: z.string().max(1000, "Máx. 1000 caracteres").nullable().optional(),
+  // Reservas online (sin .refine(): el PUT lee los campos presentes con .shape)
+  onlineBookingEnabled: z.boolean().optional(),
+  onlineBookingMinAdvanceHours: z
+    .number()
+    .int()
+    .min(0, "Mín. 0 horas")
+    .max(168, "Máx. 168 horas (7 días)")
+    .optional(),
+  onlineBookingMaxDaysAhead: z.number().int().min(1, "Mín. 1 día").max(180, "Máx. 180 días").optional(),
+  onlineBookingNotes: z.string().max(500, "Máx. 500 caracteres").nullable().optional(),
+});
+
+// Acciones de recepción sobre un recordatorio (PATCH /api/shifts/reminders/[id])
+export const reminderActionSchema = z.object({
+  action: z.enum(["mark_sent", "mark_failed", "retry"]),
+  note: z.string().trim().max(200).optional(),
+});
+
+// Respuesta del paciente desde el link público (/api/public/turno/[token])
+export const publicShiftActionSchema = z.object({
+  action: z.enum(["confirm", "cancel", "opt_out"]),
 });
 
 export const clinicHoursDaySchema = z
@@ -527,9 +598,266 @@ export const contactRequestSchema = z.object({
     ])
     .optional(),
   message: z.string().max(1000).optional().or(z.literal("")),
+  // Aceptación explícita del aviso de privacidad (Ley 25.326 art. 5-6; Disp. DNPDP 10/2008)
+  privacyAccepted: z
+    .boolean()
+    .refine((v) => v === true, { message: "Tenés que aceptar la política de privacidad para enviar la solicitud" }),
 });
 
 export type ClinicSettingsInput = z.infer<typeof clinicSettingsSchema>;
 export type ClinicHoursDayInput = z.infer<typeof clinicHoursDaySchema>;
 export type ClinicHoursWeekInput = z.infer<typeof clinicHoursWeekSchema>;
 export type ContactRequestInput = z.infer<typeof contactRequestSchema>;
+
+// ─── Copia de la historia clínica (Ley 26.529 arts. 14 y 19) ─────────────────
+
+export const hcCopyRequesterTypeEnum = z.enum([
+  "PATIENT",
+  "LEGAL_REPRESENTATIVE",
+  "HEIR",
+  "EXTERNAL_PROFESSIONAL",
+  "JUDICIAL",
+]);
+
+const optionalTrimmed = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v ? v : null));
+
+export const createHcCopyRequestSchema = z
+  .object({
+    requesterType: hcCopyRequesterTypeEnum,
+    requesterName: z.string().trim().min(2, "Ingresá el nombre del solicitante").max(120),
+    requesterDni: optionalTrimmed(20),
+    authorizationNote: optionalTrimmed(1000),
+    reason: optionalTrimmed(1000),
+  })
+  .superRefine((d, ctx) => {
+    // Art. 19: si no lo pide el propio paciente, hay que dejar constancia de
+    // cómo se acreditó el vínculo o la autorización.
+    if (d.requesterType !== "PATIENT" && !d.authorizationNote) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["authorizationNote"],
+        message: "Indicá cómo se acreditó el vínculo o la autorización",
+      });
+    }
+  });
+
+export const deliverHcCopySchema = z.object({
+  deliveryNote: optionalTrimmed(500),
+});
+
+export const hcCopyRequestsQuerySchema = z.object({
+  status: z.enum(["PENDING", "DELIVERED", "CANCELLED"]).default("PENDING"),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export type CreateHcCopyRequestInput = z.infer<typeof createHcCopyRequestSchema>;
+export type DeliverHcCopyInput = z.infer<typeof deliverHcCopySchema>;
+
+// ─── Concesiones de acceso a la HC (ClinicalAccessGrant) ─────────────────────
+
+export const createAccessGrantSchema = z
+  .object({
+    patientId: z.string().min(1, "Paciente requerido").max(64),
+    scope: z.enum(GRANT_SCOPES),
+    sections: z.array(z.enum(GRANT_SECTIONS)).max(GRANT_SECTIONS.length).optional(),
+    entryIds: z.array(z.string().min(1).max(64)).max(100).optional(),
+    reason: z
+      .string()
+      .trim()
+      .min(10, "Contá brevemente el motivo (mínimo 10 caracteres)")
+      .max(1000, "Máximo 1000 caracteres"),
+  })
+  .refine(
+    (d) => d.scope === "FULL" || (d.sections?.length ?? 0) + (d.entryIds?.length ?? 0) > 0,
+    { message: "Elegí al menos una sección", path: ["sections"] },
+  );
+
+export const accessGrantActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("approve"),
+    consentType: z.enum(CONSENT_TYPES, {
+      errorMap: () => ({ message: "Indicá cómo se obtuvo el consentimiento del paciente" }),
+    }),
+    consentEvidence: z.string().trim().max(2000).nullable().optional(),
+    // Cuándo se obtuvo el consentimiento: no puede ser futuro (5 min de tolerancia).
+    consentAt: z.coerce
+      .date()
+      .refine((d) => d.getTime() <= Date.now() + 5 * 60 * 1000, {
+        message: "La fecha del consentimiento no puede ser futura",
+      })
+      .optional(),
+    days: z.number().int().min(1).max(GRANT_MAX_DAYS, `Máximo ${GRANT_MAX_DAYS} días`).optional(),
+  }),
+  z.object({
+    action: z.literal("reject"),
+    decisionNote: z.string().trim().min(3, "Indicá el motivo del rechazo").max(1000),
+  }),
+  z.object({
+    action: z.literal("revoke"),
+    decisionNote: z.string().trim().max(1000).optional(),
+  }),
+  z.object({ action: z.literal("cancel") }),
+]);
+
+export const accessGrantsQuerySchema = z.object({
+  patientId: z.string().min(1).max(64).optional(),
+  status: z.enum(GRANT_STATUSES).optional(),
+  box: z.enum(["received", "to-decide"]).optional(),
+});
+
+export type CreateAccessGrantInput = z.infer<typeof createAccessGrantSchema>;
+export type AccessGrantActionInput = z.infer<typeof accessGrantActionSchema>;
+
+// ─── Reservas online (lib/openapi/paths/online-booking.ts) ─────────────
+
+export const ONLINE_BOOKING_STATUSES = ["PENDING_CONFIRMATION", "CONFIRMED", "CANCELLED", "EXPIRED"] as const;
+export const onlineBookingStatusEnum = z.enum(ONLINE_BOOKING_STATUSES);
+
+const BOOKING_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const BOOKING_PHONE_RE = /^[0-9+()\-\s.]+$/;
+
+const bookingPersonName = (label: string) =>
+  z
+    .string({ required_error: `Ingresá tu ${label}` })
+    .trim()
+    .min(2, `Ingresá tu ${label}`)
+    .max(100, "Máx. 100 caracteres")
+    .transform((v) => v.replace(/\s+/g, " "));
+
+// POST /api/public/booking. Minimización: sin motivo de consulta ni texto libre
+// clínico. `_hp` / `_elapsedMs` (anti-bot) los lee la ruta antes de validar.
+export const publicBookingCreateSchema = z.object({
+  medicId: z.string({ required_error: "Elegí un profesional" }).trim().min(1, "Elegí un profesional").max(64),
+  start: z.string({ required_error: "Elegí un horario" }).datetime({ offset: true, message: "Horario inválido" }),
+  consultationTypeId: z
+    .string()
+    .trim()
+    .max(64)
+    .nullable()
+    .optional()
+    .transform((v) => v || null),
+  firstName: bookingPersonName("nombre"),
+  lastName: bookingPersonName("apellido"),
+  dni: z.preprocess(
+    (v) => (typeof v === "string" ? v.replace(/[.\s-]/g, "") : v),
+    z
+      .string({ required_error: "Ingresá tu DNI" })
+      .regex(/^[0-9]{6,10}$/, "Ingresá tu DNI sin puntos (6 a 10 números)"),
+  ),
+  phone: z
+    .string({ required_error: "Ingresá un celular" })
+    .trim()
+    .max(30, "Máx. 30 caracteres")
+    .refine((v) => BOOKING_PHONE_RE.test(v) && v.replace(/\D/g, "").length >= 8, {
+      message: "Ingresá un celular con código de área (ej.: 11 5555-5555)",
+    }),
+  email: z
+    .union([z.string().trim().toLowerCase().email("Revisá el email").max(191), z.literal(""), z.null()])
+    .optional()
+    .transform((v) => v || null),
+  healthInsurance: z
+    .union([z.string().trim().max(80, "Máx. 80 caracteres"), z.null()])
+    .optional()
+    .transform((v) => v || null),
+  privacyAccepted: z.literal(true, {
+    errorMap: () => ({ message: "Para reservar necesitamos que aceptes el uso de tus datos" }),
+  }),
+});
+
+export const publicBookingAvailabilityQuerySchema = z.object({
+  medicId: z.string().trim().min(1, "medicId es obligatorio").max(64),
+  from: z.string().regex(BOOKING_DATE_RE, "Fecha inválida (YYYY-MM-DD)").optional(),
+  days: z.coerce.number().int().min(1).max(14).default(7),
+  consultationTypeId: z.string().trim().min(1).max(64).optional(),
+});
+
+// POST /api/public/booking/[token]
+export const publicBookingActionSchema = z.object({
+  action: z.enum(["cancel"]),
+});
+
+// GET /api/online-bookings?status=
+export const onlineBookingsQuerySchema = z.object({
+  status: onlineBookingStatusEnum.optional(),
+});
+
+// PATCH /api/online-bookings/[id]
+export const onlineBookingStaffActionSchema = z.object({
+  action: z.enum(["confirm", "reject"]),
+});
+
+export type PublicBookingCreateParsed = z.infer<typeof publicBookingCreateSchema>;
+export type PublicBookingAvailabilityQuery = z.infer<typeof publicBookingAvailabilityQuerySchema>;
+
+// ─── Adjuntos de la historia clínica ─────────────────────────────────────────
+// entityType: el contrato usa minúsculas (evolution | study_order |
+// clinical_record); se aceptan ambas formas y se normaliza al enum de Prisma
+// (MAYÚSCULAS), que es lo que devuelven las respuestas.
+
+export const ATTACHMENT_ENTITY_TYPES = ["EVOLUTION", "STUDY_ORDER", "CLINICAL_RECORD"] as const;
+
+const attachmentEntityTypeSchema = z.preprocess(
+  (v) => (typeof v === "string" ? v.trim().toUpperCase() : v),
+  z.enum(ATTACHMENT_ENTITY_TYPES, {
+    errorMap: () => ({ message: "Tipo de asociación inválido (evolution, study_order o clinical_record)" }),
+  }),
+);
+
+/** "" / null / ausente → undefined (los campos de multipart llegan como string o null). */
+const blankToUndefined = (v: unknown) =>
+  v == null || (typeof v === "string" && v.trim() === "") ? undefined : v;
+
+const attachmentEntityIdSchema = z.preprocess(
+  blankToUndefined,
+  z.string().trim().min(1).max(64).optional(),
+);
+
+/** Campos de texto del multipart de POST /api/patients/[id]/attachments (el archivo va aparte). */
+export const uploadAttachmentFieldsSchema = z.object({
+  entityType: attachmentEntityTypeSchema,
+  entityId: attachmentEntityIdSchema,
+  description: z.preprocess(
+    blankToUndefined,
+    z.string().trim().max(300, "La descripción admite hasta 300 caracteres").optional(),
+  ),
+});
+
+/** GET /api/patients/[id]/attachments?entityType=&entityId= */
+export const attachmentsQuerySchema = z.object({
+  entityType: z.preprocess(blankToUndefined, attachmentEntityTypeSchema.optional()),
+  entityId: attachmentEntityIdSchema,
+});
+
+/** DELETE /api/attachments/[id] — anulación lógica (motivo obligatorio). */
+export const annulAttachmentSchema = z.object({
+  reason: z
+    .string({ required_error: "Indicá el motivo de la anulación" })
+    .trim()
+    .min(3, "Indicá el motivo de la anulación (mínimo 3 caracteres)")
+    .max(300, "El motivo admite hasta 300 caracteres"),
+});
+
+export type UploadAttachmentFields = z.infer<typeof uploadAttachmentFieldsSchema>;
+export type AttachmentsQuery = z.infer<typeof attachmentsQuerySchema>;
+
+// ─── Sala de espera (módulo waiting_room) ────────────────────────────────────
+
+/** Llamado a consultorio (pase a consulta y «volver a llamar»). */
+export const callToRoomSchema = z.object({
+  room: z
+    .string()
+    .trim()
+    .max(40, "El consultorio admite hasta 40 caracteres")
+    .nullable()
+    .optional()
+    .describe("Consultorio al que se llama. Ausente: el habitual del profesional; vacío o null: sin consultorio."),
+});
+
+export type CallToRoomInput = z.infer<typeof callToRoomSchema>;

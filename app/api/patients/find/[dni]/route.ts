@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeDni } from "@/lib/search";
 
@@ -9,7 +9,7 @@ type RouteContext = { params: Promise<{ dni: string }> };
 // like dots / hyphens / spaces are stripped from the URL param).
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },

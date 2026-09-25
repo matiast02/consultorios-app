@@ -39,12 +39,18 @@ export function AdminDashboard({ userName }: AdminDashboardProps) {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  // Polling cada 60s (el dashboard admin no necesita refresco agresivo).
+  // Polling cada 60 s (el dashboard admin no necesita refresco agresivo), pausado
+  // con la pestaña oculta: cada vuelta son ~34 consultas.
   useEffect(() => {
-    const id = setInterval(() => {
-      fetchDashboard();
-    }, 60_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (document.visibilityState === "visible") fetchDashboard();
+    };
+    const id = setInterval(tick, 60_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, [fetchDashboard]);
 
   if (loading) {

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserRole } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/audit";
 
 const ALLOWED_ROLES = new Set(["admin", "secretary"]);
 
@@ -17,7 +18,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -44,10 +45,24 @@ export async function PATCH(
       data.whatsappOpened = parsed.data.whatsappOpened;
     }
 
+    const existing = await prisma.contactRequest.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) {
+      return NextResponse.json({ success: false, error: "Solicitud no encontrada" }, { status: 404 });
+    }
+
     const updated = await prisma.contactRequest.update({
       where: { id },
       data,
       include: { specialization: { select: { id: true, name: true } } },
+    });
+
+    logAudit({
+      userId: session.user.id,
+      action: "UPDATE",
+      resource: "contact_request",
+      resourceId: id,
+      details: parsed.data,
+      req,
     });
 
     return NextResponse.json({ success: true, data: updated });
@@ -66,7 +81,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
     }
@@ -84,6 +99,8 @@ export async function DELETE(
     }
 
     await prisma.contactRequest.delete({ where: { id } });
+
+    logAudit({ userId: session.user.id, action: "DELETE", resource: "contact_request", resourceId: id, req: _req });
 
     return NextResponse.json({ success: true, data: { id } });
   } catch (error) {

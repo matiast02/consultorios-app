@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 // PUT /api/notifications/[id]/read — Mark a notification as read
@@ -8,7 +8,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -36,11 +36,11 @@ export async function PUT(
       );
     }
 
-    // Ensure the notification belongs to the current user
+    // Ajena = inexistente (404 uniforme: no se revela que existe).
     if (notification.userId !== session.user.id) {
       return NextResponse.json(
-        { success: false, error: "No autorizado" },
-        { status: 403 }
+        { success: false, error: "Notificacion no encontrada" },
+        { status: 404 }
       );
     }
 

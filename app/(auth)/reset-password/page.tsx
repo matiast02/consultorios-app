@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { resetPasswordFormSchema } from "@/lib/validations";
 import {
   Stethoscope,
   AlertCircle,
@@ -25,19 +26,8 @@ import {
   XCircle,
 } from "lucide-react";
 
-const resetPasswordSchema = z
-  .object({
-    password: z
-      .string()
-      .min(8, "La contrasena debe tener al menos 8 caracteres")
-      .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
-      .regex(/[0-9]/, "Debe contener al menos un numero"),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Las contrasenas no coinciden",
-    path: ["confirmPassword"],
-  });
+// Regla única de contraseña (lib/password-policy.ts vía lib/validations.ts).
+const resetPasswordSchema = resetPasswordFormSchema;
 
 type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 

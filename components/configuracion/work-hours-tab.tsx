@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
 import {
   Card,
@@ -28,6 +28,8 @@ import {
   Sunset,
   ArrowRight,
   ChevronDown,
+  Globe,
+  Lock,
 } from "lucide-react";
 import { DAY_NAMES } from "@/types";
 import type { UserPreference } from "@/types";
@@ -71,6 +73,10 @@ interface ConfigState {
   slotDurationMinutes: number;
   bufferMinutes: number;
   minAdvanceMinutes: number;
+  /** Aparece en la reserva online del sitio (lib/openapi/paths/online-booking.ts). */
+  acceptsOnlineBooking: boolean;
+  /** «Solo yo modifico mi agenda»: recepción no puede editar horarios ni días bloqueados. */
+  agendaLocked: boolean;
 }
 
 function diffMinutes(from: string, to: string): number {
@@ -153,7 +159,7 @@ function TimeSelect({
 
 export function WorkHoursTab() {
   const { data: session } = useSession();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
 
   const [loading, setLoading] = useState(true);
   const [savingHours, setSavingHours] = useState(false);
@@ -166,6 +172,8 @@ export function WorkHoursTab() {
     slotDurationMinutes: 30,
     bufferMinutes: 0,
     minAdvanceMinutes: 60,
+    acceptsOnlineBooking: true,
+    agendaLocked: false,
   });
   const [configDirty, setConfigDirty] = useState(false);
 
@@ -200,6 +208,9 @@ export function WorkHoursTab() {
             slotDurationMinutes: data.slotDurationMinutes ?? 30,
             bufferMinutes: data.bufferMinutes ?? 0,
             minAdvanceMinutes: data.minAdvanceMinutes ?? 60,
+            acceptsOnlineBooking:
+              typeof data.acceptsOnlineBooking === "boolean" ? data.acceptsOnlineBooking : true,
+            agendaLocked: data.agendaLocked === true,
           });
         }
       })
@@ -417,7 +428,9 @@ export function WorkHoursTab() {
             <Tag className="h-5 w-5 text-primary" />
             Duración del turno
           </CardTitle>
-          <CardDescription>Acá definís la grilla con la que se ofrecen turnos a tus pacientes.</CardDescription>
+          <CardDescription>
+            Acá definís la grilla con la que se ofrecen turnos a tus pacientes, también en la reserva online.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -460,6 +473,52 @@ export function WorkHoursTab() {
               />
             </div>
           </div>
+          <label
+            htmlFor="wh-online-booking"
+            className="mt-4 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3"
+          >
+            <span>
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <Globe className="h-4 w-4 text-primary" />
+                Acepto reservas online
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Tus horarios libres aparecen en la página de reservas del sitio (si el consultorio la tiene activa).
+                Los turnos entran como pendientes y recepción los confirma.
+              </span>
+            </span>
+            <Switch
+              id="wh-online-booking"
+              checked={config.acceptsOnlineBooking}
+              onCheckedChange={(v) => {
+                setConfig({ ...config, acceptsOnlineBooking: v });
+                setConfigDirty(true);
+              }}
+            />
+          </label>
+          <label
+            htmlFor="wh-agenda-locked"
+            className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3"
+          >
+            <span>
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <Lock className="h-4 w-4 text-primary" />
+                Solo yo modifico mi agenda
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Con esto activado, recepción no puede cambiar tus horarios de atención ni bloquear o
+                desbloquear días: solo vos y el administrador.
+              </span>
+            </span>
+            <Switch
+              id="wh-agenda-locked"
+              checked={config.agendaLocked}
+              onCheckedChange={(v) => {
+                setConfig({ ...config, agendaLocked: v });
+                setConfigDirty(true);
+              }}
+            />
+          </label>
           {configDirty && (
             <div className="mt-4 flex justify-end">
               <Button type="button" size="sm" onClick={saveConfig} disabled={savingConfig}>

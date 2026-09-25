@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,7 +54,7 @@ interface SecretaryUser {
 
 export default function SecretariasPage() {
   const { data: session } = useSession();
-  const isAdmin = (session?.user as { role?: string })?.role === "admin";
+  const isAdmin = session?.user.role === "admin";
 
   const [users, setUsers] = useState<SecretaryUser[]>([]);
   const [loading, setLoading] = useState(true);

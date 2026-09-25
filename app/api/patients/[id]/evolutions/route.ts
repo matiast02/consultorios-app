@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import type { Prisma } from "@prisma/client";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createEvolutionSchema } from "@/lib/validations";
-import { isMedic, isSecretary } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/audit";
+import {
+  CLINICAL_FORBIDDEN,
+  getClinicalActor,
+  grantAuditDetails,
+  readScopeForList,
+} from "@/lib/clinical-access";
+import { recordClinicalVersion, evolutionSnapshot } from "@/lib/clinical-ledger";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/patients/[id]/evolutions — List evolutions (paginated)
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -18,12 +25,10 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Secretaries cannot read evolutions (clinical data).
-    if (await isSecretary(session.user.id)) {
-      return NextResponse.json(
-        { success: false, error: "Sin acceso a historia clínica" },
-        { status: 403 }
-      );
+    // Lista blanca: solo roles clínicos leen evoluciones.
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
     }
 
     const { id: patientId } = await context.params;
@@ -57,21 +62,23 @@ export async function GET(req: NextRequest, context: RouteContext) {
       });
     }
 
-    const where: Record<string, unknown> = {
+    // Médicos: sus evoluciones + las que cubra una concesión vigente. Admin: todas.
+    const scope = await readScopeForList(actor, patientId, "evolution");
+    const where: Prisma.EvolutionWhereInput = {
       clinicalRecordId: clinicalRecord.id,
+      ...scope.where,
     };
 
-    // Medics can only see their own evolutions
-    const currentUserId = session.user?.id;
-    if (currentUserId && await isMedic(currentUserId)) {
-      where.userId = currentUserId;
-    }
-
     if (search) {
-      where.OR = [
-        { diagnosis: { contains: search } },
-        { reason: { contains: search } },
-        { diagnosisCode: { contains: search } },
+      // AND: el alcance puede traer su propio OR (propias + asientos puntuales).
+      where.AND = [
+        {
+          OR: [
+            { diagnosis: { contains: search } },
+            { reason: { contains: search } },
+            { diagnosisCode: { contains: search } },
+          ],
+        },
       ];
     }
 
@@ -92,6 +99,15 @@ export async function GET(req: NextRequest, context: RouteContext) {
       }),
       prisma.evolution.count({ where }),
     ]);
+
+    logAudit({
+      userId: actor.userId,
+      action: "VIEW_SENSITIVE",
+      resource: "evolution",
+      resourceId: patientId,
+      details: { list: true, count: evolutions.length, ...grantAuditDetails(scope.grantId) },
+      req,
+    });
 
     return NextResponse.json({
       success: true,
@@ -115,7 +131,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 // POST /api/patients/[id]/evolutions — Create evolution (medics only)
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -123,8 +139,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Only medics can create evolutions (clinical record).
-    if (!(await isMedic(session.user.id))) {
+    // Solo médicos registran evoluciones (el admin custodia, no escribe HC).
+    const actor = await getClinicalActor(session.user.id);
+    if (!actor) {
+      return NextResponse.json(CLINICAL_FORBIDDEN, { status: 403 });
+    }
+    if (!actor.isMedic) {
       return NextResponse.json(
         { success: false, error: "Solo profesionales médicos pueden registrar evoluciones" },
         { status: 403 }
@@ -187,27 +207,42 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    const evolution = await prisma.evolution.create({
-      data: {
-        clinicalRecordId: clinicalRecord.id,
-        userId: session.user.id,
-        shiftId: parsed.data.shiftId ?? null,
-        reason: parsed.data.reason ?? null,
-        physicalExam: parsed.data.physicalExam ?? null,
-        diagnosis: parsed.data.diagnosis ?? null,
-        diagnosisCode: parsed.data.diagnosisCode ?? null,
-        treatment: parsed.data.treatment ?? null,
-        indications: parsed.data.indications ?? null,
-        notes: parsed.data.notes ?? null,
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, firstName: true, lastName: true },
+    const authorId = session.user.id;
+    const evolution = await prisma.$transaction(async (tx) => {
+      const created = await tx.evolution.create({
+        data: {
+          clinicalRecordId: clinicalRecord.id,
+          userId: authorId,
+          shiftId: parsed.data.shiftId ?? null,
+          reason: parsed.data.reason ?? null,
+          physicalExam: parsed.data.physicalExam ?? null,
+          diagnosis: parsed.data.diagnosis ?? null,
+          diagnosisCode: parsed.data.diagnosisCode ?? null,
+          treatment: parsed.data.treatment ?? null,
+          indications: parsed.data.indications ?? null,
+          notes: parsed.data.notes ?? null,
         },
-        shift: {
-          select: { id: true, start: true, end: true, status: true },
+        include: {
+          user: {
+            select: { id: true, name: true, firstName: true, lastName: true },
+          },
+          shift: {
+            select: { id: true, start: true, end: true, status: true },
+          },
         },
-      },
+      });
+
+      // Immutable ledger entry (v1).
+      await recordClinicalVersion(tx, {
+        entityType: "evolution",
+        entityId: created.id,
+        patientId,
+        action: "created",
+        data: evolutionSnapshot(created),
+        authorId,
+      });
+
+      return created;
     });
 
     logAudit({
@@ -215,7 +250,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       action: "CREATE",
       resource: "evolution",
       resourceId: evolution.id,
-      details: { patientId, diagnosis: parsed.data.diagnosis ?? null },
+      // Sin contenido clínico en audit: el diagnóstico queda en el ledger cifrado.
+      details: { patientId },
       req,
     });
 

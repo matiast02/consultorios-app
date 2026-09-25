@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, Check, User as UserIcon, Pencil } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Megaphone, User as UserIcon, Pencil, Play, RotateCcw, Search, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { OsBadge } from "./os-badge";
+import { OsBadge } from "@/components/shifts/os-badge";
 import type { DashboardShift, ShiftStatus } from "@/types";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { formatTime, normalizeText as normalize } from "@/lib/format";
+import { ShiftStatusBadge } from "@/components/shifts/shift-status-badge";
 
 interface TodayShiftsCardProps {
   shifts: DashboardShift[];
@@ -14,47 +17,73 @@ interface TodayShiftsCardProps {
   onEditObs: (shift: DashboardShift) => void;
   /** Click on a shift row (anywhere outside the quick-action buttons). */
   onSelectShift?: (shift: DashboardShift) => void;
+  /** Módulo waiting_room activo: «Llamar» para los pacientes en sala y «Volver a llamar» en consulta. */
+  waitingRoomEnabled?: boolean;
+  onCall?: (shift: DashboardShift) => void;
+  onRecall?: (shift: DashboardShift) => void;
+  /** Sin módulo de sala: «Iniciar consulta» para el paciente en sala (pase a consulta + ficha). */
+  onStart?: (shift: DashboardShift) => void;
+  /** Paciente ya en consulta: volver a su ficha en modo consulta. */
+  onContinue?: (shift: DashboardShift) => void;
 }
 
 type TabKey = "todos" | "porAtender" | "atendidos" | "ausentes";
 
-const STATUS_LABEL: Record<ShiftStatus, string> = {
-  PENDING:   "Pendiente",
-  CONFIRMED: "Confirmado",
-  ABSENT:    "Ausente",
-  FINISHED:  "Finalizado",
-  CANCELLED: "Cancelado",
-};
 
-const STATUS_DOT: Record<ShiftStatus, string> = {
-  PENDING:   "bg-amber-500",
-  CONFIRMED: "bg-sky-500",
-  ABSENT:    "bg-rose-500",
-  FINISHED:  "bg-emerald-500",
-  CANCELLED: "bg-slate-400",
-};
+/** A partir de cuántos turnos aparece el buscador (con menos, la lista se recorre de un vistazo). */
+const SEARCH_MIN_SHIFTS = 8;
 
-const STATUS_TEXT: Record<ShiftStatus, string> = {
-  PENDING:   "text-amber-700",
-  CONFIRMED: "text-sky-700",
-  ABSENT:    "text-rose-700",
-  FINISHED:  "text-emerald-700",
-  CANCELLED: "text-slate-500",
-};
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+function shiftMatches(s: DashboardShift, q: string): boolean {
+  const first = s.patient?.firstName ?? "";
+  const last = s.patient?.lastName ?? "";
+  const haystack = normalize(`${first} ${last} ${last} ${first} ${s.patient?.os?.name ?? ""}`);
+  return haystack.includes(q);
 }
 
-function StatusBadge({ status }: { status: ShiftStatus }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[12.5px] font-medium ${STATUS_TEXT[status]} dark:text-foreground/80`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
-      {STATUS_LABEL[status]}
-    </span>
-  );
+/** Cobertura del turno (obra social aceptada o particular); turnos viejos: la obra social del paciente. */
+function coverageName(s: DashboardShift): string | null {
+  if (s.coverage) return s.coverage.name;
+  if (s.isPrivate) return "Particular";
+  return s.patient?.os?.name ?? null;
 }
+
+const ACTIVE_STATUSES: ShiftStatus[] = ["PENDING", "CONFIRMED"];
+
+/** Llegó y todavía no pasó a consulta. */
+function inWaitingRoom(s: DashboardShift): boolean {
+  return !!s.arrivedAt && !s.consultationStartedAt && ACTIVE_STATUSES.includes(s.status);
+}
+
+/** Ya fue llamado / pasó a consulta y el turno sigue abierto. */
+function inConsultation(s: DashboardShift): boolean {
+  return !!s.consultationStartedAt && ACTIVE_STATUSES.includes(s.status);
+}
+
+/** Estado de sala de espera del turno (recepción registra llegadas; el número es del módulo waiting_room). */
+function WaitingBadge({ shift: s }: { shift: DashboardShift }) {
+  if (inWaitingRoom(s)) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+        En sala
+        {s.ticketNumber != null && <> · N.º {formatTicketNumber(s.ticketNumber)}</>}
+        {s.minutesWaiting != null && <> · {s.minutesWaiting} min</>}
+      </span>
+    );
+  }
+  if (inConsultation(s)) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+        En consulta
+        {s.ticketNumber != null && <> · N.º {formatTicketNumber(s.ticketNumber)}</>}
+        {s.consultationStartedAt && <> · {formatTime(s.consultationStartedAt)}</>}
+      </span>
+    );
+  }
+  return null;
+}
+
 
 export function TodayShiftsCard({
   shifts,
@@ -63,8 +92,20 @@ export function TodayShiftsCard({
   onViewPatient,
   onEditObs,
   onSelectShift,
+  waitingRoomEnabled = false,
+  onCall,
+  onRecall,
+  onStart,
+  onContinue,
 }: TodayShiftsCardProps) {
-  const [tab, setTab] = useState<TabKey>("todos");
+  // Arranca en "Por atender" (lo que importa durante la jornada); si ya no
+  // queda nada por atender, en "Todos" para no mostrar una lista vacía.
+  const [tab, setTab] = useState<TabKey>(() =>
+    shifts.some((s) => s.status === "PENDING" || s.status === "CONFIRMED") ? "porAtender" : "todos",
+  );
+  const [query, setQuery] = useState("");
+  const showSearch = shifts.length >= SEARCH_MIN_SHIFTS;
+  const q = showSearch ? normalize(query.trim()) : "";
 
   const counts = useMemo(() => {
     const todos = shifts.length;
@@ -75,17 +116,22 @@ export function TodayShiftsCard({
   }, [shifts]);
 
   const filtered = useMemo(() => {
+    let list: DashboardShift[];
     switch (tab) {
       case "porAtender":
-        return shifts.filter((s) => s.status === "PENDING" || s.status === "CONFIRMED");
+        list = shifts.filter((s) => s.status === "PENDING" || s.status === "CONFIRMED");
+        break;
       case "atendidos":
-        return shifts.filter((s) => s.status === "FINISHED");
+        list = shifts.filter((s) => s.status === "FINISHED");
+        break;
       case "ausentes":
-        return shifts.filter((s) => s.status === "ABSENT");
+        list = shifts.filter((s) => s.status === "ABSENT");
+        break;
       default:
-        return shifts;
+        list = shifts;
     }
-  }, [shifts, tab]);
+    return q ? list.filter((s) => shiftMatches(s, q)) : list;
+  }, [shifts, tab, q]);
 
   // Detect a lunch break gap (≥ 60 min between consecutive shifts) and inject a separator row.
   const rows = useMemo(() => {
@@ -115,6 +161,36 @@ export function TodayShiftsCard({
           <CalendarDays className="h-4 w-4 text-muted-foreground" />
           Turnos de hoy
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {showSearch && (
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setQuery("");
+                }}
+                placeholder="Buscar paciente u obra social"
+                aria-label="Buscar en los turnos de hoy por nombre, apellido u obra social"
+                className="h-9 w-60 rounded-xl border bg-muted/50 pl-8 pr-8 text-[13px] text-foreground outline-none transition placeholder:text-muted-foreground/70 focus:border-primary/40 focus:bg-card focus:ring-2 focus:ring-primary/20"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Limpiar búsqueda"
+                  className="absolute right-1.5 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
           <TabsList className="h-9 gap-0.5 rounded-xl border bg-muted/50 p-1">
             {(
@@ -138,14 +214,34 @@ export function TodayShiftsCard({
             ))}
           </TabsList>
         </Tabs>
+        </div>
       </div>
 
       {rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-            <CalendarDays className="h-5 w-5 text-muted-foreground/60" />
+            {q ? (
+              <Search className="h-5 w-5 text-muted-foreground/60" />
+            ) : (
+              <CalendarDays className="h-5 w-5 text-muted-foreground/60" />
+            )}
           </div>
-          <p className="mt-3 text-sm font-medium text-foreground">No hay turnos en esta categoría</p>
+          {q ? (
+            <>
+              <p className="mt-3 text-sm font-medium text-foreground">
+                Ningún turno coincide con «{query.trim()}»
+              </p>
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="mt-2 text-[12.5px] font-medium text-primary hover:underline"
+              >
+                Limpiar búsqueda
+              </button>
+            </>
+          ) : (
+            <p className="mt-3 text-sm font-medium text-foreground">No hay turnos en esta categoría</p>
+          )}
         </div>
       ) : (
         <ul className="divide-y">
@@ -201,13 +297,14 @@ export function TodayShiftsCard({
                           Próximo
                         </span>
                       )}
+                      <WaitingBadge shift={s} />
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] text-muted-foreground">
                       <span>{s.consultationType?.name ?? "Consulta"}</span>
-                      {s.patient?.os?.name && (
+                      {coverageName(s) && (
                         <>
                           <span className="text-muted-foreground/40">·</span>
-                          <OsBadge name={s.patient.os.name} />
+                          <OsBadge name={coverageName(s)!} />
                         </>
                       )}
                       {s.observations && (
@@ -224,13 +321,55 @@ export function TodayShiftsCard({
                     className="flex items-center gap-2 shrink-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <StatusBadge status={s.status} />
+                    <ShiftStatusBadge status={s.status} className="dark:text-foreground/80" />
+                    {waitingRoomEnabled && onCall && inWaitingRoom(s) && (
+                      <button
+                        type="button"
+                        onClick={() => onCall(s)}
+                        className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-[#0d4f4d] px-2.5 py-1 text-[12px] font-semibold text-white transition hover:bg-[#0a3f3d]"
+                      >
+                        <Megaphone className="h-3 w-3" />
+                        Llamar
+                      </button>
+                    )}
+                    {!waitingRoomEnabled && onStart && inWaitingRoom(s) && (
+                      <button
+                        type="button"
+                        onClick={() => onStart(s)}
+                        className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-[#0d4f4d] px-2.5 py-1 text-[12px] font-semibold text-white transition hover:bg-[#0a3f3d]"
+                      >
+                        <Play className="h-3 w-3" />
+                        Iniciar consulta
+                      </button>
+                    )}
+                    {onContinue && inConsultation(s) && (
+                      <button
+                        type="button"
+                        onClick={() => onContinue(s)}
+                        title="Seguir en la ficha del paciente"
+                        className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-2.5 py-1 text-[12px] font-semibold text-white transition hover:bg-sky-700"
+                      >
+                        Continuar
+                        <ArrowRight className="h-3 w-3" />
+                      </button>
+                    )}
+                    {waitingRoomEnabled && onRecall && inConsultation(s) && s.ticketNumber != null && (
+                      <button
+                        type="button"
+                        title="Volver a llamar"
+                        aria-label="Volver a llamar"
+                        onClick={() => onRecall(s)}
+                        className="ml-1 grid h-7 w-7 place-items-center rounded-md border bg-card text-foreground/70 transition hover:bg-muted hover:text-foreground"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {isNext && (
                       <div className="flex items-center gap-0.5 ml-1">
                         <button
                           type="button"
-                          title="Atender"
-                          aria-label="Atender"
+                          title="Finalizar atención"
+                          aria-label="Finalizar atención"
                           onClick={() => onAttend(s)}
                           className="grid h-7 w-7 place-items-center rounded-md border bg-card text-foreground/70 transition hover:bg-muted hover:text-foreground"
                         >

@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createRecurringShiftsSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
+import { coverageData, resolveShiftCoverage } from "@/lib/shift-coverage";
+import { canAssignTo, getShiftActor, SHIFT_FORBIDDEN, SHIFT_OWN_ONLY } from "@/lib/shift-access";
 
 // POST /api/shifts/recurring — Create a recurring series of shifts
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
         { status: 401 }
       );
     }
+
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
 
     const body = await req.json();
     const parsed = createRecurringShiftsSchema.safeParse(body);
@@ -34,6 +40,10 @@ export async function POST(req: NextRequest) {
       count,
       consultationTypeId,
     } = parsed.data;
+
+    if (!canAssignTo(actor, userId)) {
+      return NextResponse.json(SHIFT_OWN_ONLY, { status: 403 });
+    }
 
     // Validate that endTime is after startTime
     if (endTime <= startTime) {
@@ -188,6 +198,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Cobertura (la misma para toda la serie: mismo profesional y paciente)
+    const coverage = coverageData(await resolveShiftCoverage(prisma, { userId, patientId }));
+
     // 6. Create all valid shifts in a transaction
     let created: Awaited<ReturnType<typeof prisma.shift.create>>[] = [];
 
@@ -195,7 +208,7 @@ export async function POST(req: NextRequest) {
       created = await prisma.$transaction(
         toCreate.map((shiftData) =>
           prisma.shift.create({
-            data: shiftData,
+            data: { ...shiftData, ...coverage },
             include: {
               patient: {
                 select: {
@@ -209,10 +222,22 @@ export async function POST(req: NextRequest) {
               user: {
                 select: { id: true, name: true, firstName: true, lastName: true },
               },
+              coverageInsurance: { select: { id: true, name: true, code: true } },
             },
           })
         )
       );
+    }
+
+    if (toCreate.length > 0) {
+      logAudit({
+        userId: session.user.id,
+        action: "CREATE",
+        resource: "shift_series",
+        resourceId: recurrenceGroupId,
+        details: { medicId: userId, patientId, created: toCreate.length, skipped: skipped.length },
+        req,
+      });
     }
 
     // 7. Return response

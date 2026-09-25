@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { resetPasswordSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { setUserPassword } from "@/lib/credentials";
+import { revokeUserSessions } from "@/lib/sessions";
+import { hashResetToken } from "@/lib/reset-token";
 
 // POST /api/auth/reset-password
 export async function POST(req: NextRequest) {
@@ -22,7 +24,7 @@ export async function POST(req: NextRequest) {
     // Find valid reset token
     const resetToken = await prisma.resetToken.findFirst({
       where: {
-        token,
+        token: hashResetToken(token),
         used: false,
         expires: { gt: new Date() },
       },
@@ -47,20 +49,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    // Update user password and mark token as used in a transaction
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { password: hashedPassword },
-      }),
-      prisma.resetToken.update({
+    // Update credential and mark token as used in a transaction
+    await prisma.$transaction(async (tx) => {
+      await setUserPassword(tx, user.id, { plain: password });
+      await tx.resetToken.update({
         where: { id: resetToken.id },
         data: { used: true },
-      }),
-    ]);
+      });
+    });
+    // Reset por token: se invalidan todas las sesiones abiertas.
+    await revokeUserSessions(user.id);
 
     logAudit({
       userId: user.id,

@@ -1,4 +1,5 @@
-// Force UTC so date math in the route is predictable
+// Servidor en UTC a propósito: la grilla se calcula en hora AR (UTC-3) sin
+// depender del huso del proceso.
 process.env.TZ = "UTC";
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -83,11 +84,11 @@ describe("GET /api/users/[id]/available-slots", () => {
     prismaMock.userPreference.findUnique.mockResolvedValue(makePreference());
     prismaMock.blockDay.findFirst.mockResolvedValue(null);
 
-    // One existing shift at 10:00-10:30
+    // One existing shift at 10:00-10:30 hora AR (13:00Z)
     prismaMock.shift.findMany.mockResolvedValue([
       {
-        start: new Date("2026-04-13T10:00:00.000Z"),
-        end: new Date("2026-04-13T10:30:00.000Z"),
+        start: new Date("2026-04-13T13:00:00.000Z"),
+        end: new Date("2026-04-13T13:30:00.000Z"),
       },
     ]);
 

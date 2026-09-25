@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Settings2, Users } from "lucide-react";
+import { formatTimeAmPm } from "@/lib/format";
 
 interface AdminDashboardHeaderProps {
   adminName: string;
@@ -31,14 +32,6 @@ function formatDateSpanish(d: Date): string {
   return `${dow}, ${day} De ${titleCase(month)} De ${year}`;
 }
 
-function formatTimeAmPm(d: Date): string {
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ampm = h >= 12 ? "p. m." : "a. m.";
-  if (h === 0) h = 12;
-  else if (h > 12) h -= 12;
-  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
-}
 
 export function AdminDashboardHeader({
   adminName,

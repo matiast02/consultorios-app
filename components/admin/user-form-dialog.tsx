@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -28,16 +28,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Loader2,
   CalendarDays,
-  Eye,
-  EyeOff,
   Check,
   X,
   Stethoscope,
-  CheckCircle2,
-  Circle,
   Lock,
 } from "lucide-react";
 import { ScheduleSetupWizard } from "@/components/schedule-setup-wizard";
+import { PasswordInput, PasswordStrength } from "@/components/admin/password-input";
+import { passwordConfirmError } from "@/lib/password-policy";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -86,66 +84,6 @@ type FormValues = z.infer<typeof formSchema>;
 const NO_SPECIALIZATION = "__none__";
 const NO_PROFESSION = "__none__";
 
-// ─── Password Strength ─────────────────────────────────────────────────────
-
-const STRENGTH_LEVELS = [
-  { label: "", bar: "", text: "" },
-  { label: "Débil", bar: "bg-red-500", text: "text-red-600 dark:text-red-400" },
-  { label: "Regular", bar: "bg-orange-500", text: "text-orange-600 dark:text-orange-400" },
-  { label: "Buena", bar: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
-  { label: "Fuerte", bar: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
-] as const;
-
-function getPasswordChecks(password: string) {
-  return [
-    { label: "Mínimo 8 caracteres", met: password.length >= 8 },
-    { label: "Una mayúscula", met: /[A-Z]/.test(password) },
-    { label: "Un número", met: /[0-9]/.test(password) },
-    { label: "Un símbolo", met: /[^A-Za-z0-9]/.test(password) },
-  ];
-}
-
-function PasswordStrength({ password }: { password: string }) {
-  const checks = getPasswordChecks(password);
-  const score = checks.filter((c) => c.met).length;
-  const level = STRENGTH_LEVELS[score];
-
-  return (
-    <div className="mt-2 space-y-2">
-      <div className="flex gap-1">
-        {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className={`h-1.5 flex-1 rounded-full ${
-              i < score ? level.bar : "bg-muted"
-            }`}
-          />
-        ))}
-      </div>
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Seguridad</span>
-        {score > 0 && (
-          <span className={`font-medium ${level.text}`}>{level.label}</span>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-        {checks.map((check) => (
-          <div key={check.label} className="flex items-center gap-1.5 text-xs">
-            {check.met ? (
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-            ) : (
-              <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
-            )}
-            <span className={check.met ? "text-foreground" : "text-muted-foreground"}>
-              {check.label}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Optional Label ────────────────────────────────────────────────────────
 
 function OptionalLabel({ children }: { children: React.ReactNode }) {
@@ -165,43 +103,6 @@ function RolePill({ label }: { label: string }) {
       <Stethoscope className="h-3.5 w-3.5" />
       {label}
     </span>
-  );
-}
-
-// ─── Password Input ─────────────────────────────────────────────────────────
-
-function PasswordInput({
-  id,
-  value,
-  onChange,
-  placeholder,
-}: {
-  id: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  placeholder?: string;
-}) {
-  const [show, setShow] = useState(false);
-
-  return (
-    <div className="relative">
-      <Input
-        id={id}
-        type={show ? "text" : "password"}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className="pr-10"
-      />
-      <button
-        type="button"
-        tabIndex={-1}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-        onClick={() => setShow(!show)}
-      >
-        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
-    </div>
   );
 }
 
@@ -227,7 +128,7 @@ export function UserFormDialog({
   onSaved,
 }: UserFormDialogProps) {
   const { data: session } = useSession();
-  const requesterRole = (session?.user as { role?: string })?.role;
+  const requesterRole = session?.user.role;
   const isRequesterSecretary = requesterRole === "secretary";
   const isAdmin = requesterRole === "admin";
 
@@ -362,15 +263,6 @@ export function UserFormDialog({
     }
   }, [isMedicRole, setValue]);
 
-  // Password validation helper
-  function validatePassword(pw: string, confirm: string): string | null {
-    if (!pw || pw.length < 8) return "La contrasena debe tener al menos 8 caracteres";
-    if (!/[A-Z]/.test(pw)) return "La contrasena debe contener al menos una mayuscula";
-    if (!/[0-9]/.test(pw)) return "La contrasena debe contener al menos un numero";
-    if (pw !== confirm) return "Las contrasenas no coinciden";
-    return null;
-  }
-
   async function onSubmit(data: FormValues) {
     try {
       const specializationId =
@@ -402,7 +294,7 @@ export function UserFormDialog({
 
         // Reset password if requested
         if (data.changePassword && data.password) {
-          const pwError = validatePassword(data.password, data.confirmPassword ?? "");
+          const pwError = passwordConfirmError(data.password, data.confirmPassword ?? "");
           if (pwError) {
             toast.error(pwError);
             return;
@@ -429,13 +321,15 @@ export function UserFormDialog({
           toast.error("Ingresa un email valido");
           return;
         }
-        const pwError = validatePassword(data.password ?? "", data.confirmPassword ?? "");
+        const pwError = passwordConfirmError(data.password ?? "", data.confirmPassword ?? "");
         if (pwError) {
           toast.error(pwError);
           return;
         }
 
-        // Create user via register
+        // Create user via register. El rol viaja en el alta para que el usuario
+        // nunca quede sin rol (User + credencial + UserRole en una transacción).
+        const roleToAssign = isRequesterSecretary ? "medic" : data.role;
         const registerRes = await fetch("/api/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -443,6 +337,8 @@ export function UserFormDialog({
             name: fullName,
             email: data.email,
             password: data.password,
+            role: roleToAssign,
+            sendInvite,
           }),
         });
 
@@ -453,10 +349,15 @@ export function UserFormDialog({
 
         const registerJson = await registerRes.json();
         const userId = registerJson.user?.id;
+        const invite = registerJson.invite as { sent: boolean; error?: string } | null | undefined;
+        if (sendInvite && invite && !invite.sent) {
+          toast.warning(
+            `El usuario se creó, pero no se pudo enviar la invitación${invite.error ? `: ${invite.error}` : ""}`,
+          );
+        }
 
-        // Update with additional fields
+        // Update with additional fields (el rol se reenvía: es idempotente)
         if (userId) {
-          const roleToAssign = isRequesterSecretary ? "medic" : data.role;
           await fetch(`/api/users/${userId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -471,7 +372,7 @@ export function UserFormDialog({
           });
         }
 
-        toast.success("Usuario creado exitosamente");
+        toast.success(sendInvite && invite?.sent ? "Usuario creado. Invitación enviada por email." : "Usuario creado exitosamente");
 
         // If we created a medic, offer to configure their schedule
         if ((isRequesterSecretary || data.role === "medic") && userId) {

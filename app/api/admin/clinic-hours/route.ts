@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserRole } from "@/lib/auth-utils";
 import { clinicHoursWeekSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
 
 async function requireAdmin() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user?.id) {
     return { error: NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 }) };
   }
@@ -90,6 +91,15 @@ export async function PUT(req: NextRequest) {
         })
       )
     );
+
+    logAudit({
+      userId: guard.session.user.id,
+      action: "UPDATE",
+      resource: "clinic_hours",
+      resourceId: "week",
+      details: { days: parsed.data.length },
+      req,
+    });
 
     const hours = await prisma.clinicHours.findMany({ orderBy: { dayOfWeek: "asc" } });
     return NextResponse.json({ success: true, data: hours });

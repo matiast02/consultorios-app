@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +56,7 @@ interface MedicUser {
 
 export default function ProfesionalesPage() {
   const { data: session } = useSession();
-  const userRole = (session?.user as { role?: string })?.role;
+  const userRole = session?.user.role;
   const isAdmin = userRole === "admin";
 
   const [users, setUsers] = useState<MedicUser[]>([]);

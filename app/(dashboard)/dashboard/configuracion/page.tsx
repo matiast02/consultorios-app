@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Clock, CalendarX, Shield, Building2 } from "lucide-react";
 import { ProfileTab } from "@/components/configuracion/profile-tab";
@@ -42,7 +42,8 @@ export default function ConfiguracionPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const userRole = (session?.user as { role?: string | null } | undefined)?.role;
+  const userRole = session?.user.role;
+  const userId = session?.user.id;
   const isMedicRole = userRole === "medic";
   const isAdminRole = userRole === "admin";
 
@@ -75,9 +76,7 @@ export default function ConfiguracionPage() {
   const [insuranceCount, setInsuranceCount] = useState<number>(0);
 
   useEffect(() => {
-    if (status !== "authenticated" || !isMedicRole) return;
-    const userId = (session?.user as { id?: string } | undefined)?.id;
-    if (!userId) return;
+    if (status !== "authenticated" || !isMedicRole || !userId) return;
 
     fetch("/api/preferences")
       .then((r) => (r.ok ? r.json() : null))
@@ -115,7 +114,7 @@ export default function ConfiguracionPage() {
         setInsuranceCount(json.accepted?.length ?? json.data?.length ?? 0);
       })
       .catch(() => {});
-  }, [status, isMedicRole, session]);
+  }, [status, isMedicRole, userId]);
 
   return (
     <div className="space-y-6">

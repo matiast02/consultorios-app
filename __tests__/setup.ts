@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import * as authUtils from "@/lib/auth-utils";
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 
@@ -41,7 +42,34 @@ export const prismaMock = {
   clinicalRecord: createModelMock(),
   prescription: createModelMock(),
   rateLimit: createModelMock(),
+  clinicalEntryVersion: createModelMock(),
+  auditLog: createModelMock(),
+  resetToken: createModelMock(),
+  clinicalAccessGrant: createModelMock(),
+  // Copia de HC (fase 3)
+  hcCopyRequest: createModelMock(),
+  clinicSettings: createModelMock(),
+  // Recordatorios de turnos
+  shiftReminder: createModelMock(),
+  // Reservas online
+  onlineBookingRequest: createModelMock(),
+  // Sitio público / recepción
+  clinicHours: createModelMock(),
+  walkInArrival: createModelMock(),
+  // Sala de espera (módulo waiting_room) y sistema de módulos
+  waitingTicket: createModelMock(),
+  moduleConfig: createModelMock(),
+  userModuleAccess: createModelMock(),
+  // Adjuntos de la HC
+  clinicalAttachment: createModelMock(),
+  // Better Auth
+  account: createModelMock(),
+  session: createModelMock(),
+  verification: createModelMock(),
   $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+  // Tagged template (p.ej. SELECT … FOR UPDATE en la reserva online)
+  $queryRaw: vi.fn().mockResolvedValue([]),
+  $executeRaw: vi.fn().mockResolvedValue(0),
   $transaction: vi.fn().mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {
       return arg(prismaMock);
@@ -65,7 +93,8 @@ export const authMock = vi.fn().mockResolvedValue({
 });
 
 vi.mock("@/auth", () => ({
-  auth: authMock,
+  getSession: authMock,
+  auth: { api: {} },
 }));
 
 // ─── Mock Auth Utils ────────────────────────────────────────────────────────
@@ -107,8 +136,17 @@ export function resetAllMocks() {
     }
   }
 
-  // Re-set $queryRawUnsafe mock
+  // Re-set auth-utils mocks to their defaults (un rol mockeado en un test no
+  // debe filtrarse al siguiente: las rutas clínicas dependen de getUserRole).
+  vi.mocked(authUtils.getUserRole).mockResolvedValue("secretary");
+  vi.mocked(authUtils.isMedic).mockResolvedValue(false);
+  vi.mocked(authUtils.isSecretary).mockResolvedValue(false);
+  vi.mocked(authUtils.isSecretaryOrAdmin).mockResolvedValue(true);
+
+  // Re-set raw query mocks
   prismaMock.$queryRawUnsafe.mockResolvedValue([]);
+  prismaMock.$queryRaw.mockResolvedValue([]);
+  prismaMock.$executeRaw.mockResolvedValue(0);
 
   // Re-set $transaction mock
   prismaMock.$transaction.mockImplementation(async (arg: unknown) => {

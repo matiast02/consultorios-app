@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserRole } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/audit";
 
 type RouteContext = { params: Promise<{ module: string }> };
 
 // GET /api/modules/[module]/users — List user access for a module (admin only)
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -49,7 +50,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 // PUT /api/modules/[module]/users — Toggle module access for a user (admin only)
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -76,6 +77,11 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const target = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: { id: true } });
+    if (!target) {
+      return NextResponse.json({ success: false, error: "Usuario no encontrado" }, { status: 404 });
+    }
+
     const access = await prisma.userModuleAccess.upsert({
       where: { userId_module: { userId, module } },
       update: { enabled },
@@ -85,6 +91,15 @@ export async function PUT(req: NextRequest, context: RouteContext) {
           select: { id: true, name: true, email: true },
         },
       },
+    });
+
+    logAudit({
+      userId: session.user.id!,
+      action: "UPDATE",
+      resource: "module_access",
+      resourceId: module,
+      details: { userId, enabled },
+      req,
     });
 
     return NextResponse.json({ success: true, data: access });

@@ -2,24 +2,27 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
-import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+import { ShiftQuickDialogLoader } from "@/components/shifts/shift-quick-dialog-loader";
 
 import { SecretaryDashboardHeader } from "@/components/dashboard/secretary/dashboard-header";
 import { SecretaryStatsRow } from "@/components/dashboard/secretary/stats-row";
 import { WaitingRoomCard } from "@/components/dashboard/secretary/waiting-room-card";
 import { NextToCallCard } from "@/components/dashboard/secretary/next-to-call-card";
-import { RemindersCard } from "@/components/dashboard/secretary/reminders-card";
+import { RemindersCard, formatDispatchSummary } from "@/components/dashboard/secretary/reminders-card";
+import { OnlineBookingsCard } from "@/components/dashboard/secretary/online-bookings-card";
 import { TodaySlotsCard } from "@/components/dashboard/secretary/today-slots-card";
 import { AgendaDayCard } from "@/components/dashboard/secretary/agenda-day-card";
 import { RegisterArrivalDialog } from "@/components/dashboard/secretary/register-arrival-dialog";
+import { CallToRoomDialog, type CallToRoomTarget } from "@/components/waiting-room/call-to-room-dialog";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
 
-import type { SecretaryDashboardData, WaitingRoomItem } from "@/types";
+import type { CalledItem, SecretaryDashboardData, WaitingRoomItem } from "@/types";
 
 interface SecretaryDashboardProps {
   userName: string;
@@ -28,7 +31,7 @@ interface SecretaryDashboardProps {
 export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const { data: session } = useSession();
   const router = useRouter();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
   void userId;
 
   const [data, setData] = useState<SecretaryDashboardData | null>(null);
@@ -38,6 +41,10 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const [registerArrivalOpen, setRegisterArrivalOpen] = useState(false);
   const [createShiftOpen, setCreateShiftOpen] = useState(false);
   const [createPatientOpen, setCreatePatientOpen] = useState(false);
+  // Llamado a consultorio (módulo waiting_room): a quién y adónde.
+  const [callTarget, setCallTarget] = useState<CallToRoomTarget | null>(null);
+  // Walk-in al que se le está asignando un turno: se vincula al crearlo (hereda llegada y número).
+  const [pendingWalkIn, setPendingWalkIn] = useState<{ id: string; patientId: string } | null>(null);
 
   // Pre-fill state for "crear turno a partir de un hueco"
   const [slotDefaults, setSlotDefaults] = useState<{
@@ -76,13 +83,21 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     registerArrivalOpen ||
     createShiftOpen ||
     createPatientOpen ||
+    !!callTarget ||
     !!detailShiftId;
+  // Con la pestaña oculta no se pide nada (son ~8 consultas por vuelta); al volver
+  // a verla se refresca en el acto.
   useEffect(() => {
     if (anyDialogOpen) return;
-    const id = setInterval(() => {
-      fetchDashboard();
-    }, 30_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (document.visibilityState === "visible") fetchDashboard();
+    };
+    const id = setInterval(tick, 30_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, [fetchDashboard, anyDialogOpen]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────
@@ -115,15 +130,43 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     setDetailShiftId(shiftId);
   };
 
-  const callShift = async (id: string, kind: "scheduled" | "walkin") => {
+  const startConsultation = async (shiftId: string, room?: string | null) => {
+    const res = await fetch(`/api/shifts/${shiftId}/start-consultation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(room === undefined ? {} : { room }),
+    });
+    if (!res.ok) throw new Error();
+  };
+
+  /**
+   * Pase a consulta. Con el módulo de sala de espera activo pasa por el diálogo
+   * de consultorio (el número y el consultorio salen en la pantalla); sin módulo
+   * se registra directo, como siempre.
+   */
+  const callShift = async (target: {
+    id: string;
+    kind: "scheduled" | "walkin";
+    patientName: string;
+    ticketNumber: number | null;
+    room: string | null;
+  }) => {
     // For walk-ins we cannot start consultation directly without a shift, so we just toast.
-    if (kind === "walkin") {
+    if (target.kind === "walkin") {
       toast.info("Asigná un turno al walk-in para llamarlo a consulta");
       return;
     }
+    if (data?.waitingRoom.enabled) {
+      setCallTarget({
+        shiftId: target.id,
+        patientName: target.patientName,
+        ticketNumber: target.ticketNumber,
+        room: target.room,
+      });
+      return;
+    }
     try {
-      const res = await fetch(`/api/shifts/${id}/start-consultation`, { method: "POST" });
-      if (!res.ok) throw new Error();
+      await startConsultation(target.id);
       toast.success("Paciente pasó a consulta");
       fetchDashboard();
     } catch {
@@ -131,7 +174,49 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     }
   };
 
-  const handleMarkSeen = (shiftId: string) => callShift(shiftId, "scheduled");
+  const handleConfirmCall = async (target: CallToRoomTarget, room: string | null) => {
+    try {
+      if (target.recall) {
+        const res = await fetch(`/api/shifts/${target.shiftId}/recall`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room }),
+        });
+        if (!res.ok) throw new Error();
+        toast.success(`Se volvió a llamar a ${target.patientName}`);
+      } else {
+        await startConsultation(target.shiftId, room);
+        toast.success(
+          target.ticketNumber != null
+            ? `Llamado N.º ${formatTicketNumber(target.ticketNumber)}${room ? ` → ${room}` : ""}`
+            : "Paciente pasó a consulta",
+        );
+      }
+      fetchDashboard();
+    } catch {
+      toast.error("No se pudo registrar el llamado");
+      throw new Error("call failed");
+    }
+  };
+
+  const handleRecall = (item: CalledItem) => {
+    setCallTarget({
+      shiftId: item.shiftId,
+      patientName: `${item.patient.lastName}, ${item.patient.firstName}`,
+      ticketNumber: item.ticketNumber,
+      room: item.room,
+      recall: true,
+    });
+  };
+
+  const handleMarkSeen = (item: WaitingRoomItem) =>
+    callShift({
+      id: item.id,
+      kind: item.kind,
+      patientName: `${item.patient.lastName}, ${item.patient.firstName}`,
+      ticketNumber: item.ticketNumber ?? null,
+      room: item.shift?.room ?? null,
+    });
 
   const handleMarkAbsent = async (shiftId: string) => {
     try {
@@ -164,9 +249,45 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     }
   };
 
-  const handleAssignShift = (walkInId: string) => {
-    void walkInId;
+  /** Walk-in → turno: abre el diálogo con el paciente preseleccionado, hoy y la hora actual. */
+  const startAssignShift = (walkIn: { id: string; patientId: string | null }) => {
+    if (!walkIn.patientId) {
+      toast.info("Este walk-in no tiene ficha: cargá al paciente y después asignale el turno");
+      return;
+    }
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), Math.ceil(now.getMinutes() / 5) * 5, 0);
+    const end = new Date(start.getTime() + 30 * 60_000);
+    const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    setPendingWalkIn({ id: walkIn.id, patientId: walkIn.patientId });
+    setSlotDefaults({
+      medicId: "",
+      date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0),
+      startTime: hhmm(start),
+      endTime: hhmm(end),
+      durationMinutes: 30,
+    });
     setCreateShiftOpen(true);
+  };
+
+  const handleAssignShift = (walkInId: string) => {
+    const item = data?.salaDeEspera.find((w) => w.id === walkInId && w.kind === "walkin");
+    startAssignShift({ id: walkInId, patientId: item?.patient.id ?? null });
+  };
+
+  /** Vincula el walk-in al turno creado: el turno hereda la llegada y el número de sala. */
+  const linkWalkInToShift = async (walkInId: string, shiftId: string) => {
+    try {
+      const res = await fetch(`/api/walk-ins/${walkInId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedShiftId: shiftId }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Turno asignado: el paciente sigue en sala con su número");
+    } catch {
+      toast.error("Se creó el turno pero no se pudo vincular al walk-in");
+    }
   };
 
   const handleWalkInLeft = async (walkInId: string) => {
@@ -189,8 +310,15 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   };
 
   const handleNextToCall = async () => {
-    if (!data?.proximoALlamar) return;
-    await callShift(data.proximoALlamar.waitingRoomId, data.proximoALlamar.kind);
+    const p = data?.proximoALlamar;
+    if (!p) return;
+    await callShift({
+      id: p.waitingRoomId,
+      kind: p.kind,
+      patientName: `${p.patient.lastName}, ${p.patient.firstName}`,
+      ticketNumber: p.ticketNumber ?? null,
+      room: p.room ?? null,
+    });
   };
 
   const handleSendReminders = async () => {
@@ -201,18 +329,29 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      if (!res.ok) throw new Error();
-      const json = await res.json();
-      toast.success(`${json.data?.sent ?? 0} recordatorios enviados`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        if (res.status === 403) throw new Error("Solo recepción o administración pueden enviar recordatorios");
+        if (res.status === 503) throw new Error("Los recordatorios están desactivados en Configuración → Consultorio");
+        throw new Error("No se pudieron enviar los recordatorios");
+      }
+      // ReminderDispatchSummary (lib/openapi/paths/reminders.ts)
+      const summary = formatDispatchSummary(json.data);
+      const opts = summary.description ? { description: summary.description } : undefined;
+      if (summary.tone === "warning") toast.warning(summary.title, opts);
+      else if (summary.tone === "info") toast.info(summary.title, opts);
+      else toast.success(summary.title, opts);
       fetchDashboard();
-    } catch {
-      toast.error("No se pudieron enviar los recordatorios");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudieron enviar los recordatorios");
     } finally {
       setSendingReminders(false);
     }
   };
 
-  if (loading) {
+  // Spinner solo en la carga inicial: los refrescos (polling, acciones) no desmontan
+  // las cards, así no se pierde su estado local (p. ej. WhatsApp abiertos en recordatorios).
+  if (loading && !data) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -244,10 +383,12 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
 
   // We use salaDeEspera + a synthetic list: shifts that have NOT arrived yet — derived from agenda.
   // Simpler approach: send the salaDeEspera as "already arrived", so the dialog excludes them.
+  // Cancelados, finalizados y ausentes no entran en la sala (la API rechaza la
+  // llegada de un cancelado y el listado de sala ignora los otros dos).
   const arrivedIds = new Set(data.salaDeEspera.map((s) => s.id));
   const dialogShifts = data.agenda.profesionales.flatMap((p) =>
     p.shifts
-      .filter((s) => !arrivedIds.has(s.id))
+      .filter((s) => !arrivedIds.has(s.id) && !["CANCELLED", "FINISHED", "ABSENT"].includes(s.status))
       .map((s) => {
         const split = s.patientShortName.split(",");
         const lastName = (split[0] ?? "").trim();
@@ -285,15 +426,24 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
           onWalkInLeft={handleWalkInLeft}
           onViewPatient={handleViewPatient}
           onRegisterArrival={handleRegisterArrival}
+          called={data.llamados}
+          waitingRoomEnabled={data.waitingRoom.enabled}
+          onRecall={handleRecall}
+          onCalledAbsent={handleMarkAbsent}
         />
 
         <div className="space-y-4">
           <NextToCallCard data={data.proximoALlamar} onCall={handleNextToCall} />
+          {/* Solo si el backend lo informa (módulo de reservas online activo). */}
+          {data.reservasOnline && (
+            <OnlineBookingsCard data={data.reservasOnline} onChanged={fetchDashboard} />
+          )}
           <RemindersCard
             data={data.recordatorios}
             sending={sendingReminders}
             onSendPending={handleSendReminders}
             onEdit={() => router.push("/dashboard/calendario")}
+            onChanged={fetchDashboard}
           />
           <TodaySlotsCard
             groups={data.huecosHoy}
@@ -312,6 +462,18 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
         onOpenChange={setRegisterArrivalOpen}
         todayShifts={dialogShifts}
         onArrived={fetchDashboard}
+        onAssignShift={(walkIn) => {
+          setRegisterArrivalOpen(false);
+          startAssignShift(walkIn);
+        }}
+      />
+
+      <CallToRoomDialog
+        target={callTarget}
+        onOpenChange={(open) => {
+          if (!open) setCallTarget(null);
+        }}
+        onConfirm={handleConfirmCall}
       />
 
       {createShiftOpen && (
@@ -319,7 +481,10 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
           open={createShiftOpen}
           onOpenChange={(open) => {
             setCreateShiftOpen(open);
-            if (!open) setSlotDefaults(null);
+            if (!open) {
+              setSlotDefaults(null);
+              setPendingWalkIn(null);
+            }
           }}
           defaultDate={slotDefaults?.date}
           defaultStartTime={slotDefaults?.startTime}
@@ -327,9 +492,12 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
           defaultMedicId={slotDefaults?.medicId}
           defaultDurationMinutes={slotDefaults?.durationMinutes}
           lockMedic={!!slotDefaults?.medicId}
-          onCreated={() => {
+          defaultPatientId={pendingWalkIn?.patientId}
+          onCreated={async (shift) => {
             setCreateShiftOpen(false);
             setSlotDefaults(null);
+            if (pendingWalkIn && shift) await linkWalkInToShift(pendingWalkIn.id, shift.id);
+            setPendingWalkIn(null);
             fetchDashboard();
           }}
         />

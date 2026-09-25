@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { logAudit } from "@/lib/audit";
+import { getShiftActor, SHIFT_FORBIDDEN, shiftScope } from "@/lib/shift-access";
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -9,7 +11,7 @@ interface RouteParams {
 // GET /api/shifts/recurring/[groupId] — Get all shifts in a recurring series
 export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -26,8 +28,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
+
+    // El médico solo ve series propias (una ajena responde 404, como inexistente).
     const shifts = await prisma.shift.findMany({
-      where: { recurrenceGroupId: groupId },
+      where: { recurrenceGroupId: groupId, ...shiftScope(actor) },
       include: {
         patient: {
           select: {
@@ -67,7 +73,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/shifts/recurring/[groupId] — Cancel all pending/confirmed shifts in a series
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const session = await auth();
+    const session = await getSession();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "No autorizado" },
@@ -84,11 +90,15 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Find all cancellable shifts in the series
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
+
+    // Find all cancellable shifts in the series (solo propias para el médico)
     const result = await prisma.shift.updateMany({
       where: {
         recurrenceGroupId: groupId,
         status: { in: ["PENDING", "CONFIRMED"] },
+        ...shiftScope(actor),
       },
       data: {
         status: "CANCELLED",
@@ -101,6 +111,15 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
         { status: 404 }
       );
     }
+
+    logAudit({
+      userId: session.user.id,
+      action: "UPDATE",
+      resource: "shift_series",
+      resourceId: groupId,
+      details: { cancelled: result.count },
+      req,
+    });
 
     return NextResponse.json({
       success: true,
