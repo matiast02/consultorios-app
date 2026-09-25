@@ -64,7 +64,11 @@ export function TodayShiftsCard({
   onEditObs,
   onSelectShift,
 }: TodayShiftsCardProps) {
-  const [tab, setTab] = useState<TabKey>("todos");
+  // Arranca en "Por atender" (lo que importa durante la jornada); si ya no
+  // queda nada por atender, en "Todos" para no mostrar una lista vacía.
+  const [tab, setTab] = useState<TabKey>(() =>
+    shifts.some((s) => s.status === "PENDING" || s.status === "CONFIRMED") ? "porAtender" : "todos",
+  );
 
   const counts = useMemo(() => {
     const todos = shifts.length;
