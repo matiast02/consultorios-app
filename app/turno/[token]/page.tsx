@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ShiftConfirmation } from "@/components/turno/shift-confirmation";
 
 // Página pública (sin login) del link de confirmación que llega en el recordatorio.
-// Contrato: contracts/api-schemas/reminders.yaml → /api/public/turno/{token}.
+// Contrato: lib/openapi/paths/public.ts → /api/public/turno/{token}.
 // Solo muestra lo que devuelve el endpoint (nombre de pila, fecha, hora,
 // profesional, dirección y estado). Nada clínico.
 

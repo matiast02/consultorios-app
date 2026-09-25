@@ -23,6 +23,7 @@
     "db:backfill-ledger": "tsx prisma/backfill-ledger.ts",
     "db:backfill-encryption": "tsx prisma/backfill-encryption.ts",
     "db:backfill-thumbnails": "tsx prisma/backfill-thumbnails.ts",
+    "api:docs": "tsx scripts/generate-openapi.ts",
     "db:migrate-legacy": "tsx prisma/migrate-legacy.ts",
     "db:purge-expired": "tsx prisma/purge-expired.ts",
     "reminders:run": "tsx prisma/run-reminders.ts",
@@ -41,6 +42,7 @@
     "@radix-ui/react-label": "^2.1.2",
     "@radix-ui/react-separator": "^1.1.2",
     "@radix-ui/react-slot": "^1.1.2",
+    "@scalar/api-reference-react": "^0.9.73",
     "bcryptjs": "^2.4.3",
     "better-auth": "1.7.5",
     "class-variance-authority": "^0.7.1",
@@ -65,7 +67,8 @@
     "swr": "^2.4.1",
     "tailwind-merge": "^3.0.2",
     "tw-animate-css": "^1.2.5",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "zod-openapi": "4.2.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

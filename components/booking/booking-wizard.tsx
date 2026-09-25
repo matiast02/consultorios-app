@@ -51,7 +51,7 @@ import {
 } from "./public-ui";
 
 // Asistente público de reserva online (/reservar), sin login.
-// Contrato: contracts/api-schemas/online-booking.yaml
+// Contrato: lib/openapi/paths/public.ts
 //   GET  /api/public/booking/config
 //   GET  /api/public/booking/availability
 //   POST /api/public/booking

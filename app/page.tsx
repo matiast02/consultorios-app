@@ -129,7 +129,7 @@ async function loadClinicInfo() {
     };
   });
 
-  // Reserva online (contracts/api-schemas/online-booking.yaml): con el módulo
+  // Reserva online (lib/openapi/paths/public.ts): con el módulo
   // activo, los CTA "Solicitar turno" llevan a /reservar en vez de #contacto.
   const onlineBookingEnabled = settingsRow.onlineBookingEnabled === true;
 

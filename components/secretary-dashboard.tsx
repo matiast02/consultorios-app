@@ -208,7 +208,7 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
         if (res.status === 503) throw new Error("Los recordatorios están desactivados en Configuración → Consultorio");
         throw new Error("No se pudieron enviar los recordatorios");
       }
-      // ReminderDispatchSummary (contracts/api-schemas/reminders.yaml)
+      // ReminderDispatchSummary (lib/openapi/paths/reminders.ts)
       const summary = formatDispatchSummary(json.data);
       const opts = summary.description ? { description: summary.description } : undefined;
       if (summary.tone === "warning") toast.warning(summary.title, opts);

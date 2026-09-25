@@ -13,7 +13,7 @@ import { addDaysISO, formatBookingDateShort, formatBookingTime, todayAR } from "
 import type { OnlineBookingStaffItem, SecretaryOnlineBookingsData } from "@/types";
 
 // Reservas online pendientes de confirmar (recepción).
-// Contrato: contracts/api-schemas/online-booking.yaml
+// Contrato: lib/openapi/paths/online-booking.ts
 //   PATCH /api/online-bookings/{id}  { action: "confirm" | "reject" }
 // Lo cargado por el solicitante se muestra tal cual: si el DNI ya existía y el
 // nombre no coincide (`patientDataMismatch`), recepción verifica por teléfono.

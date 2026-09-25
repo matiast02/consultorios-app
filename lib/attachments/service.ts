@@ -1,6 +1,6 @@
 // Servicio de adjuntos de la historia clínica (ClinicalAttachment).
 //
-// Contrato y política: contracts/api-schemas/attachments.yaml.
+// Contrato y política: lib/openapi/paths/attachments.ts.
 //
 // Subida (`uploadAttachment`), en este orden:
 //   1. Solo médicos (el admin custodia la HC, no escribe; la secretaria nunca).

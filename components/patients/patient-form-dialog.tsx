@@ -81,7 +81,7 @@ interface PatientFormDialogProps {
   onDeleted?: () => void;
 }
 
-// Respuesta 409 de DELETE /api/patients/[id] (ver contracts/api-schemas/patients-lifecycle.yaml)
+// Respuesta 409 de DELETE /api/patients/[id] (ver lib/openapi/paths/patients.ts)
 interface DeletionBlockers {
   clinicalEntries: number;
   otherProfessionals: { id: string; name: string }[];

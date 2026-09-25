@@ -28,7 +28,7 @@ import type {
   SecretaryRemindersData,
 } from "@/types";
 
-// Contrato: contracts/api-schemas/reminders.yaml
+// Contrato: lib/openapi/paths/reminders.ts
 //   GET   /api/shifts/reminders?date=YYYY-MM-DD
 //   PATCH /api/shifts/reminders/{id}  { action: mark_sent | mark_failed | retry, note? }
 

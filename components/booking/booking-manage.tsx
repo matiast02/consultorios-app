@@ -20,7 +20,7 @@ import {
 } from "./public-ui";
 
 // Link de gestión de una reserva online (/reserva/<token>), sin login.
-// Contrato: contracts/api-schemas/online-booking.yaml → /api/public/booking/{token}.
+// Contrato: lib/openapi/paths/public.ts → /api/public/booking/{token}.
 // Solo muestra lo que devuelve el endpoint (nombre de pila, fecha, hora,
 // profesional, tipo de consulta, dirección y estado). Nada clínico.
 

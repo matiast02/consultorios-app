@@ -57,7 +57,7 @@ export function canDeliverHcCopy(role: string | null | undefined): boolean {
   return (HC_COPY_DELIVER_ROLES as readonly string[]).includes(role ?? "");
 }
 
-// ─── Tipos de la API (ver contracts/api-schemas/hc-copy-requests.yaml) ───────
+// ─── Tipos de la API (ver lib/openapi/paths) ───────
 
 export interface HcCopyUserRef {
   id: string;

@@ -68,6 +68,7 @@ pnpm run db:push      # Push schema to database
 pnpm run db:migrate   # Run Prisma migrations
 pnpm run db:studio    # Open Prisma Studio
 pnpm run db:seed      # Seed database
+pnpm api:docs         # Regenera contracts/openapi.json y openapi.mobile.json desde lib/openapi
 pnpm run docker:up    # Start MySQL container
 pnpm run docker:down  # Stop MySQL container
 ```
@@ -88,6 +89,7 @@ pnpm run docker:down  # Stop MySQL container
 - Adjuntos de HC (`lib/attachments/*`, `ClinicalAttachment`): cifrado por archivo (DEK envuelta con `HC_ENC_KEY`, formato HCA1), tipo real por magic bytes (PDF/JPEG/PNG/WebP), acceso como asiento clínico (kind `attachment`, sección `estudios`), descarga siempre por ruta autenticada con `nosniff` y `CSP: sandbox` en inline, sin borrado físico (anulación lógica), ledger y copia de HC. Miniaturas solo de imágenes (`lib/attachments/thumbnail.ts`, sharp → WebP ≤ 384 px, sin EXIF) cifradas con la misma DEK en `<id>.thumb.hca`, servidas por `/api/attachments/[id]/thumbnail` con el mismo perímetro y sin audit propio (lo cubre el `VIEW_SENSITIVE` del listado con `thumbnails`); `pnpm db:backfill-thumbnails` genera las que falten
 - Reservas online (`/reservar`, `lib/online-booking.ts`, `lib/availability.ts`): el turno entra PENDING con `source: "ONLINE"` y recepción confirma; sin texto libre de motivo; si el DNI existe se vincula sin revelar ni modificar datos (`OnlineBookingRequest` guarda lo cargado + `patientDataMismatch`); link de gestión `/reserva/<token>`; transacción con bloqueo por médico
 - Recordatorios de turnos: `lib/reminders/scheduler.ts` (plan + dispatch), email por `lib/notifications/email.ts` (Resend/SMTP/consola según env), WhatsApp manual click-to-chat desde recepción, link público `/turno/<token>` (token derivado de `AUTH_SECRET` + id, solo hash en DB) para confirmar/cancelar/opt-out; cron `POST /api/cron/reminders` con `CRON_SECRET` o `pnpm reminders:run`. Los mensajes y la página pública nunca llevan contenido clínico
+- Documentación de la API: registro en `lib/openapi/paths/*.ts` (una entrada por ruta, con los MISMOS schemas Zod de `lib/validations.ts`; DTO con `.openapi({ ref })`; `mobile: true` para lo que usa la app Flutter). `pnpm api:docs` genera `contracts/openapi.json` + `openapi.mobile.json`; `__tests__/openapi.test.ts` falla si una ruta no está registrada o los JSON están viejos. Visor: `/dashboard/administracion/api-docs` (admin). Guía móvil y generación del cliente Dart: `docs/API-MOBILE.md`. Toda ruta nueva o modificada se registra en el mismo commit
 - Route groups: `(auth)` for public, `(dashboard)` for protected pages
 - Role-based access: medic, secretary, admin
 - Soft deletes on User and Patient (deletedAt field)
