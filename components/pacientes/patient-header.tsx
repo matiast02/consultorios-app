@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { Patient } from "@/types";
 import { cn } from "@/lib/utils";
+import { calcAge, formatDateAR as fmtDateAR } from "@/lib/format";
 
 interface PatientHeaderProps {
   patient: Patient;
@@ -29,25 +30,7 @@ interface PatientHeaderProps {
   onHcCopy?: () => void;
 }
 
-function calcAge(birth?: string | null): number | null {
-  if (!birth) return null;
-  const b = new Date(birth);
-  if (isNaN(b.getTime())) return null;
-  const t = new Date();
-  let age = t.getFullYear() - b.getFullYear();
-  const m = t.getMonth() - b.getMonth();
-  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) age--;
-  return age;
-}
 
-function fmtDateAR(d: Date | null | undefined) {
-  if (!d) return "—";
-  return d.toLocaleDateString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
 
 function fmtMonthDay(d: Date | null | undefined) {
   if (!d) return "—";

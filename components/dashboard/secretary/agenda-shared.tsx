@@ -1,6 +1,12 @@
 "use client";
 
 import type { AgendaShiftMini, ShiftStatus } from "@/types";
+import { formatTime, formatTimeAmPm } from "@/lib/format";
+
+// Alias históricos de la agenda: la implementación vive en lib/format.ts.
+export const formatHHmmShort = (iso: string) => formatTimeAmPm(iso);
+export const formatHHmm24 = (iso: string) => formatTime(iso);
+export const currentTimeLabel = () => formatTimeAmPm(new Date());
 
 export const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 08..18
 
@@ -25,35 +31,13 @@ export function getHourFromIso(iso: string): number {
   return d.getHours() + d.getMinutes() / 60;
 }
 
-export function formatHHmmShort(iso: string): string {
-  const d = new Date(iso);
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ampm = h >= 12 ? "p. m." : "a. m.";
-  if (h === 0) h = 12;
-  else if (h > 12) h -= 12;
-  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
-}
 
-export function formatHHmm24(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
 
 export function getNowHour(): number {
   const n = new Date();
   return n.getHours() + n.getMinutes() / 60;
 }
 
-export function currentTimeLabel(): string {
-  const n = new Date();
-  let h = n.getHours();
-  const m = n.getMinutes();
-  const ampm = h >= 12 ? "p. m." : "a. m.";
-  if (h === 0) h = 12;
-  else if (h > 12) h -= 12;
-  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
-}
 
 /** Shorten patient name like "García, M." → keep as is. */
 export function shortPatient(s: AgendaShiftMini): string {

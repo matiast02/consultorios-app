@@ -1,4 +1,17 @@
 import type { Shift, UserPreference } from "@/types";
+import {
+  capitalize as capitalizeText,
+  formatTime as formatTimeShared,
+  isSameLocalDay,
+  pad2,
+  toLocalDateISO,
+} from "@/lib/format";
+// Alias históricos del calendario: la implementación vive en lib/format.ts.
+export const pad = pad2;
+export const formatTime = formatTimeShared;
+export const isSameDay = isSameLocalDay;
+export const dateToYMD = toLocalDateISO;
+export const capitalize = capitalizeText;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -18,25 +31,9 @@ export const AGENDA_DAYS = 14;
 
 // ─── Utility Functions ────────────────────────────────────────────────────────
 
-export function pad(n: number): string {
-  return n.toString().padStart(2, "0");
-}
 
-export function formatTime(date: Date): string {
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
-export function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
 
-export function dateToYMD(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 /** Get Monday of the week containing `date` */
 export function getMonday(date: Date): Date {
@@ -56,10 +53,6 @@ export function getSunday(date: Date): Date {
   return d;
 }
 
-/** Capitalise the first character of `s`. */
-export function capitalize(s: string): string {
-  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
-}
 
 export function toMinutes(d: Date): number {
   return d.getHours() * 60 + d.getMinutes();

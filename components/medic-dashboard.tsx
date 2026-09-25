@@ -25,6 +25,7 @@ import { QuickActionsCard } from "@/components/dashboard/medic/quick-actions-car
 import { RecentPatientsCard } from "@/components/dashboard/medic/recent-patients-card";
 
 import type { DashboardShift, MedicDashboardData, Shift } from "@/types";
+import { medicShortNameFromFull } from "@/lib/names";
 
 interface MedicDashboardProps {
   userName: string;
@@ -64,7 +65,7 @@ function toShift(d: DashboardShift): Shift {
 export function MedicDashboard({ userName }: MedicDashboardProps) {
   const { data: session } = useSession();
   const router = useRouter();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
 
   const [data, setData] = useState<MedicDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -283,14 +284,8 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     );
   }
 
-  const doctorName = (() => {
-    // Show "Dr. Apellido" if userName looks like "Nombre Apellido"
-    const parts = userName.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return `Dr. ${parts[parts.length - 1]}`;
-    }
-    return userName;
-  })();
+  // «Dr. Apellido» o «Dra. Apellido» según el nombre de pila (antes era «Dr.» para todos).
+  const doctorName = medicShortNameFromFull(userName);
 
   return (
     <div className="space-y-5">

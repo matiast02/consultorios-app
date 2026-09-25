@@ -269,7 +269,7 @@ function MiniCalendar({
 
 export function BlockedDaysTab() {
   const { data: session } = useSession();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
 
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);

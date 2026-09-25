@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
 import type { Patient, WaitingTicketSummary } from "@/types";
+import { formatTime } from "@/lib/format";
 
 interface RegisterArrivalDialogProps {
   open: boolean;
@@ -336,7 +337,7 @@ export function RegisterArrivalDialog({
                           className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30"
                         >
                           <div className="w-12 shrink-0 text-sm font-semibold tabular-nums text-foreground">
-                            {formatHHmm(s.start)}
+                            {formatTime(s.start)}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-medium text-foreground">
@@ -471,7 +472,3 @@ export function RegisterArrivalDialog({
   );
 }
 
-function formatHHmm(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}

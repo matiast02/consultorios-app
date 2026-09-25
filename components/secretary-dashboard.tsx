@@ -31,7 +31,7 @@ interface SecretaryDashboardProps {
 export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const { data: session } = useSession();
   const router = useRouter();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
   void userId;
 
   const [data, setData] = useState<SecretaryDashboardData | null>(null);

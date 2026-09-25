@@ -9,6 +9,9 @@
 //   finished        FINISHED (solo interesa cuando la ficha se abrió para ese turno)
 
 import type { ShiftStatus } from "@/types";
+import { isSameLocalDay, minutesSince } from "@/lib/format";
+
+export { isSameLocalDay, minutesSince };
 
 export type ConsultationPhase = "scheduled" | "waiting" | "inConsultation" | "finished";
 
@@ -29,9 +32,6 @@ export function consultationPhase(s: PhaseInput): ConsultationPhase | null {
   return "scheduled";
 }
 
-export function isSameLocalDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
 
 const PHASE_RANK: Record<ConsultationPhase, number> = {
   inConsultation: 0,
@@ -79,7 +79,3 @@ export function resolveActiveShift<T extends PhaseInput & { id: string; userId: 
   return candidates[0] ?? null;
 }
 
-/** Minutos enteros desde `iso` hasta `now` (nunca negativos). */
-export function minutesSince(iso: string, now: Date = new Date()): number {
-  return Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 60000));
-}

@@ -6,6 +6,7 @@ import { logAudit } from "@/lib/audit";
 import { canAssignTo, canSeeShift, getShiftActor, SHIFT_FORBIDDEN, SHIFT_NOT_FOUND, SHIFT_OWN_ONLY } from "@/lib/shift-access";
 import { closeTicketForShift, TICKET_CLOSE_BY_STATUS, waitingRoomEnabled } from "@/lib/waiting-room/tickets";
 import { coverageData, resolveShiftCoverage } from "@/lib/shift-coverage";
+import { medicShortName } from "@/lib/names";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -131,13 +132,10 @@ export async function GET(req: NextRequest, context: RouteContext) {
         };
       }
       if (next) {
-        const fn = next.user.firstName ?? "";
-        const ln = next.user.lastName ?? "";
-        const honor = fn.toLowerCase().endsWith("a") ? "Dra." : "Dr.";
         nextScheduled = {
           date: next.start.toISOString(),
           consultationTypeName: next.consultationType?.name ?? null,
-          medicShortName: ln ? `${honor} ${ln}` : (next.user.name ?? "Profesional"),
+          medicShortName: medicShortName(next.user),
         };
       }
     }

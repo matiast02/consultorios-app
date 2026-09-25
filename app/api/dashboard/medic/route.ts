@@ -5,6 +5,8 @@ import { isMedic } from "@/lib/auth-utils";
 import { treatedPatientWhere } from "@/lib/clinical-access";
 import { isModuleEnabled } from "@/lib/modules";
 import { WAITING_ROOM_MODULE, emptyOpenTickets, openTicketsByTarget } from "@/lib/waiting-room/tickets";
+import { isSameLocalDay as isSameDay } from "@/lib/format";
+import { initials as getInitials } from "@/lib/names";
 
 const DAY_LABELS = ["LU", "MA", "MI", "JU", "VI", "SÁ", "DO"] as const;
 const RENEWAL_WINDOW_DAYS = 14;
@@ -35,13 +37,7 @@ function addDays(d: Date, n: number): Date {
   return x;
 }
 
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
 
-function getInitials(firstName: string, lastName: string): string {
-  return `${(firstName[0] ?? "").toUpperCase()}${(lastName[0] ?? "").toUpperCase()}`;
-}
 
 function displayName(u: { name: string; firstName: string | null; lastName: string | null }): string {
   return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.name || "Profesional";

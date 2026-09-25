@@ -54,7 +54,7 @@ interface SecretaryUser {
 
 export default function SecretariasPage() {
   const { data: session } = useSession();
-  const isAdmin = (session?.user as { role?: string })?.role === "admin";
+  const isAdmin = session?.user.role === "admin";
 
   const [users, setUsers] = useState<SecretaryUser[]>([]);
   const [loading, setLoading] = useState(true);

@@ -36,6 +36,8 @@ import {
   whatsappLink,
 } from "@/lib/reminders/message";
 import { confirmationUrl, generateConfirmationToken, hashConfirmationToken } from "@/lib/reminders/tokens";
+import { medicShortName } from "@/lib/names";
+export { medicShortName };
 import type {
   ReminderChannel,
   ReminderDispatchSummary,
@@ -269,16 +271,6 @@ export interface MedicNameInfo {
   name: string | null;
 }
 
-/** "Dr. Pérez" / "Dra. Gómez" (misma heurística que el dashboard de recepción). */
-export function medicShortName(u: MedicNameInfo | null | undefined): string {
-  if (!u) return "Profesional";
-  const fn = u.firstName?.trim() ?? "";
-  const ln = u.lastName?.trim() ?? "";
-  const honor = fn.toLowerCase().endsWith("a") ? "Dra." : "Dr.";
-  if (ln) return `${honor} ${ln}`;
-  if (fn) return `${honor} ${fn}`;
-  return u.name?.trim() || "Profesional";
-}
 
 export function firstGivenName(firstName: string | null | undefined): string {
   return (firstName ?? "").trim().split(/\s+/)[0] ?? "";

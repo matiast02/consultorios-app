@@ -140,8 +140,8 @@ const ROLE_LABELS: Record<string, string> = {
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const role = (session?.user as { role?: string } | undefined)?.role;
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const role = session?.user.role;
+  const userId = session?.user.id;
   const profLabels = useProfessionLabels(role === "medic" ? userId : null);
   const roleLabel = role === "medic"
     ? profLabels.professionName !== "Profesional" ? profLabels.professionName : (ROLE_LABELS[role] ?? role)

@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatReminderDate, formatReminderTime } from "@/lib/reminders/message";
 import type { PublicShiftConfirmation, ShiftStatus } from "@/types";
+import { capitalize } from "@/lib/format";
 
 // Link público de confirmación de turno (/turno/<token>), sin login.
 // Contrato: lib/openapi/paths/public.ts → /api/public/turno/{token}.
@@ -83,9 +84,6 @@ async function fetchShift(token: string, signal?: AbortSignal): Promise<LoadStat
   }
 }
 
-function capitalize(s: string) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-}
 
 // ─── UI building blocks ─────────────────────────────────────────────────────
 

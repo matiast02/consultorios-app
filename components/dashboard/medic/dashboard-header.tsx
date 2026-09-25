@@ -3,6 +3,7 @@
 import { Plus, UserPlus } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { capitalize } from "@/lib/format";
 
 interface DashboardHeaderProps {
   doctorName: string;
@@ -16,9 +17,6 @@ function getGreeting(hour: number): string {
   return "Buenas noches";
 }
 
-function capitalize(str: string): string {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
 
 export function DashboardHeader({ doctorName, onNewShift, onNewPatient }: DashboardHeaderProps) {
   const now = new Date();

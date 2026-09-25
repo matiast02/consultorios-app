@@ -17,6 +17,8 @@ import {
 import type { CalledItem, WaitingRoomItem } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
 import { CalledList } from "./called-list";
+import { formatTimeAmPm } from "@/lib/format";
+import { avatarColor, initials } from "@/lib/names";
 
 interface WaitingRoomCardProps {
   items: WaitingRoomItem[];
@@ -40,9 +42,6 @@ interface WaitingRoomCardProps {
 
 type Tab = "sala" | "consulta";
 
-function initials(firstName: string, lastName: string): string {
-  return `${(lastName[0] ?? "").toUpperCase()}${(firstName[0] ?? "").toUpperCase()}`;
-}
 
 function bucketBg(minutes: number): { text: string; chip: string } {
   if (minutes > 15) return { text: "text-rose-600", chip: "text-rose-700" };
@@ -50,23 +49,6 @@ function bucketBg(minutes: number): { text: string; chip: string } {
   return { text: "text-muted-foreground", chip: "text-muted-foreground" };
 }
 
-function avatarColor(seed: string): string {
-  // Deterministic palette based on a string seed
-  const palette = [
-    "bg-rose-100 text-rose-700",
-    "bg-orange-100 text-orange-700",
-    "bg-amber-100 text-amber-700",
-    "bg-lime-100 text-lime-700",
-    "bg-emerald-100 text-emerald-700",
-    "bg-teal-100 text-teal-700",
-    "bg-sky-100 text-sky-700",
-    "bg-violet-100 text-violet-700",
-    "bg-pink-100 text-pink-700",
-  ];
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return palette[h % palette.length];
-}
 
 function TabButton({
   active,
@@ -228,7 +210,7 @@ export function WaitingRoomCard({
                           <span>
                             Turno{" "}
                             <span className="tabular-nums">
-                              {formatTime(it.shift.start)}
+                              {formatTimeAmPm(it.shift.start)}
                             </span>
                           </span>
                           <span className="text-muted-foreground/40">·</span>
@@ -369,12 +351,3 @@ export function WaitingRoomCard({
   );
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ampm = h >= 12 ? "p. m." : "a. m.";
-  if (h === 0) h = 12;
-  else if (h > 12) h -= 12;
-  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
-}

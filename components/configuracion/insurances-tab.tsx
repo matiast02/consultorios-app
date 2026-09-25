@@ -42,7 +42,7 @@ function isRegional(ins: HealthInsurance): boolean {
 
 export function InsurancesTab() {
   const { data: session } = useSession();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

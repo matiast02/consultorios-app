@@ -3,11 +3,8 @@
 import Link from "next/link";
 import { Users } from "lucide-react";
 import type { DashboardRecentPatient } from "@/types";
+import { formatTime } from "@/lib/format";
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
 
 export function RecentPatientsCard({ patients }: { patients: DashboardRecentPatient[] }) {
   return (

@@ -46,11 +46,8 @@ import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repea
 import { cn } from "@/lib/utils";
 import type { Patient, Medic, UserPreference, BlockDay, ConsultationType, HealthInsurance } from "@/types";
 import { DAY_NAMES } from "@/types";
+import { toLocalDateISO } from "@/lib/format";
 
-/** Format a Date as YYYY-MM-DD using LOCAL time (avoids TZ off-by-one). */
-function toLocalDateISO(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 const createShiftSchema = z.object({
   patientId: z.string().min(1, "Selecciona un paciente"),

@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OsBadge } from "@/components/shifts/os-badge";
 import type { DashboardShift, ShiftStatus } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { formatTime, normalizeText as normalize } from "@/lib/format";
 
 interface TodayShiftsCardProps {
   shifts: DashboardShift[];
@@ -51,18 +52,10 @@ const STATUS_TEXT: Record<ShiftStatus, string> = {
   CANCELLED: "text-slate-500",
 };
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
 
 /** A partir de cuántos turnos aparece el buscador (con menos, la lista se recorre de un vistazo). */
 const SEARCH_MIN_SHIFTS = 8;
 
-/** Minúsculas y sin acentos: "Gómez" coincide con "gomez". */
-function normalize(text: string): string {
-  return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
 
 function shiftMatches(s: DashboardShift, q: string): boolean {
   const first = s.patient?.firstName ?? "";

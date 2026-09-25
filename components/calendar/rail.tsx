@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { ChevronLeft, ChevronRight, Phone, Plus, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Shift } from "@/types";
+import { formatEta as etaLabel, minutesUntil } from "@/lib/format";
 import {
   STATE_BAR_CLASS,
   STATE_STAT_NUM_CLASS,
@@ -423,10 +424,5 @@ function MiniCalendar({
 // ─── ETA formatter ────────────────────────────────────────────────────────────
 
 function formatEta(when: Date): string {
-  const mins = Math.round((when.getTime() - Date.now()) / 60000);
-  if (mins <= 0) return "ahora";
-  if (mins < 60) return `en ${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `en ${h} h${m ? ` ${m} min` : ""}`;
+  return etaLabel(minutesUntil(when));
 }
