@@ -268,6 +268,10 @@ export function ShiftQuickDialog({
   const patient = shift.patient;
   const fullName = patient ? `${patient.lastName}, ${patient.firstName}` : "Paciente";
   const status = shift.status;
+  // Turno cerrado: no se marca ausente, no pasa a consulta / se atiende y no se cancela.
+  // Finalizado: la acción principal pasa a ser ver la ficha (evolución, receta, orden).
+  const isFinished = status === "FINISHED";
+  const isClosed = isFinished || status === "CANCELLED";
   const startStr = formatHHmm(shift.start);
   const endStr = formatHHmm(shift.end);
   const ctName = shift.consultationType?.name ?? "Consulta";
@@ -441,66 +445,88 @@ export function ShiftQuickDialog({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[220px]">
-              <DropdownMenuItem
-                onSelect={() => {
-                  onOpenChange(false);
-                  onReschedule?.(shift);
-                }}
-              >
-                <CalendarClock className="mr-2 h-4 w-4" /> Reprogramar turno
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => {
-                  toast.info("Recordatorio individual: próximamente");
-                }}
-              >
-                <Mail className="mr-2 h-4 w-4" /> Enviar recordatorio
-              </DropdownMenuItem>
+              {!isFinished && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onReschedule?.(shift);
+                  }}
+                >
+                  <CalendarClock className="mr-2 h-4 w-4" /> Reprogramar turno
+                </DropdownMenuItem>
+              )}
+              {!isClosed && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    toast.info("Recordatorio individual: próximamente");
+                  }}
+                >
+                  <Mail className="mr-2 h-4 w-4" /> Enviar recordatorio
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onSelect={() => window.print()}>
                 <Printer className="mr-2 h-4 w-4" /> Imprimir / PDF
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={cancelarTurno}
-                className="text-rose-600 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/30"
-              >
-                <XCircle className="mr-2 h-4 w-4" /> Cancelar turno
-              </DropdownMenuItem>
+              {!isClosed && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={cancelarTurno}
+                    className="text-rose-600 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                  >
+                    <XCircle className="mr-2 h-4 w-4" /> Cancelar turno
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
 
           <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              disabled={actionInFlight !== null || status === "ABSENT"}
-              onClick={markAusente}
-              className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
-            >
-              {actionInFlight === "ausente" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <UserX className="h-3.5 w-3.5" />
-              )}
-              Ausente
-            </button>
-            <button
-              type="button"
-              disabled={
-                actionInFlight !== null ||
-                (primaryAction
-                  ? !!primaryAction.disabled
-                  : !!shift.consultationStartedAt)
-              }
-              onClick={() => (primaryAction ? primaryAction.onClick(shift) : markPasoAConsulta())}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {actionInFlight === "paso" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Check className="h-3.5 w-3.5" />
-              )}
-              {primaryAction?.label ?? "Pasó a consulta"}
-            </button>
+            {!isClosed && (
+              <button
+                type="button"
+                disabled={actionInFlight !== null || status === "ABSENT"}
+                onClick={markAusente}
+                className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
+              >
+                {actionInFlight === "ausente" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <UserX className="h-3.5 w-3.5" />
+                )}
+                Ausente
+              </button>
+            )}
+            {isFinished && patient?.id && onViewPatient && (
+              <button
+                type="button"
+                onClick={() => onViewPatient(patient.id)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+              >
+                Ver ficha
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {!isClosed && (
+              <button
+                type="button"
+                disabled={
+                  actionInFlight !== null ||
+                  (primaryAction
+                    ? !!primaryAction.disabled
+                    : !!shift.consultationStartedAt)
+                }
+                onClick={() => (primaryAction ? primaryAction.onClick(shift) : markPasoAConsulta())}
+                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {actionInFlight === "paso" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Check className="h-3.5 w-3.5" />
+                )}
+                {primaryAction?.label ?? "Pasó a consulta"}
+              </button>
+            )}
           </div>
         </div>
       </DialogContent>
