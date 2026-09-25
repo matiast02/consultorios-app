@@ -3,6 +3,7 @@
 import { Shield, Stethoscope, UserCog, UserX, Users } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { es } from "date-fns/locale";
+import { avatarColor, initialsFromName } from "@/lib/names";
 
 import type {
   InactiveUserItem,
@@ -14,30 +15,7 @@ interface UsersCardProps {
   users: UsersBreakdown;
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-}
 
-function avatarColor(seed: string): string {
-  const palette = [
-    "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-    "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300",
-    "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-    "bg-lime-100 text-lime-700 dark:bg-lime-950/40 dark:text-lime-300",
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-    "bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
-    "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300",
-    "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
-    "bg-pink-100 text-pink-700 dark:bg-pink-950/40 dark:text-pink-300",
-  ];
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return palette[h % palette.length];
-}
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "Nunca";
@@ -146,7 +124,7 @@ export function UsersCard({ users }: UsersCardProps) {
                   <div
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${av}`}
                   >
-                    {initials(u.name)}
+                    {initialsFromName(u.name)}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-foreground">

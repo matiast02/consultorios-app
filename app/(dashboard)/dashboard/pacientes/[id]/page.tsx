@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -27,24 +28,17 @@ import { EvolucionesTab } from "@/components/pacientes/evoluciones-tab";
 import { RecetasTab } from "@/components/pacientes/recetas-tab";
 import { EstudiosTab, type StudyOrderRow } from "@/components/pacientes/estudios-tab";
 import { NutricionTab } from "@/components/pacientes/nutricion-tab";
-import { OdontogramaTab } from "@/components/pacientes/odontograma-tab";
-import { GenogramaTab } from "@/components/pacientes/genograma-tab";
 import { TurnosTab } from "@/components/pacientes/turnos-tab";
 import { ClinicalAccessBanner } from "@/components/pacientes/clinical-access-banner";
 import { AccessGrantsPanel } from "@/components/pacientes/access-grants-panel";
-import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { ConsultationBar } from "@/components/pacientes/consultation-bar";
 import { QuickAttendDialog } from "@/components/shifts/quick-attend-dialog";
-import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { CallToRoomDialog, type CallToRoomTarget } from "@/components/waiting-room/call-to-room-dialog";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
 import { resolveActiveShift } from "@/lib/consultation-flow";
-import { HcCopyDialog } from "@/components/pacientes/hc-copy-dialog";
 import { EvolutionFormDialog } from "@/components/clinical/evolution-form-dialog";
-import { CreatePrescriptionDialog } from "@/components/prescriptions/create-prescription-dialog";
 import { CreateStudyOrderDialog } from "@/components/study-orders/create-study-order-dialog";
 import { PrescriptionView } from "@/components/prescriptions/prescription-view";
-import { CreateMealPlanDialog } from "@/components/nutrition/create-meal-plan-dialog";
 import { MealPlanView } from "@/components/nutrition/meal-plan-view";
 import { AnnulReasonDialog } from "@/components/clinical/annul-reason-dialog";
 import { VersionHistoryDialog } from "@/components/clinical/version-history-dialog";
@@ -61,6 +55,44 @@ import type {
   StructuredAllergy,
   WaitingTicketOpen,
 } from "@/types";
+
+// Piezas pesadas que solo se montan al abrirlas (diálogos) o al elegir la pestaña
+// (editores de genograma y odontograma): fuera del chunk inicial de la ficha.
+function TabLoading() {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-primary/50" />
+    </div>
+  );
+}
+const PatientFormDialog = dynamic(
+  () => import("@/components/patients/patient-form-dialog").then((m) => m.PatientFormDialog),
+  { ssr: false },
+);
+const CreateShiftDialog = dynamic(
+  () => import("@/components/shifts/create-shift-dialog").then((m) => m.CreateShiftDialog),
+  { ssr: false },
+);
+const HcCopyDialog = dynamic(
+  () => import("@/components/pacientes/hc-copy-dialog").then((m) => m.HcCopyDialog),
+  { ssr: false },
+);
+const CreatePrescriptionDialog = dynamic(
+  () => import("@/components/prescriptions/create-prescription-dialog").then((m) => m.CreatePrescriptionDialog),
+  { ssr: false },
+);
+const CreateMealPlanDialog = dynamic(
+  () => import("@/components/nutrition/create-meal-plan-dialog").then((m) => m.CreateMealPlanDialog),
+  { ssr: false },
+);
+const OdontogramaTab = dynamic(
+  () => import("@/components/pacientes/odontograma-tab").then((m) => m.OdontogramaTab),
+  { ssr: false, loading: TabLoading },
+);
+const GenogramaTab = dynamic(
+  () => import("@/components/pacientes/genograma-tab").then((m) => m.GenogramaTab),
+  { ssr: false, loading: TabLoading },
+);
 
 const VALID_TABS = [
   "resumen",
@@ -100,10 +132,10 @@ export default function PacienteDetailPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const patientId = params.id as string;
-  const sessionUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
-  const userRole = (session?.user as { role?: string } | undefined)?.role ?? null;
+  const sessionUserId = session?.user.id ?? null;
+  const userRole = session?.user.role ?? null;
   const isClinical = userRole !== "secretary"; // medics + admins can see clinical data
 
   // Secretaries can't access clinical tabs even via URL.
@@ -169,102 +201,39 @@ export default function PacienteDetailPage() {
     }
   }, [patientId]);
 
+  // Carga inicial de la ficha. Todo lo que no depende de otra respuesta va en
+  // paralelo (antes eran 8 rondas secuenciales). Solo la primera carga muestra el
+  // spinner de página; después de crear o editar algo se refresca solo esa lista.
   const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
-      // Common (all roles): patient + shifts
-      const pRes = await fetch(`/api/patients/${patientId}`);
+      const none = Promise.resolve(null);
+      const [pRes, sRes, rRes, eRes, mRes, aRes, pcRes] = await Promise.all([
+        fetch(`/api/patients/${patientId}`),
+        fetch(`/api/shifts?patientId=${patientId}`),
+        // HC: médicos y admins la completa; la secretaria recibe una vista
+        // reducida del backend (solo alergias para la alerta), así que va para todos.
+        fetch(`/api/patients/${patientId}/clinical-record`),
+        isClinical ? fetch(`/api/patients/${patientId}/evolutions`) : none,
+        isClinical ? fetch(`/api/modules`) : none,
+        isClinical ? fetch(`/api/patients/${patientId}/clinical-access`) : none,
+        isClinical && sessionUserId ? fetch(`/api/users/${sessionUserId}/profession-config`) : none,
+      ]);
       if (!pRes.ok) throw new Error("Paciente no encontrado");
       const pJson = await pRes.json();
       setPatient(pJson.data ?? pJson);
 
-      const sRes = await fetch(`/api/shifts?patientId=${patientId}`);
       if (sRes.ok) {
         const sJson = await sRes.json();
         setShifts(Array.isArray(sJson.data) ? sJson.data : []);
       }
-
-      // Clinical record: medics + admins get the full record; secretaries
-      // get a redacted view from the backend (only structured allergies for
-      // the safety alert), so we fetch it for everyone.
-      const rRes = await fetch(`/api/patients/${patientId}/clinical-record`);
       if (rRes.ok) {
         const rJson = await rRes.json();
         setRecord(rJson.data ?? null);
       }
 
-      // Evolutions, prescriptions and modules are clinical-only.
-      if (isClinical) {
-        const [eRes, mRes, aRes] = await Promise.all([
-          fetch(`/api/patients/${patientId}/evolutions`),
-          fetch(`/api/modules`),
-          fetch(`/api/patients/${patientId}/clinical-access`),
-        ]);
-
-        if (aRes.ok) {
-          const aJson = await aRes.json();
-          setAccess(aJson.data ?? null);
-        } else {
-          setAccess(null);
-        }
-
-        if (eRes.ok) {
-          const eJson = await eRes.json();
-          setEvolutions(Array.isArray(eJson.data) ? eJson.data : []);
-        }
-
-        if (mRes.ok) {
-          const mJson = await mRes.json();
-          const modules: ModuleConfig[] = mJson.data ?? [];
-          setWaitingRoomEnabled(modules.find((m) => m.module === "waiting_room")?.enabled ?? false);
-          const presc = modules.find((m) => m.module === "prescriptions");
-          if (presc?.enabled) {
-            setPrescriptionsEnabled(true);
-            const prRes = await fetch(`/api/prescriptions?patientId=${patientId}`);
-            if (prRes.ok) {
-              const prJson = await prRes.json();
-              setPrescriptions(prJson.data ?? []);
-            }
-          }
-
-          // Órdenes de estudio: el endpoint además chequea el módulo por
-          // profesión; si responde 403 la tab no se muestra.
-          const study = modules.find((m) => m.module === "study_orders");
-          let studyVisible = false;
-          if (study?.enabled) {
-            const soRes = await fetch(`/api/study-orders?patientId=${patientId}`);
-            if (soRes.ok) {
-              const soJson = await soRes.json();
-              setStudyOrders(Array.isArray(soJson.data) ? soJson.data : []);
-              studyVisible = true;
-            }
-          }
-          setStudyOrdersEnabled(studyVisible);
-          if (!studyVisible) setStudyOrders([]);
-        }
-
-        // Nutrition: only for professionals whose profession enables the
-        // anthropometric tracker (i.e. nutritionists). Meal plans share the
-        // "prescriptions" module gate on the API side.
-        if (sessionUserId) {
-          const pcRes = await fetch(`/api/users/${sessionUserId}/profession-config`);
-          if (pcRes.ok) {
-            const pcJson = await pcRes.json();
-            const fields = safeParseJSON<string[]>(pcJson.data?.clinicalFields ?? null, []);
-            setOdontogramEnabled(fields.includes("odontogram"));
-            setGenogramEnabled(fields.includes("genogram"));
-            if (fields.includes("anthropometricTracker")) {
-              setNutritionEnabled(true);
-              const mpRes = await fetch(`/api/meal-plans?patientId=${patientId}`);
-              if (mpRes.ok) {
-                const mpJson = await mpRes.json();
-                setMealPlans(Array.isArray(mpJson.data) ? mpJson.data : []);
-              }
-            }
-          }
-        }
-      } else {
-        // Reset clinical state for secretaries
+      if (!isClinical) {
+        // Secretaria: sin datos clínicos.
         setAccess(null);
         setEvolutions([]);
         setPrescriptions([]);
@@ -276,6 +245,70 @@ export default function PacienteDetailPage() {
         setOdontogramEnabled(false);
         setGenogramEnabled(false);
         setWaitingRoomEnabled(false);
+        return;
+      }
+
+      if (aRes?.ok) {
+        const aJson = await aRes.json();
+        setAccess(aJson.data ?? null);
+      } else {
+        setAccess(null);
+      }
+      if (eRes?.ok) {
+        const eJson = await eRes.json();
+        setEvolutions(Array.isArray(eJson.data) ? eJson.data : []);
+      }
+
+      let prescEnabled = false;
+      let studyModuleOn = false;
+      if (mRes?.ok) {
+        const mJson = await mRes.json();
+        const modules: ModuleConfig[] = mJson.data ?? [];
+        setWaitingRoomEnabled(modules.find((m) => m.module === "waiting_room")?.enabled ?? false);
+        prescEnabled = modules.find((m) => m.module === "prescriptions")?.enabled ?? false;
+        studyModuleOn = modules.find((m) => m.module === "study_orders")?.enabled ?? false;
+      }
+      setPrescriptionsEnabled(prescEnabled);
+
+      // Nutrición solo para profesiones con el tracker antropométrico (nutricionistas);
+      // odontograma y genograma también salen de la configuración de la profesión.
+      let nutrition = false;
+      if (pcRes?.ok) {
+        const pcJson = await pcRes.json();
+        const fields = safeParseJSON<string[]>(pcJson.data?.clinicalFields ?? null, []);
+        setOdontogramEnabled(fields.includes("odontogram"));
+        setGenogramEnabled(fields.includes("genogram"));
+        nutrition = fields.includes("anthropometricTracker");
+      }
+      setNutritionEnabled(nutrition);
+
+      // Ronda 2: listas que dependen de módulos y profesión, también en paralelo.
+      const [prRes, soRes, mpRes] = await Promise.all([
+        prescEnabled ? fetch(`/api/prescriptions?patientId=${patientId}`) : none,
+        studyModuleOn ? fetch(`/api/study-orders?patientId=${patientId}`) : none,
+        nutrition ? fetch(`/api/meal-plans?patientId=${patientId}`) : none,
+      ]);
+      if (prRes?.ok) {
+        const prJson = await prRes.json();
+        setPrescriptions(prJson.data ?? []);
+      } else {
+        setPrescriptions([]);
+      }
+      // Órdenes de estudio: el endpoint además chequea el módulo por profesión;
+      // si responde 403 la tab no se muestra.
+      if (soRes?.ok) {
+        const soJson = await soRes.json();
+        setStudyOrders(Array.isArray(soJson.data) ? soJson.data : []);
+        setStudyOrdersEnabled(true);
+      } else {
+        setStudyOrders([]);
+        setStudyOrdersEnabled(false);
+      }
+      if (mpRes?.ok) {
+        const mpJson = await mpRes.json();
+        setMealPlans(Array.isArray(mpJson.data) ? mpJson.data : []);
+      } else {
+        setMealPlans([]);
       }
     } catch {
       toast.error("Error al cargar el paciente");
@@ -285,9 +318,50 @@ export default function PacienteDetailPage() {
     }
   }, [patientId, router, isClinical, sessionUserId]);
 
+  // Con la sesión resuelta: si no, la ficha se pedía dos veces (una sin sesión y
+  // otra con rol e id) y la auditoría registraba dos accesos a la HC.
   useEffect(() => {
+    if (sessionStatus === "loading") return;
     fetchAll();
-  }, [fetchAll]);
+  }, [fetchAll, sessionStatus]);
+
+  // Refrescos parciales tras crear, editar o anular: sin spinner de página y sin
+  // volver a pedir los diez endpoints de la carga inicial.
+  const refreshPatient = useCallback(async () => {
+    const res = await fetch(`/api/patients/${patientId}`).catch(() => null);
+    if (res?.ok) {
+      const json = await res.json();
+      setPatient(json.data ?? json);
+    }
+  }, [patientId]);
+
+  type ListKind = "evolutions" | "prescriptions" | "study-orders" | "meal-plans";
+  const refreshList = useCallback(
+    async (kind: ListKind) => {
+      const url =
+        kind === "evolutions" ? `/api/patients/${patientId}/evolutions` : `/api/${kind}?patientId=${patientId}`;
+      const res = await fetch(url).catch(() => null);
+      if (!res?.ok) return;
+      const json = await res.json();
+      const list = Array.isArray(json.data) ? json.data : [];
+      if (kind === "evolutions") setEvolutions(list);
+      else if (kind === "prescriptions") setPrescriptions(list);
+      else if (kind === "study-orders") setStudyOrders(list);
+      else setMealPlans(list);
+    },
+    [patientId],
+  );
+
+  /** Anulación: el endpoint dice qué lista cambió. */
+  const refreshAfterAnnul = useCallback(
+    (endpoint: string) => {
+      if (endpoint.includes("/evolutions/")) return refreshList("evolutions");
+      if (endpoint.includes("/prescriptions/")) return refreshList("prescriptions");
+      if (endpoint.includes("/meal-plans/")) return refreshList("meal-plans");
+      return fetchAll();
+    },
+    [refreshList, fetchAll],
+  );
 
   // ─── Consulta en curso (médico) ───────────────────────────────────────────
   // La ficha es el lugar donde se atiende: el turno de hoy del médico (el de la
@@ -447,7 +521,9 @@ export default function PacienteDetailPage() {
   }
 
   // Derived values ────────────────────────────────────────────────────────
-  const now = new Date();
+  // Fijado por carga de turnos: un `new Date()` por render anulaba los useMemo de abajo.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const now = useMemo(() => new Date(), [shifts]);
   const sortedShifts = useMemo(
     () =>
       [...shifts].sort(
@@ -578,7 +654,7 @@ export default function PacienteDetailPage() {
     { id: "turnos", label: "Turnos", icon: Calendar, count: shifts.length },
   ];
 
-  if (loading) {
+  if (loading && !patient) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
@@ -837,7 +913,9 @@ export default function PacienteDetailPage() {
       </Tabs>
 
       {/* Dialogs ─────────────────────────────────────────────────────── */}
-      <HcCopyDialog patientId={patientId} open={hcCopyOpen} onOpenChange={setHcCopyOpen} />
+      {hcCopyOpen && (
+        <HcCopyDialog patientId={patientId} open={hcCopyOpen} onOpenChange={setHcCopyOpen} />
+      )}
 
       {/* Consulta en curso: llamado, cierre y próximo turno sin salir de la ficha */}
       <CallToRoomDialog
@@ -878,19 +956,21 @@ export default function PacienteDetailPage() {
           }}
         />
       )}
-      <PatientFormDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        patient={patient}
-        onSaved={() => {
-          setEditOpen(false);
-          fetchAll();
-        }}
-        onDeleted={() => {
-          setEditOpen(false);
-          router.push("/dashboard/pacientes");
-        }}
-      />
+      {editOpen && (
+        <PatientFormDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          patient={patient}
+          onSaved={() => {
+            setEditOpen(false);
+            refreshPatient();
+          }}
+          onDeleted={() => {
+            setEditOpen(false);
+            router.push("/dashboard/pacientes");
+          }}
+        />
+      )}
 
       {isClinical && (
         <EvolutionFormDialog
@@ -901,25 +981,27 @@ export default function PacienteDetailPage() {
           shiftLabel={linkShiftLabel}
           onCreated={() => {
             setEvolutionOpen(false);
-            fetchAll();
+            refreshList("evolutions");
           }}
         />
       )}
 
       {isClinical && prescriptionsEnabled && (
         <>
-          <CreatePrescriptionDialog
-            open={prescriptionOpen}
-            onOpenChange={setPrescriptionOpen}
-            patientId={patientId}
-            patientName={`${patient.lastName}, ${patient.firstName}`}
-            shiftId={linkShiftId ?? undefined}
-            userId={sessionUserId}
-            onCreated={() => {
-              setPrescriptionOpen(false);
-              fetchAll();
-            }}
-          />
+          {prescriptionOpen && (
+            <CreatePrescriptionDialog
+              open={prescriptionOpen}
+              onOpenChange={setPrescriptionOpen}
+              patientId={patientId}
+              patientName={`${patient.lastName}, ${patient.firstName}`}
+              shiftId={linkShiftId ?? undefined}
+              userId={sessionUserId}
+              onCreated={() => {
+                setPrescriptionOpen(false);
+                refreshList("prescriptions");
+              }}
+            />
+          )}
 
           <Dialog
             open={!!viewingPrescription}
@@ -959,29 +1041,31 @@ export default function PacienteDetailPage() {
           shiftId={linkShiftId ?? undefined}
           onCreated={() => {
             setStudyOrderOpen(false);
-            fetchAll();
+            refreshList("study-orders");
           }}
         />
       )}
 
       {isClinical && nutritionEnabled && (
         <>
-          <CreateMealPlanDialog
-            open={mealPlanOpen}
-            onOpenChange={(v) => {
-              setMealPlanOpen(v);
-              if (!v) setEditingMealPlan(null);
-            }}
-            patientId={patientId}
-            patientName={`${patient.lastName}, ${patient.firstName}`}
-            userId={sessionUserId}
-            editPlan={editingMealPlan}
-            onCreated={() => {
-              setMealPlanOpen(false);
-              setEditingMealPlan(null);
-              fetchAll();
-            }}
-          />
+          {mealPlanOpen && (
+            <CreateMealPlanDialog
+              open={mealPlanOpen}
+              onOpenChange={(v) => {
+                setMealPlanOpen(v);
+                if (!v) setEditingMealPlan(null);
+              }}
+              patientId={patientId}
+              patientName={`${patient.lastName}, ${patient.firstName}`}
+              userId={sessionUserId}
+              editPlan={editingMealPlan}
+              onCreated={() => {
+                setMealPlanOpen(false);
+                setEditingMealPlan(null);
+                refreshList("meal-plans");
+              }}
+            />
+          )}
 
           <Dialog
             open={!!viewingMealPlan}
@@ -1013,8 +1097,9 @@ export default function PacienteDetailPage() {
             endpoint={annulTarget?.endpoint ?? ""}
             title={annulTarget?.title ?? "Anular registro"}
             onAnnulled={() => {
+              const endpoint = annulTarget?.endpoint ?? "";
               setAnnulTarget(null);
-              fetchAll();
+              refreshAfterAnnul(endpoint);
             }}
           />
 

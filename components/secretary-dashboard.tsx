@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
-import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+import { ShiftQuickDialogLoader } from "@/components/shifts/shift-quick-dialog-loader";
 
 import { SecretaryDashboardHeader } from "@/components/dashboard/secretary/dashboard-header";
 import { SecretaryStatsRow } from "@/components/dashboard/secretary/stats-row";
@@ -31,7 +31,7 @@ interface SecretaryDashboardProps {
 export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
   const { data: session } = useSession();
   const router = useRouter();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
   void userId;
 
   const [data, setData] = useState<SecretaryDashboardData | null>(null);
@@ -85,12 +85,19 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
     createPatientOpen ||
     !!callTarget ||
     !!detailShiftId;
+  // Con la pestaña oculta no se pide nada (son ~8 consultas por vuelta); al volver
+  // a verla se refresca en el acto.
   useEffect(() => {
     if (anyDialogOpen) return;
-    const id = setInterval(() => {
-      fetchDashboard();
-    }, 30_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (document.visibilityState === "visible") fetchDashboard();
+    };
+    const id = setInterval(tick, 30_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, [fetchDashboard, anyDialogOpen]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────

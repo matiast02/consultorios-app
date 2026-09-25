@@ -32,7 +32,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Shift, ShiftStatus } from "@/types";
+import type { Shift } from "@/types";
+import { calcAge, formatDateShortAR, formatDni, formatTime } from "@/lib/format";
+import { initials, medicShortName } from "@/lib/names";
+import { ShiftStatusBadge } from "@/components/shifts/shift-status-badge";
 
 interface ShiftQuickDialogProps {
   open: boolean;
@@ -63,22 +66,6 @@ interface ShiftQuickDialogProps {
   };
 }
 
-const STATUS_LABEL: Record<ShiftStatus, string> = {
-  PENDING: "PENDIENTE",
-  CONFIRMED: "CONFIRMADO",
-  ABSENT: "AUSENTE",
-  FINISHED: "FINALIZADO",
-  CANCELLED: "CANCELADO",
-};
-
-const STATUS_BADGE: Record<ShiftStatus, string> = {
-  PENDING: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  CONFIRMED: "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300",
-  ABSENT: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-  FINISHED: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  CANCELLED: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-};
-
 const WEEKDAYS_SHORT_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 function pad(n: number) {
@@ -90,46 +77,11 @@ function formatDateShort(iso: string): string {
   return `${WEEKDAYS_SHORT_ES[d.getDay()]} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
 }
 
-function formatHHmm(iso: string): string {
-  const d = new Date(iso);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
-function formatDateDMY(iso: string): string {
-  const d = new Date(iso);
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}`;
-}
 
-function calcAge(birthDate?: string | null): number | null {
-  if (!birthDate) return null;
-  const b = new Date(birthDate);
-  if (Number.isNaN(b.getTime())) return null;
-  const now = new Date();
-  let age = now.getFullYear() - b.getFullYear();
-  const m = now.getMonth() - b.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
-  return age;
-}
 
-function initials(firstName: string, lastName: string): string {
-  return `${(firstName[0] ?? "").toUpperCase()}${(lastName[0] ?? "").toUpperCase()}`;
-}
 
-function shortMedic(u: ShiftQuickDialogProps["shift"]["user"]): string {
-  if (!u) return "Profesional";
-  const fn = u.firstName ?? "";
-  const ln = u.lastName ?? "";
-  const honor = fn.toLowerCase().endsWith("a") ? "Dra." : "Dr.";
-  if (ln) return `${honor} ${ln}`;
-  return u.name ?? "Profesional";
-}
 
-function formatDni(dni: string | null | undefined): string | null {
-  if (!dni) return null;
-  const digits = dni.replace(/\D/g, "");
-  if (digits.length < 7) return dni;
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
 
 function relativeAgo(ts: number): string {
   const diff = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -272,8 +224,8 @@ export function ShiftQuickDialog({
   // Finalizado: la acción principal pasa a ser ver la ficha (evolución, receta, orden).
   const isFinished = status === "FINISHED";
   const isClosed = isFinished || status === "CANCELLED";
-  const startStr = formatHHmm(shift.start);
-  const endStr = formatHHmm(shift.end);
+  const startStr = formatTime(shift.start);
+  const endStr = formatTime(shift.end);
   const ctName = shift.consultationType?.name ?? "Consulta";
   const durationMin = useMemo(() => {
     return Math.max(
@@ -281,7 +233,7 @@ export function ShiftQuickDialog({
       Math.round((new Date(shift.end).getTime() - new Date(shift.start).getTime()) / 60000),
     );
   }, [shift.start, shift.end]);
-  const medicName = shortMedic(shift.user);
+  const medicName = medicShortName(shift.user);
   const medicColor = shift.user?.specialization?.color ?? "#0d4f4d";
   const age = calcAge(patient?.birthDate ?? null);
   const dni = formatDni(patient?.dni);
@@ -323,11 +275,7 @@ export function ShiftQuickDialog({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="text-[15px] font-semibold text-foreground">{fullName}</span>
-              <span
-                className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[status]}`}
-              >
-                {STATUS_LABEL[status]}
-              </span>
+              <ShiftStatusBadge status={status} variant="chip" />
               {shift.source === "ONLINE" && (
                 <span
                   className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
@@ -378,7 +326,7 @@ export function ShiftQuickDialog({
               {lastVisit ? (
                 <>
                   Última visita{" "}
-                  <span className="font-medium text-foreground">{formatDateDMY(lastVisit.date)}</span>
+                  <span className="font-medium text-foreground">{formatDateShortAR(lastVisit.date)}</span>
                   {lastVisit.consultationTypeName ? (
                     <> ({lastVisit.consultationTypeName})</>
                   ) : null}
@@ -389,7 +337,7 @@ export function ShiftQuickDialog({
               {" · "}
               {nextScheduled ? (
                 <>
-                  próx. {formatDateDMY(nextScheduled.date)}
+                  próx. {formatDateShortAR(nextScheduled.date)}
                   {nextScheduled.consultationTypeName ? <> ({nextScheduled.consultationTypeName})</> : null}
                 </>
               ) : (

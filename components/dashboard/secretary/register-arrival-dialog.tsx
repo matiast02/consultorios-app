@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
 import type { Patient, WaitingTicketSummary } from "@/types";
+import { formatTime } from "@/lib/format";
+import { usePatientSearch } from "@/hooks/use-patient-search";
 
 interface RegisterArrivalDialogProps {
   open: boolean;
@@ -55,9 +57,7 @@ export function RegisterArrivalDialog({
   const [done, setDone] = useState<DoneState | null>(null);
 
   // Walk-in form state
-  const [walkInPatients, setWalkInPatients] = useState<Patient[]>([]);
   const [walkInSearch, setWalkInSearch] = useState("");
-  const [walkInLoading, setWalkInLoading] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -73,7 +73,6 @@ export function RegisterArrivalDialog({
     setTelephone("");
     setNote("");
     setWalkInSearch("");
-    setWalkInPatients([]);
   }
 
   // Reset when closed
@@ -84,31 +83,14 @@ export function RegisterArrivalDialog({
     }
   }, [open]);
 
-  // Search patients for walk-in mode
-  useEffect(() => {
-    if (mode !== "walkin") return;
-    const handler = setTimeout(async () => {
-      if (walkInSearch.trim().length < 2) {
-        setWalkInPatients([]);
-        return;
-      }
-      setWalkInLoading(true);
-      try {
-        const res = await fetch(
-          `/api/patients?search=${encodeURIComponent(walkInSearch)}&limit=12`,
-        );
-        if (res.ok) {
-          const json = await res.json();
-          setWalkInPatients(Array.isArray(json.data) ? json.data : []);
-        }
-      } catch {
-        // ignore
-      } finally {
-        setWalkInLoading(false);
-      }
-    }, 250);
-    return () => clearTimeout(handler);
-  }, [mode, walkInSearch]);
+  // Búsqueda de pacientes para walk-in: mismo hook que el diálogo de turno. Al
+  // vaciar la búsqueda (reset o paciente elegido) la lista se vacía sola.
+  const { patients: walkInPatients, loading: walkInLoading } = usePatientSearch({
+    enabled: open && mode === "walkin",
+    query: walkInSearch,
+    limit: 12,
+    debounceMs: 250,
+  });
 
   const filteredScheduled = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -195,7 +177,6 @@ export function RegisterArrivalDialog({
     setLastName(p.lastName);
     setTelephone(p.telephone ?? "");
     setWalkInSearch("");
-    setWalkInPatients([]);
   }
 
   const doneDescription = done?.number != null
@@ -336,7 +317,7 @@ export function RegisterArrivalDialog({
                           className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30"
                         >
                           <div className="w-12 shrink-0 text-sm font-semibold tabular-nums text-foreground">
-                            {formatHHmm(s.start)}
+                            {formatTime(s.start)}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-medium text-foreground">
@@ -471,7 +452,3 @@ export function RegisterArrivalDialog({
   );
 }
 
-function formatHHmm(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}

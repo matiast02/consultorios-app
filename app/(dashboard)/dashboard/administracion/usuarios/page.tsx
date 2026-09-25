@@ -94,7 +94,7 @@ function RoleBadge({ roleName }: { roleName: string }) {
 export default function UsuariosPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const userRole = (session?.user as { role?: string })?.role;
+  const userRole = session?.user.role;
   const isAdmin = userRole === "admin";
 
   const [users, setUsers] = useState<UserWithRoles[]>([]);

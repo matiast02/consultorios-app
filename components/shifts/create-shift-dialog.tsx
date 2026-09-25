@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useCachedFetch } from "@/hooks/use-cached-fetch";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -45,11 +46,10 @@ import { AlertTriangle, CalendarIcon, Check, ChevronsUpDown, Loader2, Ban, Repea
 import { cn } from "@/lib/utils";
 import type { Patient, Medic, UserPreference, BlockDay, ConsultationType, HealthInsurance } from "@/types";
 import { DAY_NAMES } from "@/types";
+import { toLocalDateISO } from "@/lib/format";
+import { usePatientSearch } from "@/hooks/use-patient-search";
+import { PatientCombobox } from "@/components/shifts/patient-combobox";
 
-/** Format a Date as YYYY-MM-DD using LOCAL time (avoids TZ off-by-one). */
-function toLocalDateISO(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 const createShiftSchema = z.object({
   patientId: z.string().min(1, "Selecciona un paciente"),
@@ -89,11 +89,7 @@ export function CreateShiftDialog({
   lockMedic = false,
   onCreated,
 }: CreateShiftDialogProps) {
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [medics, setMedics] = useState<Medic[]>([]);
   const [patientSearch, setPatientSearch] = useState("");
-  const [patientPopoverOpen, setPatientPopoverOpen] = useState(false);
-  const [loadingPatients, setLoadingPatients] = useState(false);
   const [medicSearch, setMedicSearch] = useState("");
   const [medicPopoverOpen, setMedicPopoverOpen] = useState(false);
 
@@ -117,14 +113,23 @@ export function CreateShiftDialog({
 
   const selectedPatientId = watch("patientId");
 
+  // Pacientes: recientes sin búsqueda, búsqueda con debounce y el elegido o
+  // preseleccionado siempre en la lista (hooks/use-patient-search.ts, compartido
+  // con el registro de llegadas). Antes eran tres effects y dos refs acá.
+  const { patients, loading: loadingPatients } = usePatientSearch({
+    enabled: open,
+    query: patientSearch,
+    recent: true,
+    limit: 15,
+    pinnedId: selectedPatientId || defaultPatientId,
+  });
+
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       reset({
         patientId: defaultPatientId ?? "",
-        date: defaultDate
-          ? defaultDate.toISOString().split("T")[0]
-          : new Date().toISOString().split("T")[0],
+        date: toLocalDateISO(defaultDate ?? new Date()),
         startTime: defaultStartTime ?? "09:00",
         endTime: defaultEndTime ?? "09:30",
         medicId: defaultMedicId ?? "",
@@ -132,94 +137,9 @@ export function CreateShiftDialog({
     }
   }, [open, defaultDate, defaultStartTime, defaultEndTime, defaultPatientId, defaultMedicId, reset]);
 
-  // Fetch patients: initial recent + async search with debounce
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    async function loadRecent() {
-      setLoadingPatients(true);
-      try {
-        const res = await fetch("/api/patients?limit=15");
-        if (res.ok) {
-          const json = await res.json();
-          const list = json.data ?? [];
-          setPatients(Array.isArray(list) ? list : []);
-        }
-      } catch {
-        toast.error("Error al cargar pacientes");
-      } finally {
-        setLoadingPatients(false);
-      }
-    }
-    loadRecent();
-  }, [open]);
-
-  // Paciente preseleccionado (p. ej. walk-in → turno): si no está entre los recientes se carga
-  // aparte, para que el selector muestre nombre, DNI y obra social.
-  useEffect(() => {
-    if (!open || !defaultPatientId) return;
-    if (patients.some((p) => p.id === defaultPatientId)) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/patients/${defaultPatientId}`);
-        if (!res.ok) return;
-        const json = await res.json();
-        const p: Patient | undefined = json.data;
-        if (p && !cancelled) {
-          setPatients((prev) => (prev.some((x) => x.id === p.id) ? prev : [p, ...prev]));
-        }
-      } catch {
-        /* non-critical */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, defaultPatientId, patients]);
-
-  // Async search when typing
-  useEffect(() => {
-    if (!open || !patientSearch || patientSearch.length < 2) return;
-
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-
-    searchTimeoutRef.current = setTimeout(async () => {
-      setLoadingPatients(true);
-      try {
-        const res = await fetch(`/api/patients?search=${encodeURIComponent(patientSearch)}&limit=20`);
-        if (res.ok) {
-          const json = await res.json();
-          const list = json.data ?? [];
-          setPatients(Array.isArray(list) ? list : []);
-        }
-      } catch { /* non-critical */ }
-      finally { setLoadingPatients(false); }
-    }, 300); // 300ms debounce
-
-    return () => {
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    };
-  }, [open, patientSearch]);
-
-  // Fetch medics
-  useEffect(() => {
-    if (!open) return;
-    async function loadMedics() {
-      try {
-        const res = await fetch("/api/users/medics");
-        if (res.ok) {
-          const json = await res.json();
-          const list = json.data ?? [];
-          setMedics(Array.isArray(list) ? list : []);
-        }
-      } catch {
-        // Not critical - medic selection is optional
-      }
-    }
-    loadMedics();
-  }, [open]);
+  // Profesionales: cacheados entre aperturas (SWR); antes se pedían en cada apertura.
+  const { data: medicsData } = useCachedFetch<Medic[]>(open ? "/api/users/medics" : null);
+  const medics = useMemo(() => (Array.isArray(medicsData) ? medicsData : []), [medicsData]);
 
   const selectedMedic = medics.find((m) => m.id === watch("medicId")) ?? null;
 
@@ -236,30 +156,30 @@ export function CreateShiftDialog({
   const [consultationTypes, setConsultationTypes] = useState<ConsultationType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
 
+  // Tipos de consulta: cacheados entre aperturas (SWR). Los slots esperan a tenerlos
+  // para no pedirse con duración 30 y otra vez al aplicar el tipo por defecto.
+  const { data: typesData, error: typesError } = useCachedFetch<ConsultationType[]>(
+    open ? "/api/consultation-types" : null,
+  );
+  // `typesReady` se prende en el mismo lote que la lista y el tipo por defecto, así el
+  // effect de slots ve la duración correcta desde el primer pedido.
+  const [typesReady, setTypesReady] = useState(false);
   useEffect(() => {
-    if (!open) return;
-    async function loadTypes() {
-      try {
-        const res = await fetch("/api/consultation-types");
-        if (res.ok) {
-          const json = await res.json();
-          const list: ConsultationType[] = json.data ?? [];
-          setConsultationTypes(list);
-          // Prefer a type matching the pre-filled duration; else fall back to the default flag
-          if (defaultDurationMinutes) {
-            const match = list.find((t) => t.durationMinutes === defaultDurationMinutes);
-            if (match) {
-              setSelectedTypeId(match.id);
-              return;
-            }
-          }
-          const def = list.find((t) => t.isDefault);
-          if (def) setSelectedTypeId(def.id);
-        }
-      } catch { /* non-critical */ }
+    if (!open) {
+      setTypesReady(false);
+      return;
     }
-    loadTypes();
-  }, [open, defaultDurationMinutes]);
+    if (typesData === undefined && typesError === undefined) return; // cargando
+    const list = Array.isArray(typesData) ? typesData : [];
+    setConsultationTypes(list);
+    // Prefer a type matching the pre-filled duration; else fall back to the default flag
+    const match = defaultDurationMinutes
+      ? list.find((t) => t.durationMinutes === defaultDurationMinutes)
+      : undefined;
+    const chosen = match ?? list.find((t) => t.isDefault);
+    if (chosen) setSelectedTypeId(chosen.id);
+    setTypesReady(true);
+  }, [open, typesData, typesError, defaultDurationMinutes]);
 
   // Auto-calculate endTime when consultation type or startTime changes
   useEffect(() => {
@@ -285,10 +205,15 @@ export function CreateShiftDialog({
   const [slotsMessage, setSlotsMessage] = useState<string>("");
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Fetch slots when medic + date + duration change
+  const watchedDate = watch("date");
+  const watchedMedicId = watch("medicId");
+
+  // Fetch slots when medic + date + duration change. Espera los tipos de consulta
+  // (si no se pedía con duración 30 y otra vez al cargar el tipo) y cancela el
+  // pedido anterior si se cambia rápido la fecha.
   useEffect(() => {
-    const medicId = watch("medicId") || defaultMedicId;
-    const date = watch("date");
+    const medicId = watchedMedicId || defaultMedicId;
+    const date = watchedDate;
     const ct = consultationTypes.find((t) => t.id === selectedTypeId);
     const duration = ct?.durationMinutes ?? 30;
 
@@ -297,21 +222,26 @@ export function CreateShiftDialog({
       setSlotsMessage("");
       return;
     }
+    if (!typesReady) return;
 
+    const ac = new AbortController();
     async function fetchSlots() {
       setLoadingSlots(true);
       try {
-        const res = await fetch(`/api/users/${medicId}/available-slots?date=${date}&duration=${duration}`);
+        const res = await fetch(`/api/users/${medicId}/available-slots?date=${date}&duration=${duration}`, {
+          signal: ac.signal,
+        });
         if (res.ok) {
           const json = await res.json();
           setAvailableSlots(json.data?.slots ?? []);
           setSlotsMessage(json.data?.message ?? "");
         }
-      } catch { /* non-critical */ }
-      finally { setLoadingSlots(false); }
+      } catch { /* cancelado o no crítico */ }
+      finally { if (!ac.signal.aborted) setLoadingSlots(false); }
     }
     fetchSlots();
-  }, [open, watch("medicId"), defaultMedicId, watch("date"), selectedTypeId, consultationTypes]);
+    return () => ac.abort();
+  }, [open, watchedMedicId, defaultMedicId, watchedDate, selectedTypeId, consultationTypes, typesReady]);
 
   function selectSlot(slot: TimeSlot) {
     if (!slot.available) return;
@@ -325,10 +255,8 @@ export function CreateShiftDialog({
   const [medicPreferences, setMedicPreferences] = useState<UserPreference[]>([]);
   const [medicBlockDays, setMedicBlockDays] = useState<BlockDay[]>([]);
 
-  const watchedDate = watch("date");
   const watchedStartTime = watch("startTime");
   const watchedEndTime = watch("endTime");
-  const watchedMedicId = watch("medicId");
 
   // Fetch availability when medic or date changes
   useEffect(() => {
@@ -378,16 +306,19 @@ export function CreateShiftDialog({
     loadMedicInsurances();
   }, [open, watchedMedicId, defaultMedicId]);
 
-  // Fetch patient's insurances (legacy osId + additional)
+  // Fetch patient's insurances (legacy osId + additional). Depende del paciente
+  // elegido y de su obra social principal, no de la lista de resultados: antes se
+  // volvía a pedir con cada búsqueda y sin cancelar.
+  const selectedPatientOsId = patients.find((p) => p.id === selectedPatientId)?.osId ?? null;
   useEffect(() => {
     if (!open || !selectedPatientId) {
       setPatientInsuranceIds([]);
       return;
     }
-    const pat = patients.find((p) => p.id === selectedPatientId);
     const ids: string[] = [];
-    if (pat?.osId) ids.push(pat.osId);
+    if (selectedPatientOsId) ids.push(selectedPatientOsId);
 
+    let cancelled = false;
     async function loadPatientInsurances() {
       try {
         const res = await fetch(`/api/patients/${selectedPatientId}/insurances`);
@@ -401,10 +332,13 @@ export function CreateShiftDialog({
           }
         }
       } catch { /* non-critical */ }
-      setPatientInsuranceIds([...ids]);
+      if (!cancelled) setPatientInsuranceIds([...ids]);
     }
     loadPatientInsurances();
-  }, [open, selectedPatientId, patients]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedPatientId, selectedPatientOsId]);
 
   // Compute validation warnings
   const availabilityWarnings: { type: "error" | "warning"; message: string }[] = [];
@@ -493,10 +427,6 @@ export function CreateShiftDialog({
     : null;
 
   const hasErrors = availabilityWarnings.some((w) => w.type === "error");
-
-  // When search is active, patients are already filtered by API
-  // When no search, show all loaded patients (recent 15)
-  const filteredPatients = patients;
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
 
@@ -731,72 +661,14 @@ export function CreateShiftDialog({
           {/* Patient selector */}
           <div className="space-y-2">
             <Label>Paciente</Label>
-            <Popover
-              open={patientPopoverOpen}
-              onOpenChange={setPatientPopoverOpen}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  className="w-full justify-between"
-                >
-                  {selectedPatient
-                    ? `${selectedPatient.lastName}, ${selectedPatient.firstName}`
-                    : "Seleccionar paciente..."}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-full p-0" align="start">
-                <Command>
-                  <CommandInput
-                    placeholder="Buscar por nombre o DNI..."
-                    value={patientSearch}
-                    onValueChange={setPatientSearch}
-                  />
-                  <CommandList>
-                    <CommandEmpty>
-                      {loadingPatients
-                        ? "Buscando..."
-                        : patientSearch.length < 2
-                        ? "Escribe al menos 2 caracteres para buscar"
-                        : "No se encontraron pacientes."}
-                    </CommandEmpty>
-                    <CommandGroup>
-                      {filteredPatients.map((patient) => (
-                        <CommandItem
-                          key={patient.id}
-                          value={`${patient.lastName} ${patient.firstName} ${patient.dni ?? ""}`}
-                          onSelect={() => {
-                            setValue("patientId", patient.id);
-                            setPatientPopoverOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              selectedPatientId === patient.id
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          <div>
-                            <span className="font-medium">
-                              {patient.lastName}, {patient.firstName}
-                            </span>
-                            {patient.dni && (
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                DNI: {patient.dni}
-                              </span>
-                            )}
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+            <PatientCombobox
+              patients={patients}
+              loading={loadingPatients}
+              query={patientSearch}
+              onQueryChange={setPatientSearch}
+              value={selectedPatientId}
+              onChange={(id) => setValue("patientId", id)}
+            />
             {errors.patientId && (
               <p className="text-sm text-destructive">
                 {errors.patientId.message}

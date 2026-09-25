@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { Printer, Download, Stethoscope } from "lucide-react";
-import { generatePrescriptionPDF } from "@/lib/pdf-generator";
 import type { Prescription, PrescriptionItem } from "@/types";
 
 interface PrescriptionViewProps {
@@ -54,7 +53,9 @@ export function PrescriptionView({
     window.print();
   }
 
-  function handleDownloadPDF() {
+  async function handleDownloadPDF() {
+    // jspdf pesa ~340 KB: se carga recién al pedir el PDF, no con la ficha.
+    const { generatePrescriptionPDF } = await import("@/lib/pdf-generator");
     const doc = generatePrescriptionPDF(prescription, patientName, medicName, {
       patientDni,
       label: prescriptionLabel,

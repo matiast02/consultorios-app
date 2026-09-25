@@ -49,6 +49,8 @@ App Router with route groups:
 - `lib/agenda-access.ts` — Política de agenda (horarios y días bloqueados): objetivo médico activo; editan el propio médico, el admin y la secretaria salvo `User.agendaLocked`
 - `lib/shift-coverage.ts` — Cobertura con la que se atiende un turno (obra social aceptada por el profesional o particular); la usan `POST /api/shifts`, las series, la reserva online y el `PUT` al cambiar paciente o profesional
 - `lib/clinic-time.ts` — Día del consultorio (`America/Argentina/Buenos_Aires`) independiente de la `TZ` del servidor; usarlo para todo cálculo "por día"
+- `lib/format.ts`, `lib/names.ts`, `lib/shift-status.ts` — Únicas versiones de HH:mm / dd/mm/aaaa / edad / «en N min» / DNI, de «Dr./Dra. Apellido» / «Apellido, Nombre» / iniciales / color de avatar, y de la etiqueta y paleta por estado de turno (`ShiftStatusBadge` en `components/shifts/`). No redeclarar helpers locales en cards ni rutas; `components/pacientes/shared.tsx` y `components/calendar/calendar-helpers.ts` solo re-exportan
+- `hooks/` — `useCurrentUser` (id y rol tipados de la sesión, sin casts), `useModules` (módulos cacheados con SWR), `usePatientSearch` (búsqueda con debounce, recientes y paciente fijado; lo usan `PatientCombobox` del diálogo de turno y el registro de llegadas), `useCachedFetch`
 - `lib/waiting-room/*` — Módulo «Sala de espera y llamado» (`waiting_room`): números de sala (`WaitingTicket`), llamado y pantalla pública. Diseño en `docs/SALA-DE-ESPERA.md`
 - `instrumentation.ts` — Validación de entorno al arrancar: en producción exige HC_ENC_KEY, AUTH_SECRET ≥ 32 y NEXTAUTH_URL https
 - `middleware.ts` — Auth middleware for route protection

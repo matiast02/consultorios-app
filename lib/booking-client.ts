@@ -7,6 +7,8 @@
 // siempre en America/Argentina/Buenos_Aires.
 
 import { z } from "zod";
+import { capitalize } from "@/lib/format";
+export { capitalize };
 
 export const AR_TZ = "America/Argentina/Buenos_Aires";
 
@@ -49,9 +51,6 @@ export function maxISO(a: string, b: string): string {
   return a >= b ? a : b;
 }
 
-export function capitalize(s: string): string {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-}
 
 /** Partes para una píldora de día: { weekday: "Mar", day: "30", month: "sep" }. */
 export function dayPillParts(date: string): { weekday: string; day: string; month: string } {

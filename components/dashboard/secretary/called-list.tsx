@@ -3,6 +3,7 @@
 import { Megaphone, Stethoscope, XCircle } from "lucide-react";
 import type { CalledItem } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { formatTime } from "@/lib/format";
 
 interface CalledListProps {
   items: CalledItem[];
@@ -12,10 +13,6 @@ interface CalledListProps {
   onMarkAbsent: (shiftId: string) => void;
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
 
 /** Pacientes ya llamados a consulta (pestaña «En consulta» de la sala de espera). */
 export function CalledList({ items, waitingRoomEnabled, onRecall, onMarkAbsent }: CalledListProps) {

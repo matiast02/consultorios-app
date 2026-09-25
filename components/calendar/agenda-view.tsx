@@ -3,6 +3,7 @@
 import { Mail, MoreHorizontal, Phone, Stethoscope } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Shift } from "@/types";
+import { medicShortName } from "@/lib/names";
 import {
   STATE_BADGE_CLASS,
   STATE_DOT_CLASS,
@@ -22,10 +23,8 @@ interface AgendaViewProps {
 
 function medicLabel(u: Shift["user"] | undefined): { key: string; sortKey: string; label: string } {
   if (!u) return { key: "__none__", sortKey: "zzzz", label: "Sin profesional" };
-  const fn = u.firstName ?? "";
   const ln = u.lastName ?? "";
-  const honor = fn.toLowerCase().endsWith("a") ? "Dra." : "Dr.";
-  const label = ln ? `${honor} ${ln}` : (u.name ?? "Profesional");
+  const label = medicShortName(u);
   const sortKey = (ln || u.name || "zzz").toLowerCase();
   return { key: u.id ?? label, sortKey, label };
 }

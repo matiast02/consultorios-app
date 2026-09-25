@@ -3,21 +3,13 @@
 import { Phone, PhoneCall } from "lucide-react";
 import type { NextToCallData } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { formatTimeAmPm } from "@/lib/format";
 
 interface NextToCallCardProps {
   data: NextToCallData | null;
   onCall: () => void;
 }
 
-function formatTimeAmPm(iso: string): string {
-  const d = new Date(iso);
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ampm = h >= 12 ? "p. m." : "a. m.";
-  if (h === 0) h = 12;
-  else if (h > 12) h -= 12;
-  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
-}
 
 export function NextToCallCard({ data, onCall }: NextToCallCardProps) {
   if (!data) {

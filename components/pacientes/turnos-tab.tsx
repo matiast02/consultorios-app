@@ -19,24 +19,12 @@ import {
 } from "@/types";
 import { SectionHead, fmtDateAR, fmtTime, relTime } from "./shared";
 import { cn } from "@/lib/utils";
+import { SHIFT_STATUS_BADGE_OUTLINE as STATUS_BADGE_CLASS } from "@/lib/shift-status";
 
 interface TurnosTabProps {
   shifts: Shift[];
   onNewShift: () => void;
 }
-
-const STATUS_BADGE_CLASS: Record<Shift["status"], string> = {
-  PENDING:
-    "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300",
-  CONFIRMED:
-    "border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-300",
-  ABSENT:
-    "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300",
-  FINISHED:
-    "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300",
-  CANCELLED:
-    "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400",
-};
 
 export function TurnosTab({ shifts, onNewShift }: TurnosTabProps) {
   const now = new Date();

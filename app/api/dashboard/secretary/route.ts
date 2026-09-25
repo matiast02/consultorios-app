@@ -5,6 +5,7 @@ import { isSecretaryOrAdmin } from "@/lib/auth-utils";
 import { isModuleEnabled } from "@/lib/modules";
 import { WAITING_ROOM_MODULE, emptyOpenTickets, openTicketsByTarget } from "@/lib/waiting-room/tickets";
 import { staffSummary } from "@/lib/online-booking";
+import { medicShortName as shortMedicName } from "@/lib/names";
 import {
   REMINDER_ITEM_INCLUDE,
   loadReminderConfig,
@@ -40,15 +41,6 @@ function diffMinutes(a: Date, b: Date): number {
   return Math.max(0, Math.round((a.getTime() - b.getTime()) / 60000));
 }
 
-function shortMedicName(u: { firstName: string | null; lastName: string | null; name: string | null }): string {
-  // Try to infer gender from firstName ending (es-AR): "a" → Dra., else Dr.
-  const fn = u.firstName?.trim() ?? "";
-  const ln = u.lastName?.trim() ?? "";
-  const honor = fn.toLowerCase().endsWith("a") ? "Dra." : "Dr.";
-  if (ln) return `${honor} ${ln}`;
-  if (fn) return `${honor} ${fn}`;
-  return u.name ?? "Profesional";
-}
 
 function osShortFromName(name: string | null | undefined): string | null {
   if (!name) return null;

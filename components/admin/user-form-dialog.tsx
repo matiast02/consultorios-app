@@ -227,7 +227,7 @@ export function UserFormDialog({
   onSaved,
 }: UserFormDialogProps) {
   const { data: session } = useSession();
-  const requesterRole = (session?.user as { role?: string })?.role;
+  const requesterRole = session?.user.role;
   const isRequesterSecretary = requesterRole === "secretary";
   const isAdmin = requesterRole === "admin";
 

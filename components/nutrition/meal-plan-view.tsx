@@ -14,7 +14,6 @@ import {
   Pill,
   FileText,
 } from "lucide-react";
-import { generateMealPlanPDF } from "@/lib/pdf-generator";
 import type { MealPlan, MealSection } from "@/types";
 
 // ─── Meal-time icons ────────────────────────────────────────────────────────
@@ -82,7 +81,9 @@ export function MealPlanView({
     window.print();
   }
 
-  function handleDownloadPDF() {
+  async function handleDownloadPDF() {
+    // jspdf pesa ~340 KB: se carga recién al pedir el PDF, no con la ficha.
+    const { generateMealPlanPDF } = await import("@/lib/pdf-generator");
     const doc = generateMealPlanPDF(plan, patientName ?? "—", docName);
     doc.save(`plan-alimentario-${patientName?.replace(/\s+/g, "-") ?? "paciente"}.pdf`);
   }

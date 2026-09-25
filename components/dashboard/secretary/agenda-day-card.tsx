@@ -7,6 +7,7 @@ import type { AgendaAutoMode, SecretaryAgendaData } from "@/types";
 import { AgendaModeRails } from "./agenda-mode-rails";
 import { AgendaModeColumnsCompact } from "./agenda-mode-columns-compact";
 import { AgendaModeColumnsDetailed } from "./agenda-mode-columns-detailed";
+import { SHIFT_STATUS_DOT, SHIFT_STATUS_LABEL } from "@/lib/shift-status";
 
 interface AgendaDayCardProps {
   data: SecretaryAgendaData;
@@ -291,10 +292,9 @@ export function AgendaDayCard({ data, onShiftClick }: AgendaDayCardProps) {
       {/* Footer legend */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-5 py-2.5 text-[11.5px] text-muted-foreground">
         <div className="flex flex-wrap items-center gap-3">
-          <LegendDot color="bg-emerald-500" label="Finalizado" />
-          <LegendDot color="bg-sky-500" label="Confirmado" />
-          <LegendDot color="bg-amber-500" label="Pendiente" />
-          <LegendDot color="bg-rose-500" label="Ausente" />
+          {(["FINISHED", "CONFIRMED", "PENDING", "ABSENT"] as const).map((st) => (
+            <LegendDot key={st} color={SHIFT_STATUS_DOT[st]} label={SHIFT_STATUS_LABEL[st]} />
+          ))}
         </div>
         <span>
           Vista: <span className="font-medium text-foreground">{modeFooter}</span>

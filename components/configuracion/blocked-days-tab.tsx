@@ -269,7 +269,7 @@ function MiniCalendar({
 
 export function BlockedDaysTab() {
   const { data: session } = useSession();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
 
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -402,7 +402,7 @@ export function BlockedDaysTab() {
 
   async function removeRange(ids: string[]) {
     try {
-      await Promise.all(
+      const results = await Promise.all(
         ids.map((id) =>
           fetch("/api/preferences/block-days", {
             method: "DELETE",
@@ -411,6 +411,8 @@ export function BlockedDaysTab() {
           })
         )
       );
+      // Antes se daba por eliminado sin mirar la respuesta.
+      if (results.some((r) => !r.ok)) throw new Error("delete failed");
       setBlockDays((prev) => prev.filter((b) => !ids.includes(b.id)));
       toast.success("Bloqueo eliminado");
     } catch {

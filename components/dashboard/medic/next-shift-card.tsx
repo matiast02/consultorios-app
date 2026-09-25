@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ArrowRight, Megaphone, Phone, Play, User } from "lucide-react";
 import type { DashboardShift } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { formatEta, formatTime, minutesUntil } from "@/lib/format";
 
 interface NextShiftCardProps {
   shift: DashboardShift | null;
@@ -13,22 +15,8 @@ interface NextShiftCardProps {
   waitingRoomEnabled?: boolean;
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
 
-function minutesUntil(iso: string): number {
-  return Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 60000));
-}
 
-function formatCountdown(mins: number): string {
-  if (mins < 60) return `en ${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (m === 0) return `en ${h} h`;
-  return `en ${h} h ${m} min`;
-}
 
 export function NextShiftCard({
   shift,
@@ -36,6 +24,13 @@ export function NextShiftCard({
   onViewPatient,
   waitingRoomEnabled = false,
 }: NextShiftCardProps) {
+  // El «en N min» avanza solo cada minuto, sin re-renderizar el dashboard entero.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   if (!shift || !shift.patient) {
     return (
       <div className="rounded-2xl border border-dashed bg-card p-6 shadow-sm">
@@ -96,7 +91,7 @@ export function NextShiftCard({
             <div className="text-3xl font-bold leading-none text-white tabular-nums">
               {formatTime(shift.start)}
             </div>
-            <div className="mt-1 text-xs text-emerald-100/70">{formatCountdown(mins)}</div>
+            <div className="mt-1 text-xs text-emerald-100/70">{formatEta(mins)}</div>
           </div>
         </div>
 

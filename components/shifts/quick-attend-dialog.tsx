@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useModules } from "@/hooks/use-modules";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle, CalendarPlus, Pill, Repeat, ClipboardList, Lock } from "lucide-react";
-import type { Shift, ModuleConfig } from "@/types";
+import type { Shift } from "@/types";
 import { cn } from "@/lib/utils";
 
 interface QuickAttendDialogProps {
@@ -53,30 +54,10 @@ export function QuickAttendDialog({
   // El turno ya se marcó FINISHED pero la evolución falló: reintentar solo la evolución.
   const [shiftClosed, setShiftClosed] = useState(false);
   const [evolutionError, setEvolutionError] = useState<string | null>(null);
-  const [prescriptionsEnabled, setPrescriptionsEnabled] = useState(false);
-  const [studyOrdersEnabled, setStudyOrdersEnabled] = useState(false);
-
-  const checkModules = useCallback(async () => {
-    try {
-      const res = await fetch("/api/modules");
-      if (res.ok) {
-        const json = await res.json();
-        const modules: ModuleConfig[] = json.data ?? [];
-        const prescMod = modules.find((m) => m.module === "prescriptions");
-        setPrescriptionsEnabled(prescMod?.enabled ?? false);
-        const studyMod = modules.find((m) => m.module === "study_orders");
-        setStudyOrdersEnabled(studyMod?.enabled ?? false);
-      }
-    } catch {
-      // Silently fail
-    }
-  }, []);
-
-  useEffect(() => {
-    if (open) {
-      checkModules();
-    }
-  }, [open, checkModules]);
+  // Módulos cacheados (SWR, compartidos): antes se pedían en cada apertura del diálogo.
+  const { isEnabled } = useModules(open);
+  const prescriptionsEnabled = isEnabled("prescriptions");
+  const studyOrdersEnabled = isEnabled("study_orders");
 
   async function handleFinish() {
     const notes = evolutionRecorded ? "" : evolutionText.trim();

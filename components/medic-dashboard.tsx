@@ -11,7 +11,7 @@ import { QuickAttendDialog } from "@/components/shifts/quick-attend-dialog";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { RescheduledBanner } from "@/components/dashboard/rescheduled-banner";
-import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+import { ShiftQuickDialogLoader } from "@/components/shifts/shift-quick-dialog-loader";
 import { CallToRoomDialog, type CallToRoomTarget } from "@/components/waiting-room/call-to-room-dialog";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
 
@@ -25,6 +25,7 @@ import { QuickActionsCard } from "@/components/dashboard/medic/quick-actions-car
 import { RecentPatientsCard } from "@/components/dashboard/medic/recent-patients-card";
 
 import type { DashboardShift, MedicDashboardData, Shift } from "@/types";
+import { medicShortNameFromFull } from "@/lib/names";
 
 interface MedicDashboardProps {
   userName: string;
@@ -64,7 +65,7 @@ function toShift(d: DashboardShift): Shift {
 export function MedicDashboard({ userName }: MedicDashboardProps) {
   const { data: session } = useSession();
   const router = useRouter();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId = session?.user.id;
 
   const [data, setData] = useState<MedicDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,14 +137,23 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  // Auto-refresh next shift countdown every minute
+  // Refresco real cada 60 s (llegadas y llamados que registra recepción), pausado con
+  // la pestaña oculta o con un diálogo abierto. Antes solo se forzaba un re-render de
+  // todas las cards para mover el contador, que ahora avanza solo en NextShiftCard.
+  const anyDialogOpen =
+    !!attendShift || createShiftOpen || createPatientOpen || !!callTarget || !!detailShiftId;
   useEffect(() => {
-    const id = setInterval(() => {
-      // Force a re-render by reseting state to itself
-      setData((prev) => (prev ? { ...prev } : prev));
-    }, 60_000);
-    return () => clearInterval(id);
-  }, []);
+    if (anyDialogOpen) return;
+    const tick = () => {
+      if (document.visibilityState === "visible") fetchDashboard();
+    };
+    const id = setInterval(tick, 60_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [fetchDashboard, anyDialogOpen]);
 
   // ─── Action handlers ───
   const openNewShift = () => setCreateShiftOpen(true);
@@ -257,7 +267,8 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     }
   };
 
-  if (checkingSchedule || loading) {
+  // Spinner de página solo en la primera carga; los refrescos no tapan el panel.
+  if (checkingSchedule || (loading && !data)) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -273,14 +284,8 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     );
   }
 
-  const doctorName = (() => {
-    // Show "Dr. Apellido" if userName looks like "Nombre Apellido"
-    const parts = userName.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return `Dr. ${parts[parts.length - 1]}`;
-    }
-    return userName;
-  })();
+  // «Dr. Apellido» o «Dra. Apellido» según el nombre de pila (antes era «Dr.» para todos).
+  const doctorName = medicShortNameFromFull(userName);
 
   return (
     <div className="space-y-5">
@@ -367,7 +372,7 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
             }
           }}
           shift={attendShift}
-          onSaved={() => fetchDashboard()}
+          onSaved={() => {}} // onOpenChange ya refresca al cerrar; antes se pedía dos veces
           onScheduleNext={() => {
             setAttendShift(null);
           }}

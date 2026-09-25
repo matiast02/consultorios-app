@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useSession } from "@/lib/auth-client";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
-import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+import { ShiftQuickDialogLoader } from "@/components/shifts/shift-quick-dialog-loader";
 
 import { CalendarToolbar, type ViewMode, type StateFilter } from "@/components/calendar/toolbar";
 import { MonthView } from "@/components/calendar/month-view";
@@ -47,8 +47,9 @@ import {
 import type { Shift, UserPreference, BlockDay, Medic } from "@/types";
 
 export default function CalendarioPage() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // ─── State ──────────────────────────────────────────────────────────────────
   const [view, setView] = useState<ViewMode>("mes");
@@ -80,10 +81,11 @@ export default function CalendarioPage() {
 
   // Medic filter (staff)
   const [medics, setMedics] = useState<Medic[]>([]);
-  const [selectedMedicId, setSelectedMedicId] = useState<string | null>(null);
+  // Leído en el inicializador: si se seteara en un effect, el primer fetch iría sin filtro.
+  const [selectedMedicId, setSelectedMedicId] = useState<string | null>(() => searchParams.get("medico"));
 
-  const userId = (session?.user as { id?: string } | undefined)?.id;
-  const userRole = (session?.user as { role?: string } | undefined)?.role;
+  const userId = session?.user.id;
+  const userRole = session?.user.role;
   const isStaff = userRole === "secretary" || userRole === "admin";
   const availabilityUserId = isStaff ? selectedMedicId : userId;
 
@@ -112,27 +114,35 @@ export default function CalendarioPage() {
   }, [isStaff]);
 
   // ─── Data fetching ──────────────────────────────────────────────────────────
-  const fetchShifts = useCallback(async () => {
+  // Spinner solo la primera vez: los refrescos (arrastrar, crear, editar un turno)
+  // no tapan el calendario. `signal` cancela el pedido anterior al cambiar de mes o
+  // de profesional, así una respuesta vieja no pisa a la nueva.
+  const firstLoadRef = useRef(true);
+  const fetchShifts = useCallback(async (signal?: AbortSignal) => {
     try {
-      setLoading(true);
+      if (firstLoadRef.current) setLoading(true);
       const params = new URLSearchParams({
         month: String(anchor.getMonth() + 1),
         year: String(anchor.getFullYear()),
       });
       if (isStaff && selectedMedicId) params.set("userId", selectedMedicId);
-      const res = await fetch(`/api/shifts?${params}`);
+      const res = await fetch(`/api/shifts?${params}`, { signal });
       if (!res.ok) throw new Error("Error al cargar turnos");
       const json = await res.json();
       setShifts(json.data ?? []);
     } catch {
+      if (signal?.aborted) return;
       toast.error("No se pudieron cargar los turnos");
       setShifts([]);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+        firstLoadRef.current = false;
+      }
     }
   }, [anchor, isStaff, selectedMedicId]);
 
-  const fetchAvailability = useCallback(async () => {
+  const fetchAvailability = useCallback(async (signal?: AbortSignal) => {
     if (!availabilityUserId) {
       setPreferences([]);
       setBlockDays([]);
@@ -143,9 +153,7 @@ export default function CalendarioPage() {
         month: String(anchor.getMonth() + 1),
         year: String(anchor.getFullYear()),
       });
-      const res = await fetch(
-        `/api/users/${availabilityUserId}/availability?${params}`
-      );
+      const res = await fetch(`/api/users/${availabilityUserId}/availability?${params}`, { signal });
       if (res.ok) {
         const json = await res.json();
         setPreferences(json.data?.preferences ?? []);
@@ -156,10 +164,15 @@ export default function CalendarioPage() {
     }
   }, [availabilityUserId, anchor]);
 
+  // Con la sesión resuelta (rol y profesional): antes se pedían los turnos dos o tres
+  // veces (sin sesión, con sesión, con el filtro de la URL) sin cancelar las anteriores.
   useEffect(() => {
-    fetchShifts();
-    fetchAvailability();
-  }, [fetchShifts, fetchAvailability]);
+    if (sessionStatus === "loading") return;
+    const ac = new AbortController();
+    fetchShifts(ac.signal);
+    fetchAvailability(ac.signal);
+    return () => ac.abort();
+  }, [fetchShifts, fetchAvailability, sessionStatus]);
 
   // ─── Derived: filtered shifts ───────────────────────────────────────────────
   const filteredShifts = useMemo(() => {
@@ -586,6 +599,9 @@ export default function CalendarioPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         defaultDate={selectedDay}
+        // El médico solo agenda para sí mismo: profesional fijado y horarios cargados de entrada.
+        defaultMedicId={isStaff ? (selectedMedicId ?? undefined) : userId}
+        lockMedic={!isStaff}
         defaultStartTime={createDefaultTime?.start}
         defaultEndTime={createDefaultTime?.end}
         onCreated={() => {
@@ -612,7 +628,7 @@ export default function CalendarioPage() {
           setScheduleNextPatient({ patientId: s.patientId, medicId: s.userId });
         }}
         onViewPatient={(patientId) => {
-          window.location.href = `/dashboard/pacientes/${patientId}`;
+          router.push(`/dashboard/pacientes/${patientId}`);
         }}
       />
 
