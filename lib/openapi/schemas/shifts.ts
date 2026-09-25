@@ -111,7 +111,7 @@ export const ShiftSchema = z
 
 // ─── Detalle (GET /api/shifts/{id}) ──────────────────────────────────────────
 
-/** Paciente completo tal como lo devuelve `GET /api/shifts/{id}` (con su obra social). */
+/** Paciente tal como lo devuelve `GET /api/shifts/{id}`: solo lo que usa la ficha del turno (sin consentimiento, sin datos de baja). */
 export const ShiftDetailPatientSchema = z
   .object({
     id: z.string(),
@@ -122,26 +122,7 @@ export const ShiftDetailPatientSchema = z
     dni: z.string().nullable(),
     email: z.string().nullable(),
     telephone: z.string().nullable(),
-    address: z.string().nullable(),
-    country: z.string().nullable(),
-    province: z.string().nullable(),
-    osId: z.string().nullable(),
     osNumber: z.string().nullable().describe("N° de afiliado."),
-    emergencyContactName: z.string().nullable(),
-    emergencyContactPhone: z.string().nullable(),
-    createdById: z.string().nullable().describe("Usuario que dio el alta; null en datos migrados."),
-    deletedById: z.string().nullable(),
-    consentType: z
-      .enum(["WRITTEN", "VERBAL_RECORDED", "DIGITAL_SIGNATURE"])
-      .nullable()
-      .describe("Consentimiento para el tratamiento de datos de salud (Ley 25.326 art. 5-6)."),
-    consentGivenAt: IsoDateTime.nullable(),
-    consentNote: z.string().nullable().describe("Cómo se obtuvo / observaciones (cifrado en la base; se devuelve en claro)."),
-    reminderOptOut: z.boolean().describe("El paciente pidió no recibir recordatorios de turnos."),
-    reminderOptOutAt: IsoDateTime.nullable(),
-    createdAt: IsoDateTime,
-    updatedAt: IsoDateTime,
-    deletedAt: IsoDateTime.nullable().describe("No null si el paciente fue archivado; el turno sigue siendo visible."),
     os: HealthInsuranceSchema.nullable(),
   })
   .openapi({ ref: "ShiftDetailPatient" });

@@ -31,6 +31,7 @@ model User {
   bufferMinutes       Int @default(0)
   minAdvanceMinutes   Int @default(60)
   acceptsOnlineBooking Boolean @default(true) // aparece en la reserva web
+  agendaLocked         Boolean @default(false) // solo el propio profesional (y el admin) editan horarios y días bloqueados
 
   // Regional prefs
   language  String @default("es-AR")

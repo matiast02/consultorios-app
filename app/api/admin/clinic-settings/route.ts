@@ -5,6 +5,7 @@ import { getUserRole } from "@/lib/auth-utils";
 import { clinicSettingsSchema } from "@/lib/validations";
 import { parseReminderChannels } from "@/lib/reminders/scheduler";
 import { isEmailConfigured } from "@/lib/notifications/email";
+import { logAudit } from "@/lib/audit";
 
 // Campos del sitio público: el formulario "Datos del consultorio" los manda
 // todos juntos (vacío → null). Los de recordatorios y los de reservas online
@@ -179,6 +180,17 @@ export async function PUT(req: NextRequest) {
       where: { id: "default" },
       update: data,
       create: { id: "default", ...data },
+    });
+
+    // Solo qué campos cambiaron (los valores del sitio son públicos, pero el
+    // audit no necesita copiarlos).
+    logAudit({
+      userId: guard.session.user.id,
+      action: "UPDATE",
+      resource: "clinic_settings",
+      resourceId: "default",
+      details: { fields: Object.keys(data) },
+      req,
     });
 
     return NextResponse.json({ success: true, data: serialize(row) });

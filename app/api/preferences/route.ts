@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { upsertPreferencesSchema } from "@/lib/validations";
+import { canEditAgenda } from "@/lib/agenda-access";
 
 // GET /api/preferences — Get user preferences + blocked days
 export async function GET(req: NextRequest) {
@@ -70,6 +71,12 @@ export async function POST(req: NextRequest) {
     }
 
     const { userId, preferences } = parsed.data;
+
+    // Solo el propio profesional, el admin o la secretaria (si no hay candado).
+    const access = await canEditAgenda(session.user.id, userId);
+    if (!access.ok) {
+      return NextResponse.json({ success: false, error: access.error }, { status: access.status });
+    }
 
     // Upsert each day preference in a transaction
     const result = await prisma.$transaction(

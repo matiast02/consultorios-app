@@ -44,7 +44,13 @@ export type AuditResource =
   | "auth"
   | "clinical_access_grant"
   | "hc_copy_request"
-  | "attachment"; // adjunto de la HC (details: solo ids, nunca el nombre del archivo)
+  | "attachment" // adjunto de la HC (details: solo ids, nunca el nombre del archivo)
+  | "shift_series" // serie de turnos recurrentes (resourceId: recurrenceGroupId)
+  | "clinic_hours"
+  | "clinic_settings"
+  | "contact_request"
+  | "module"
+  | "module_access";
 
 /** Largo máximo de columnas String sin @db.Text en MySQL (VARCHAR(191)). */
 const MAX_VARCHAR = 191;

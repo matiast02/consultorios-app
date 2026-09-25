@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createShiftSchema, shiftsQuerySchema } from "@/lib/validations";
-import { isMedic } from "@/lib/auth-utils";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit";
+import { canAssignTo, getShiftActor, SHIFT_FORBIDDEN, SHIFT_OWN_ONLY, shiftScope } from "@/lib/shift-access";
 
 // GET /api/shifts — List shifts filtered by month/year/userId
 export async function GET(req: NextRequest) {
@@ -32,16 +33,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { month, year, userId, status, patientId } = query.data;
-    const where: Record<string, unknown> = {};
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
 
-    // Medics can only see their own shifts
-    const currentUserId = session.user.id;
-    if (await isMedic(currentUserId)) {
-      where.userId = currentUserId;
-    } else if (userId) {
-      where.userId = userId;
-    }
+    const { month, year, userId, status, patientId } = query.data;
+    // El médico solo ve los suyos (se ignora `userId`); recepción y admin filtran a gusto.
+    const where: Record<string, unknown> = { ...shiftScope(actor) };
+    if (actor.seesAll && userId) where.userId = userId;
 
     if (status) where.status = status;
     if (patientId) where.patientId = patientId;
@@ -98,6 +96,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
+
     // Rate limit: 30 requests per minute per user
     const { allowed } = await checkRateLimit(`shifts-create:${session.user.id}`, { maxRequests: 30, windowMs: 60000 });
     if (!allowed) {
@@ -118,6 +119,10 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
+    // Un profesional solo agenda para sí mismo; recepción y admin para cualquiera.
+    if (!canAssignTo(actor, data.userId)) {
+      return NextResponse.json(SHIFT_OWN_ONLY, { status: 403 });
+    }
     const start = new Date(data.start);
     const end = new Date(data.end);
 
@@ -298,6 +303,15 @@ export async function POST(req: NextRequest) {
           select: { id: true, name: true, durationMinutes: true, color: true },
         },
       },
+    });
+
+    logAudit({
+      userId: session.user.id,
+      action: "CREATE",
+      resource: "shift",
+      resourceId: shift.id,
+      details: { medicId: data.userId, patientId: data.patientId, status: data.status, isOverbook: data.isOverbook ?? false },
+      req,
     });
 
     return NextResponse.json(

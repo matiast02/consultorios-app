@@ -1639,13 +1639,23 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Usuario sin rol conocido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       },
       "post": {
         "operationId": "postShifts",
         "summary": "Crear un turno",
-        "description": "Cualquier rol; no verifica que `userId` sea el médico que llama. Rate limit 30 por minuto por usuario. Validaciones en orden: `end` > `start` (400); solapamiento con otro turno no cancelado del mismo profesional → 409 `SHIFT_CONFLICT` con `conflictDetails`, salvo `isOverbook: true`; día bloqueado del profesional → 409; fuera del horario de atención configurado para ese día de la semana → 409 (si el día no tiene franjas cargadas se permite); paciente inexistente o archivado → 404. Si el profesional tiene obras sociales aceptadas y el paciente no tiene ninguna de ellas, el turno se crea igual y la respuesta trae `warning` `INSURANCE_MISMATCH`. `status` default PENDING. No genera audit log.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo puede crear para sí mismo (`userId` propio; otro → 403); secretaria y admin para cualquier profesional. Rate limit 30 por minuto por usuario. Validaciones en orden: `end` > `start` (400); solapamiento con otro turno no cancelado del mismo profesional → 409 `SHIFT_CONFLICT` con `conflictDetails`, salvo `isOverbook: true`; día bloqueado del profesional → 409; fuera del horario de atención configurado para ese día de la semana → 409 (si el día no tiene franjas cargadas se permite); paciente inexistente o archivado → 404. Si el profesional tiene obras sociales aceptadas y el paciente no tiene ninguna de ellas, el turno se crea igual y la respuesta trae `warning` `INSURANCE_MISMATCH`. `status` default PENDING. Audita `CREATE` sobre `shift` (solo ids).\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -1768,6 +1778,16 @@
               }
             }
           },
+          "403": {
+            "description": "Sin rol conocido, o médico creando para otro profesional.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Paciente inexistente o archivado.",
             "content": {
@@ -1805,7 +1825,7 @@
       "get": {
         "operationId": "getShiftsById",
         "summary": "Detalle de un turno",
-        "description": "Cualquier rol, sin restricción por profesional (un médico puede ver turnos ajenos por id). Trae el paciente completo (datos personales, consentimiento, obra social), el tipo de consulta y el profesional con consultorio y especialidad. Con `withContext=true` agrega `meta` con la última visita finalizada y el próximo turno del paciente.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo ve sus turnos (uno ajeno responde 404, como inexistente); secretaria y admin cualquiera. Del paciente trae solo lo que usa la ficha del turno (identificación, contacto, nacimiento, sexo y obra social; sin consentimiento ni datos de baja), más el tipo de consulta y el profesional con consultorio y especialidad. Con `withContext=true` agrega `meta` con la última visita finalizada y el próximo turno del paciente.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -1845,7 +1865,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Turno con paciente completo. `meta` solo con `withContext=true`.",
+            "description": "Turno con paciente reducido. `meta` solo con `withContext=true`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1880,8 +1900,18 @@
               }
             }
           },
+          "403": {
+            "description": "Usuario sin rol conocido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "description": "Inexistente o ajeno (médico).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1895,7 +1925,7 @@
       "put": {
         "operationId": "putShiftsById",
         "summary": "Editar un turno (estado, horario, notas, paciente, profesional)",
-        "description": "Cualquier rol, sin verificar autoría. Actualización parcial: solo se tocan los campos enviados. Cambiar `status` es la forma de confirmar, cancelar, marcar ausente o finalizar; no hay restricciones de transición. Si cambia `start` o `end`, valida `end` > `start` (400) y solapamiento con otros turnos no cancelados del profesional destino (409; no admite sobreturno). Si solo cambia `userId` no se revisa solapamiento. No permite cambiar `consultationTypeId` ni `isOverbook`. Audita `UPDATE` (con el nuevo `status` si cambió). La respuesta no incluye `consultationType`.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo edita sus turnos (ajeno → 404) y no puede reasignarlos a otro profesional (`userId` ajeno → 403); secretaria y admin editan y reasignan cualquiera. Actualización parcial: solo se tocan los campos enviados. Cambiar `status` es la forma de confirmar, cancelar, marcar ausente o finalizar; no hay restricciones de transición. Si cambia `start` o `end`, valida `end` > `start` (400) y solapamiento con otros turnos no cancelados del profesional destino (409; no admite sobreturno). Si solo cambia `userId` no se revisa solapamiento. Si cambia `patientId`, el paciente debe existir y no estar archivado (404). No permite cambiar `consultationTypeId` ni `isOverbook`. Audita `UPDATE` (con el nuevo `status` si cambió). La respuesta no incluye `consultationType`.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2006,8 +2036,18 @@
               }
             }
           },
+          "403": {
+            "description": "Sin rol conocido, o médico reasignando a otro profesional.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "description": "Turno inexistente o ajeno (médico), o paciente nuevo inexistente.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2031,7 +2071,7 @@
       "delete": {
         "operationId": "deleteShiftsById",
         "summary": "Eliminar un turno (borrado físico)",
-        "description": "Cualquier rol, sin verificar autoría ni estado. Borra el registro y, en cascada, sus recordatorios y la reserva online asociada; la evolución vinculada queda sin turno. Para cancelar conservando el historial usar `PUT` con `status: CANCELLED`. Audita `DELETE`.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo borra sus turnos (ajeno → 404); secretaria y admin cualquiera. Sin restricción por estado. Borra el registro y, en cascada, sus recordatorios y la reserva online asociada; la evolución vinculada queda sin turno. Para cancelar conservando el historial usar `PUT` con `status: CANCELLED`. Audita `DELETE`.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2099,8 +2139,18 @@
               }
             }
           },
+          "403": {
+            "description": "Usuario sin rol conocido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "description": "Inexistente o ajeno (médico).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2116,7 +2166,7 @@
       "post": {
         "operationId": "postShiftsByIdArrival",
         "summary": "Marcar la llegada del paciente (sala de espera)",
-        "description": "Recepción (secretaria o admin). Setea `arrivedAt` = ahora sin cambiar `status`. Repetirlo actualiza la hora. Sin body.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
+        "description": "Recepción (secretaria o admin). Setea `arrivedAt` = ahora sin cambiar `status`. Repetirlo actualiza la hora. Audita `UPDATE` sobre `shift` (`arrival: true`). Sin body.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2205,7 +2255,7 @@
       "delete": {
         "operationId": "deleteShiftsByIdArrival",
         "summary": "Deshacer la llegada",
-        "description": "Recepción (secretaria o admin). Vuelve `arrivedAt` a null; no toca `consultationStartedAt`. No verifica existencia: con un id inexistente responde 500, no 404.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
+        "description": "Recepción (secretaria o admin). Vuelve `arrivedAt` a null; no toca `consultationStartedAt`. Audita `UPDATE` (`arrival: false`).\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2279,8 +2329,8 @@
               }
             }
           },
-          "500": {
-            "description": "Turno inexistente (no hay chequeo previo) o error inesperado.",
+          "404": {
+            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2296,7 +2346,7 @@
       "post": {
         "operationId": "postShiftsByIdStartConsultation",
         "summary": "Pasar el paciente a consulta",
-        "description": "Recepción (secretaria o admin; el médico no puede llamarla). Setea `consultationStartedAt` = ahora y, si no había llegada registrada, también `arrivedAt`. No cambia `status`. Sin body.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
+        "description": "Recepción (secretaria o admin; el médico no puede llamarla). Setea `consultationStartedAt` = ahora y, si no había llegada registrada, también `arrivedAt`. No cambia `status`. Audita `UPDATE` (`consultationStarted: true`). Sin body.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2387,7 +2437,7 @@
       "post": {
         "operationId": "postShiftsRecurring",
         "summary": "Crear una serie de turnos recurrentes",
-        "description": "Cualquier rol. Genera `count` ocurrencias cada `frequencyWeeks` semanas desde `startDate`, todas PENDING y con el mismo `recurrenceGroupId`. Cada ocurrencia se omite (no falla) si el día está bloqueado, cae fuera del horario de atención de ese día o se solapa con otro turno no cancelado del profesional: aparece en `skipped` con el motivo. Responde 201 aunque no se haya creado ninguna (`recurrenceGroupId: null`). Sin chequeo de obra social, sin sobreturno, sin audit log.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo para sí mismo (`userId` ajeno → 403); secretaria y admin para cualquiera. Genera `count` ocurrencias cada `frequencyWeeks` semanas desde `startDate`, todas PENDING y con el mismo `recurrenceGroupId`. Cada ocurrencia se omite (no falla) si el día está bloqueado, cae fuera del horario de atención de ese día o se solapa con otro turno no cancelado del profesional: aparece en `skipped` con el motivo. Responde 201 aunque no se haya creado ninguna (`recurrenceGroupId: null`). Sin chequeo de obra social ni sobreturno. Audita `CREATE` sobre `shift_series` si creó al menos una.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2503,6 +2553,16 @@
               }
             }
           },
+          "403": {
+            "description": "Sin rol conocido, o médico creando para otro profesional.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Paciente inexistente o archivado.",
             "content": {
@@ -2520,7 +2580,7 @@
       "get": {
         "operationId": "getShiftsRecurringByGroupId",
         "summary": "Turnos de una serie recurrente",
-        "description": "Cualquier rol, sin restricción por profesional. Todos los turnos de la serie (incluidos cancelados), ordenados por `start`, con paciente (teléfono, obra social) y profesional; sin `consultationType`. 404 si la serie no tiene turnos.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo ve series propias (ajena → 404); secretaria y admin cualquiera. Todos los turnos de la serie (incluidos cancelados), ordenados por `start`, con paciente (teléfono, obra social) y profesional; sin `consultationType`. 404 si la serie no tiene turnos.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2583,8 +2643,18 @@
               }
             }
           },
+          "403": {
+            "description": "Usuario sin rol conocido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No hay turnos con ese `recurrenceGroupId`.",
+            "description": "No hay turnos (visibles) con ese `recurrenceGroupId`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2598,7 +2668,7 @@
       "delete": {
         "operationId": "deleteShiftsRecurringByGroupId",
         "summary": "Cancelar los turnos pendientes de una serie",
-        "description": "Cualquier rol. Pasa a CANCELLED los turnos PENDING y CONFIRMED de la serie; los FINISHED y ABSENT no se tocan y nada se borra. 404 si no había ninguno cancelable. Sin audit log.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "El médico solo sus series (ajena → 404); secretaria y admin cualquiera. Pasa a CANCELLED los turnos PENDING y CONFIRMED de la serie; los FINISHED y ABSENT no se tocan y nada se borra. 404 si no había ninguno cancelable. Audita `UPDATE` sobre `shift_series` con la cantidad.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2658,8 +2728,18 @@
               }
             }
           },
+          "403": {
+            "description": "Usuario sin rol conocido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "La serie no existe o no tiene turnos PENDING/CONFIRMED.",
+            "description": "La serie no existe, es ajena (médico) o no tiene turnos PENDING/CONFIRMED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7956,7 +8036,7 @@
       "put": {
         "operationId": "putNotificationsByIdRead",
         "summary": "Marcar una notificación como leída",
-        "description": "Cualquier rol. Con un id `generated-…` no persiste nada (responde 200 con `{ id, read: true }`: la calculada va a reaparecer mientras la condición siga). Con una persistida, la marca leída y deja de aparecer en el listado; solo la puede marcar su destinatario. Sin body.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "Cualquier rol. Con un id `generated-…` no persiste nada (responde 200 con `{ id, read: true }`: la calculada va a reaparecer mientras la condición siga). Con una persistida, la marca leída y deja de aparecer en el listado; una ajena responde 404, igual que una inexistente. Sin body.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Notificaciones"
         ],
@@ -8016,18 +8096,8 @@
               }
             }
           },
-          "403": {
-            "description": "La notificación es de otro usuario.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
           "404": {
-            "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "description": "Inexistente o de otro usuario (misma respuesta).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8531,7 +8601,7 @@
       "get": {
         "operationId": "getUserPreferencesConfig",
         "summary": "Preferencias de agenda y regionales del usuario logueado",
-        "description": "Duración por defecto del turno, buffer y anticipación mínima (estas dos solo rigen la reserva online), si aparece en la reserva web, idioma, zona horaria y primer día de la semana. Los horarios de atención por día van por `/api/preferences`.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "Duración por defecto del turno, buffer y anticipación mínima (estas dos solo rigen la reserva online), si aparece en la reserva web, `agendaLocked` («Solo yo modifico mi agenda»: recepción no puede editar horarios ni días bloqueados; el admin sí), idioma, zona horaria y primer día de la semana. Los horarios de atención por día van por `/api/preferences`.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Configuración del usuario"
         ],
@@ -8594,7 +8664,7 @@
       "put": {
         "operationId": "putUserPreferencesConfig",
         "summary": "Actualizar las preferencias de agenda y regionales",
-        "description": "Actualización parcial a pesar del PUT: solo cambia lo enviado. `acceptsOnlineBooking: false` saca al profesional de la reserva web pública. Sin auditoría.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
+        "description": "Actualización parcial a pesar del PUT: solo cambia lo enviado. `acceptsOnlineBooking: false` saca al profesional de la reserva web pública; `agendaLocked: true` impide que recepción edite la agenda del profesional. Sin auditoría.\n\n**Acceso:** sesión (cualquier rol).\n\n**App móvil:** sí.",
         "tags": [
           "Configuración del usuario"
         ],
@@ -8646,6 +8716,9 @@
                     "maximum": 6
                   },
                   "acceptsOnlineBooking": {
+                    "type": "boolean"
+                  },
+                  "agendaLocked": {
                     "type": "boolean"
                   }
                 }
@@ -10991,120 +11064,12 @@
               "null"
             ]
           },
-          "address": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "country": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "province": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "osId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "osNumber": {
             "type": [
               "string",
               "null"
             ],
             "description": "N° de afiliado."
-          },
-          "emergencyContactName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "emergencyContactPhone": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdById": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Usuario que dio el alta; null en datos migrados."
-          },
-          "deletedById": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "consentType": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "enum": [
-              "WRITTEN",
-              "VERBAL_RECORDED",
-              "DIGITAL_SIGNATURE",
-              null
-            ],
-            "description": "Consentimiento para el tratamiento de datos de salud (Ley 25.326 art. 5-6)."
-          },
-          "consentGivenAt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time",
-            "example": "2026-09-24T14:30:00.000Z"
-          },
-          "consentNote": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Cómo se obtuvo / observaciones (cifrado en la base; se devuelve en claro)."
-          },
-          "reminderOptOut": {
-            "type": "boolean",
-            "description": "El paciente pidió no recibir recordatorios de turnos."
-          },
-          "reminderOptOutAt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time",
-            "example": "2026-09-24T14:30:00.000Z"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time",
-            "example": "2026-09-24T14:30:00.000Z"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time",
-            "example": "2026-09-24T14:30:00.000Z"
-          },
-          "deletedAt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time",
-            "example": "2026-09-24T14:30:00.000Z",
-            "description": "No null si el paciente fue archivado; el turno sigue siendo visible."
           },
           "os": {
             "oneOf": [
@@ -11126,23 +11091,7 @@
           "dni",
           "email",
           "telephone",
-          "address",
-          "country",
-          "province",
-          "osId",
           "osNumber",
-          "emergencyContactName",
-          "emergencyContactPhone",
-          "createdById",
-          "deletedById",
-          "consentType",
-          "consentGivenAt",
-          "consentNote",
-          "reminderOptOut",
-          "reminderOptOutAt",
-          "createdAt",
-          "updatedAt",
-          "deletedAt",
           "os"
         ]
       },
@@ -14867,6 +14816,10 @@
             "type": "boolean",
             "description": "Si el profesional aparece en la reserva web pública (/reservar)."
           },
+          "agendaLocked": {
+            "type": "boolean",
+            "description": "«Solo yo modifico mi agenda»: con true, la secretaria no puede editar horarios ni días bloqueados del profesional (el admin y el propio profesional sí)."
+          },
           "language": {
             "type": "string",
             "description": "Etiqueta BCP 47 (default \"es-AR\"). Hoy solo se guarda."
@@ -14887,6 +14840,7 @@
           "bufferMinutes",
           "minAdvanceMinutes",
           "acceptsOnlineBooking",
+          "agendaLocked",
           "language",
           "timezone",
           "weekStart"

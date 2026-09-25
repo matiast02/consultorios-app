@@ -420,6 +420,8 @@ export const updatePreferencesConfigSchema = z.object({
   weekStart: z.number().int().min(0).max(6).optional(),
   // Aparece en la reserva online pública (/reservar)
   acceptsOnlineBooking: z.boolean().optional(),
+  // "Solo yo modifico mi agenda": la secretaria no puede tocar horarios ni días bloqueados
+  agendaLocked: z.boolean().optional(),
 });
 
 // ─── User Notification Preferences ───────────────────────────────────────────

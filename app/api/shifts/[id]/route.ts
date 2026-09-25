@@ -3,6 +3,7 @@ import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { updateShiftSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
+import { canAssignTo, canSeeShift, getShiftActor, SHIFT_FORBIDDEN, SHIFT_NOT_FOUND, SHIFT_OWN_ONLY } from "@/lib/shift-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -16,6 +17,9 @@ export async function GET(req: NextRequest, context: RouteContext) {
         { status: 401 }
       );
     }
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
+
     const { id } = await context.params;
     const { searchParams } = req.nextUrl;
     const withContext = searchParams.get("withContext") === "true";
@@ -23,8 +27,18 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const shift = await prisma.shift.findUnique({
       where: { id },
       include: {
+        // Solo lo que usa la ficha del turno: nada de consentimiento ni datos de baja.
         patient: {
-          include: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            dni: true,
+            telephone: true,
+            email: true,
+            birthDate: true,
+            sex: true,
+            osNumber: true,
             os: true,
           },
         },
@@ -41,11 +55,9 @@ export async function GET(req: NextRequest, context: RouteContext) {
         },
       },
     });
-    if (!shift) {
-      return NextResponse.json(
-        { success: false, error: "Turno no encontrado" },
-        { status: 404 }
-      );
+    // Ajeno para un médico = inexistente (404 uniforme).
+    if (!shift || !canSeeShift(actor, shift)) {
+      return NextResponse.json(SHIFT_NOT_FOUND, { status: 404 });
     }
 
     // Optional: include last visit + next scheduled shift for this patient (for the redesigned UI).
@@ -123,6 +135,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
+
     const { id } = await context.params;
     const body = await req.json();
     const parsed = updateShiftSchema.safeParse(body);
@@ -136,14 +151,26 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     const existing = await prisma.shift.findUnique({ where: { id } });
 
-    if (!existing) {
-      return NextResponse.json(
-        { success: false, error: "Turno no encontrado" },
-        { status: 404 }
-      );
+    if (!existing || !canSeeShift(actor, existing)) {
+      return NextResponse.json(SHIFT_NOT_FOUND, { status: 404 });
     }
 
     const data = parsed.data;
+
+    // Reasignar a otro profesional es tarea de recepción/admin.
+    if (data.userId && !canAssignTo(actor, data.userId)) {
+      return NextResponse.json(SHIFT_OWN_ONLY, { status: 403 });
+    }
+
+    if (data.patientId && data.patientId !== existing.patientId) {
+      const patient = await prisma.patient.findFirst({
+        where: { id: data.patientId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!patient) {
+        return NextResponse.json({ success: false, error: "Paciente no encontrado" }, { status: 404 });
+      }
+    }
 
     // If changing time, check for conflicts
     if (data.start || data.end) {
@@ -233,15 +260,15 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
+
     const { id } = await context.params;
 
     const existing = await prisma.shift.findUnique({ where: { id } });
 
-    if (!existing) {
-      return NextResponse.json(
-        { success: false, error: "Turno no encontrado" },
-        { status: 404 }
-      );
+    if (!existing || !canSeeShift(actor, existing)) {
+      return NextResponse.json(SHIFT_NOT_FOUND, { status: 404 });
     }
 
     await prisma.shift.delete({ where: { id } });

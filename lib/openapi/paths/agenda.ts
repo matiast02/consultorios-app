@@ -1,22 +1,24 @@
 // Agenda: horarios de atención por día (/api/preferences), días bloqueados
 // (/api/preferences/block-days, /api/block-days).
-// Ninguna de estas rutas verifica rol ni que `userId` sea el propio: cualquier
-// sesión lee y escribe la agenda de cualquier profesional (recepción la
-// administra). DTO en ../schemas/agenda.ts.
+// Lectura: cualquier sesión (recepción arma la agenda con esto). Escritura
+// (lib/agenda-access.ts): el objetivo debe ser un médico activo; editan el
+// propio profesional, el admin y la secretaria, salvo que el profesional haya
+// activado «Solo yo modifico mi agenda» (`agendaLocked`). DTO en ../schemas/agenda.ts.
 
 import { z } from "zod";
 import { addBlockDaysSchema, blockDaysQuerySchema, removeBlockDaySchema, upsertPreferencesSchema } from "@/lib/validations";
 import { defineRoutes, errors, ok, TAGS } from "../registry";
 import { BlockDaySchema, BlockDaysResultSchema, UserPreferenceSchema, UserPreferencesAndBlockDaysSchema } from "../schemas/agenda";
 
-const anyUser = "Cualquier rol, sobre cualquier `userId` (no se verifica que sea el propio ni que sea médico).";
+const editPolicy =
+  "Quién puede: el propio profesional, el admin y la secretaria, salvo que el profesional tenga activado «Solo yo modifico mi agenda» (`agendaLocked` en `/api/user/preferences-config`): entonces la secretaria recibe 403. Otro médico → 403; `userId` que no sea un médico activo → 404.";
 
 const upsertPreferences = {
   summary: "Guardar horarios de atención (upsert por día)",
   description: [
     "Upsert por (`userId`, `day`) en una transacción: solo toca los días enviados y no borra los que falten. Dentro de cada día, una franja omitida o en `null` queda en null (así se elimina una franja).",
     "Horas en `HH:mm`; `day` 0 = domingo … 6 = sábado. Devuelve los registros guardados en el orden enviado.",
-    anyUser,
+    editPolicy,
     "`POST` y `PUT` son equivalentes.",
   ].join(" "),
   tags: [TAGS.agenda] as [typeof TAGS.agenda],
@@ -24,7 +26,7 @@ const upsertPreferences = {
   request: { body: upsertPreferencesSchema },
   responses: {
     200: { description: "Horarios guardados (uno por día enviado).", schema: ok(z.array(UserPreferenceSchema)) },
-    ...errors(400, 401),
+    ...errors(400, 401, { 403: "Otro médico, sin rol conocido, o secretaria con el candado activo." }, { 404: "El `userId` no es un médico activo." }),
   },
 };
 
@@ -34,7 +36,7 @@ const addBlockDays = {
     "Crea un `BlockDay` por fecha (`YYYY-MM-DD`); las ya bloqueadas se ignoran (`created` cuenta solo las nuevas). Todas con la misma `category` (default `OTHER`) y `note`.",
     "Antes de crear, busca los turnos del profesional en esas fechas que no estén cancelados ni finalizados y los mueve automáticamente al siguiente día igual de la semana (hasta 8 semanas) que no esté bloqueado, tenga una franja configurada que contenga la hora y no tenga superposición; conserva hora y duración y guarda `rescheduledFrom`/`rescheduledAt`. Los que no encuentran lugar quedan en el día bloqueado y no aparecen en `rescheduledShifts`.",
     "No notifica al paciente ni al profesional.",
-    anyUser,
+    editPolicy,
     "`POST` y `PUT` son equivalentes.",
   ].join(" "),
   tags: [TAGS.agenda] as [typeof TAGS.agenda],
@@ -42,7 +44,7 @@ const addBlockDays = {
   request: { body: addBlockDaysSchema },
   responses: {
     200: { description: "Días bloqueados y turnos reprogramados.", schema: ok(BlockDaysResultSchema) },
-    ...errors(400, 401),
+    ...errors(400, 401, { 403: "Otro médico, sin rol conocido, o secretaria con el candado activo." }, { 404: "El `userId` no es un médico activo." }),
   },
 };
 
@@ -73,13 +75,13 @@ export const agendaRoutes = defineRoutes([
     path: "/api/preferences/block-days",
     summary: "Desbloquear un día",
     description:
-      "Borra el `BlockDay` cuyo `id` viene en el body. No verifica a qué profesional pertenece ni revierte turnos reprogramados por el bloqueo.",
+      "Borra el `BlockDay` cuyo `id` viene en el body, con la misma política que bloquear (dueño, admin, o secretaria sin candado). No revierte turnos reprogramados por el bloqueo.",
     tags: [TAGS.agenda],
     auth: { kind: "session" },
     request: { body: removeBlockDaySchema },
     responses: {
       200: { description: "Día desbloqueado.", schema: ok(z.object({ id: z.string() })) },
-      ...errors(400, 401, { 404: "No existe un día bloqueado con ese id." }),
+      ...errors(400, 401, { 403: "Otro médico, sin rol conocido, o secretaria con el candado activo." }, { 404: "No existe un día bloqueado con ese id (o su dueño ya no es un médico activo)." }),
     },
   },
   {

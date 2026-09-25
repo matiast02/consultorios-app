@@ -152,6 +152,9 @@ export const UserPreferencesConfigSchema = z
       .int()
       .describe("Anticipación mínima para reservar, en minutos (0-43200). Solo la reserva online lo aplica."),
     acceptsOnlineBooking: z.boolean().describe("Si el profesional aparece en la reserva web pública (/reservar)."),
+    agendaLocked: z
+      .boolean()
+      .describe("«Solo yo modifico mi agenda»: con true, la secretaria no puede editar horarios ni días bloqueados del profesional (el admin y el propio profesional sí)."),
     language: z.string().describe('Etiqueta BCP 47 (default "es-AR"). Hoy solo se guarda.'),
     timezone: z.string().describe('Zona IANA (default "America/Argentina/Buenos_Aires"). Hoy solo se guarda: la agenda calcula en hora AR fija.'),
     weekStart: z.number().int().min(0).max(6).describe("0 = domingo, 1 = lunes (default). Hoy solo se guarda."),

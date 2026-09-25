@@ -94,6 +94,7 @@ describe("PATCH /api/admin/contact-requests/[id]", () => {
   });
 
   it("actualiza el estado a leida", async () => {
+    prismaMock.contactRequest.findUnique.mockResolvedValue({ id: "cr-1" });
     prismaMock.contactRequest.update.mockResolvedValue({
       ...fakeRequest,
       status: "read",
@@ -118,6 +119,14 @@ describe("PATCH /api/admin/contact-requests/[id]", () => {
 
     const res = await PATCH(patchRequest({ status: "read" }), params());
     expect(res.status).toBe(401);
+  });
+
+  it("devuelve 404 si no existe (antes caía en 500)", async () => {
+    prismaMock.contactRequest.findUnique.mockResolvedValue(null);
+
+    const res = await PATCH(patchRequest({ status: "read" }), params());
+    expect(res.status).toBe(404);
+    expect(prismaMock.contactRequest.update).not.toHaveBeenCalled();
   });
 });
 

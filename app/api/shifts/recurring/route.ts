@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createRecurringShiftsSchema } from "@/lib/validations";
+import { logAudit } from "@/lib/audit";
+import { canAssignTo, getShiftActor, SHIFT_FORBIDDEN, SHIFT_OWN_ONLY } from "@/lib/shift-access";
 
 // POST /api/shifts/recurring — Create a recurring series of shifts
 export async function POST(req: NextRequest) {
@@ -13,6 +15,9 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+
+    const actor = await getShiftActor(session.user.id);
+    if (!actor) return NextResponse.json(SHIFT_FORBIDDEN, { status: 403 });
 
     const body = await req.json();
     const parsed = createRecurringShiftsSchema.safeParse(body);
@@ -34,6 +39,10 @@ export async function POST(req: NextRequest) {
       count,
       consultationTypeId,
     } = parsed.data;
+
+    if (!canAssignTo(actor, userId)) {
+      return NextResponse.json(SHIFT_OWN_ONLY, { status: 403 });
+    }
 
     // Validate that endTime is after startTime
     if (endTime <= startTime) {
@@ -213,6 +222,17 @@ export async function POST(req: NextRequest) {
           })
         )
       );
+    }
+
+    if (toCreate.length > 0) {
+      logAudit({
+        userId: session.user.id,
+        action: "CREATE",
+        resource: "shift_series",
+        resourceId: recurrenceGroupId,
+        details: { medicId: userId, patientId, created: toCreate.length, skipped: skipped.length },
+        req,
+      });
     }
 
     // 7. Return response
