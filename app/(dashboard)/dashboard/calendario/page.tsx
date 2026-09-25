@@ -45,6 +45,7 @@ import {
 } from "@/components/calendar/calendar-helpers";
 
 import type { Shift, UserPreference, BlockDay, Medic } from "@/types";
+import { BlockDaysDialog, RescheduledShiftsDialog, type RescheduledShift } from "@/components/configuracion/block-days-dialog";
 
 export default function CalendarioPage() {
   const { data: session, status: sessionStatus } = useSession();
@@ -66,6 +67,9 @@ export default function CalendarioPage() {
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [rescheduled, setRescheduled] = useState<RescheduledShift[]>([]);
+  const [showRescheduled, setShowRescheduled] = useState(false);
   const [createDefaultTime, setCreateDefaultTime] = useState<{
     start: string;
     end: string;
@@ -88,6 +92,8 @@ export default function CalendarioPage() {
   const userRole = session?.user.role;
   const isStaff = userRole === "secretary" || userRole === "admin";
   const availabilityUserId = isStaff ? selectedMedicId : userId;
+  // A quién se le bloquea el día: el médico a sí mismo; recepción y admin al profesional filtrado.
+  const blockTargetUserId = isStaff ? selectedMedicId : (userId ?? null);
 
   const today = useMemo(() => new Date(), []);
 
@@ -465,9 +471,19 @@ export default function CalendarioPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!blockTargetUserId}
+            title={
+              blockTargetUserId
+                ? `Bloquear el ${fmtDayLong(selectedDay)} (vacaciones, congreso, feriado…)`
+                : "Elegí un profesional para bloquear días"
+            }
+            onClick={() => setBlockOpen(true)}
+          >
             <Lock className="mr-1.5 h-3.5 w-3.5" />
-            Bloquear horario
+            Bloquear día
           </Button>
           <Button size="sm" onClick={() => handleCreateOpen()}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -631,6 +647,23 @@ export default function CalendarioPage() {
           router.push(`/dashboard/pacientes/${patientId}`);
         }}
       />
+
+      {/* Bloquear el día seleccionado: mismo diálogo que Configuración → Bloqueados */}
+      <BlockDaysDialog
+        open={blockOpen}
+        onOpenChange={setBlockOpen}
+        userId={blockTargetUserId}
+        from={selectedDay}
+        onBlocked={({ rescheduled: moved }) => {
+          fetchAvailability();
+          fetchShifts();
+          if (moved.length > 0) {
+            setRescheduled(moved);
+            setShowRescheduled(true);
+          }
+        }}
+      />
+      <RescheduledShiftsDialog open={showRescheduled} onOpenChange={setShowRescheduled} rescheduled={rescheduled} />
 
       {scheduleNextPatient && !createOpen && (
         <CreateShiftDialog

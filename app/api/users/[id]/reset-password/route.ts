@@ -6,13 +6,10 @@ import { logAudit } from "@/lib/audit";
 import { getUserRole } from "@/lib/auth-utils";
 import { setUserPassword } from "@/lib/credentials";
 import { revokeUserSessions } from "@/lib/sessions";
+import { passwordSchema } from "@/lib/validations";
 
 const resetPasswordSchema = z.object({
-  newPassword: z
-    .string()
-    .min(8, "La contrasena debe tener al menos 8 caracteres")
-    .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
-    .regex(/[0-9]/, "Debe contener al menos un numero"),
+  newPassword: passwordSchema,
 });
 
 type RouteContext = { params: Promise<{ id: string }> };

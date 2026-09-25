@@ -6,17 +6,17 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/auth";
 import { getUserRole } from "@/lib/auth-utils";
 import { hashPassword, setUserPassword } from "@/lib/credentials";
+import { passwordSchema } from "@/lib/validations";
+import { sendInvitationEmail } from "@/lib/password-setup-email";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number"),
+  password: passwordSchema,
   // Opcional: si viene, el usuario se crea ya con su rol (nunca queda sin rol).
   role: z.enum(["medic", "secretary", "admin"]).optional(),
+  // Opcional: manda al email un link para definir la contraseña (72 h).
+  sendInvite: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email, password, role } = parsed.data;
+    const { name, email, password, role, sendInvite } = parsed.data;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -121,8 +121,17 @@ export async function POST(request: NextRequest) {
       req: request,
     });
 
+    // Invitación: link de definición de contraseña por el proveedor de email
+    // configurado. Si falla, el usuario igual queda creado y se informa.
+    let invite: { sent: boolean; provider: string; error?: string } | null = null;
+    if (sendInvite) {
+      const result = await sendInvitationEmail({ email, name });
+      invite = { sent: result.ok, provider: result.provider, ...(result.error ? { error: result.error } : {}) };
+      if (!result.ok) console.warn(`[register] invitación a ${email} no enviada (${result.provider}): ${result.error}`);
+    }
+
     return NextResponse.json(
-      { message: "Account created successfully", user },
+      { message: "Account created successfully", user, invite },
       { status: 201 }
     );
   } catch (error) {

@@ -331,17 +331,7 @@
                     "minLength": 1
                   },
                   "newPassword": {
-                    "allOf": [
-                      {
-                        "type": "string",
-                        "pattern": "[A-Z]",
-                        "minLength": 8
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "[0-9]"
-                      }
-                    ]
+                    "type": "string"
                   }
                 },
                 "required": [

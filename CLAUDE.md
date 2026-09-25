@@ -86,6 +86,9 @@ pnpm run docker:down  # Stop MySQL container
 - Better Auth server instance in `auth.ts`; rutas y Server Components usan `await getSession()` (devuelve `{ user: { id, name, email, image, role } }` o null)
 - Client components usan `useSession()` / `signOut()` de `lib/auth-client.ts`
 - La contraseña NO vive en `User`: está en `Account.password` (`providerId: "credential"`), hash bcrypt vía `lib/credentials.ts`
+- Regla de contraseña única en `lib/password-policy.ts` (8+, mayúscula, número; símbolo solo suma fuerza): `passwordSchema` de `lib/validations.ts` la usa en alta, reset por link, cambio y reset por admin; los formularios usan `PasswordInput`/`PasswordStrength` de `components/admin/password-input.tsx`. No redeclarar la regla en ningún lado
+- Invitación y «olvidé mi contraseña» (`lib/password-setup-email.ts`): mismo link de un solo uso `/reset-password?token=…` (solo el hash en `ResetToken`), enviado con el proveedor de `lib/notifications/email.ts`. `POST /api/register` acepta `sendInvite` (72 h) y responde `invite` con si salió; si falla, el usuario igual queda creado
+- Bloqueo de días: `BlockDaysDialog` y `RescheduledShiftsDialog` (`components/configuracion/block-days-dialog.tsx`) los comparten Configuración → Bloqueados y el botón «Bloquear día» del calendario (el médico a sí mismo; recepción y admin al profesional filtrado)
 - Login: lockout anti fuerza bruta + audit logs `LOGIN_*` implementados como hooks de Better Auth en `auth.ts`
 - Sesiones: inactividad 12 h, renovación por uso, tope absoluto 7 días; `getSession()` rechaza usuarios inactivos/borrados y revoca sus sesiones
 - Datos clínicos: secretaria nunca (salvo alergias en solo lectura); médico solo asientos propios; admin todo, siempre auditado con `VIEW_SENSITIVE`. Nunca poner contenido clínico en `AuditLog.details` ni en `Shift.observations` (eso es nota administrativa visible por recepción)
