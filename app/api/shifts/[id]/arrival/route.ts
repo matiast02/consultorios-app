@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/audit";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -25,6 +26,7 @@ export async function POST(
       data: { arrivedAt: new Date() },
       select: { id: true, arrivedAt: true, status: true },
     });
+    logAudit({ userId: session.user.id, action: "UPDATE", resource: "shift", resourceId: id, details: { arrival: true }, req });
     return NextResponse.json({ success: true, data: updated });
   } catch (e) {
     console.error("POST /api/shifts/[id]/arrival error", e);
@@ -33,7 +35,7 @@ export async function POST(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -45,11 +47,16 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
     const { id } = await params;
+    const shift = await prisma.shift.findUnique({ where: { id }, select: { id: true } });
+    if (!shift) {
+      return NextResponse.json({ success: false, error: "Turno no encontrado" }, { status: 404 });
+    }
     const updated = await prisma.shift.update({
       where: { id },
       data: { arrivedAt: null },
       select: { id: true, arrivedAt: true },
     });
+    logAudit({ userId: session.user.id, action: "UPDATE", resource: "shift", resourceId: id, details: { arrival: false }, req });
     return NextResponse.json({ success: true, data: updated });
   } catch (e) {
     console.error("DELETE /api/shifts/[id]/arrival error", e);

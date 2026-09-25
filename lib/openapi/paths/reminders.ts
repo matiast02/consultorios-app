@@ -104,7 +104,7 @@ export const remindersRoutes = defineRoutes([
     auth: { kind: "secret", header: "Authorization" },
     responses: {
       200: { description: "Resumen de la corrida.", schema: ok(ReminderDispatchSummarySchema) },
-      ...errors({ 401: "Header ausente o secreto incorrecto." }, 500, { 503: "`CRON_SECRET` no configurado en el servidor." }),
+      ...errors({ 401: "Header ausente o secreto incorrecto." }, 500, { 503: "Servicio no disponible (el servidor no tiene el secreto configurado; el detalle va al log, no a la respuesta)." }),
     },
   },
 ]);

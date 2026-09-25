@@ -25,6 +25,7 @@ import {
   recordSuccessfulLogin,
 } from "@/lib/login-protection";
 import { logAudit } from "@/lib/audit";
+import { pickRole } from "@/lib/roles";
 
 const SIGN_IN_PATH = "/sign-in/email";
 const DISABLED_MESSAGE = "Tu cuenta esta deshabilitada. Contacta al administrador.";
@@ -49,11 +50,12 @@ async function statusOf(userId: string): Promise<UserStatus> {
     select: {
       isActive: true,
       deletedAt: true,
-      roles: { select: { role: { select: { name: true } } }, take: 1 },
+      roles: { select: { role: { select: { name: true } } } },
     },
   });
   return {
-    role: user?.roles[0]?.role?.name ?? null,
+    // Mismo criterio que lib/auth-utils getUserRole: determinista si hay varios.
+    role: pickRole(user?.roles.map((r) => r.role?.name) ?? []),
     isActive: user?.isActive ?? false,
     deletedAt: user?.deletedAt ?? null,
   };

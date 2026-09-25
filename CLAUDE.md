@@ -44,6 +44,9 @@ App Router with route groups:
 - `lib/credentials.ts` — Único punto que escribe/verifica hashes de contraseña (bcrypt, tabla Account)
 - `lib/clinical-access.ts` — Política de acceso a datos clínicos (lista blanca medic/admin, aislamiento por autor); TODA ruta clínica pasa por acá
 - `lib/sessions.ts` — Revocación de sesiones (cambio/reset de contraseña, baja de usuario)
+- `lib/roles.ts` — Roles y rol efectivo determinista (admin > secretary > medic si hubiera varios); `lib/auth-utils.ts` `getUserRole` y el `customSession` de `auth.ts` lo usan
+- `lib/shift-access.ts` — Política de turnos: médico solo los propios (ajeno → 404) y sin asignar a otros; secretaria/admin todos; sin rol → 403
+- `lib/agenda-access.ts` — Política de agenda (horarios y días bloqueados): objetivo médico activo; editan el propio médico, el admin y la secretaria salvo `User.agendaLocked`
 - `instrumentation.ts` — Validación de entorno al arrancar: en producción exige HC_ENC_KEY, AUTH_SECRET ≥ 32 y NEXTAUTH_URL https
 - `middleware.ts` — Auth middleware for route protection
 - `docker-compose.yml` — MySQL + phpMyAdmin containers
@@ -82,6 +85,9 @@ pnpm run docker:down  # Stop MySQL container
 - Sesiones: inactividad 12 h, renovación por uso, tope absoluto 7 días; `getSession()` rechaza usuarios inactivos/borrados y revoca sus sesiones
 - Datos clínicos: secretaria nunca (salvo alergias en solo lectura); médico solo asientos propios; admin todo, siempre auditado con `VIEW_SENSITIVE`. Nunca poner contenido clínico en `AuditLog.details` ni en `Shift.observations` (eso es nota administrativa visible por recepción)
 - Pacientes: `DELETE ?mode=purge` solo sin asientos clínicos ni turnos de otros (admin, secretaria o médico creador); `?mode=archive` conserva la HC 10 años (médico creador sin terceros, o admin); `POST /restore` solo admin
+- Turnos: toda ruta de `/api/shifts/**` pasa por `getShiftActor` (`lib/shift-access.ts`); el detalle devuelve del paciente solo identificación, contacto, nacimiento, sexo y obra social. Altas, series, llegada y consulta auditan (`CREATE`/`UPDATE` con ids)
+- Agenda: `POST/PUT /api/preferences` y `/api/preferences/block-days` pasan por `canEditAgenda`; el médico activa «Solo yo modifico mi agenda» (`agendaLocked`) desde Configuración → Horarios y la secretaria recibe 403 (el admin no)
+- Respuestas uniformes: lo ajeno responde 404 igual que lo inexistente (turnos, notificaciones, datos clínicos); nunca 403 que revele existencia
 - Headers de seguridad (CSP, HSTS, nosniff, frame-ancestors) en `next.config.ts`
 - Consentimiento: `Patient.consentType/consentGivenAt/consentNote` (Ley 25.326 art. 5-6) se carga en el paso 2 del alta; el formulario público exige `privacyAccepted` con el texto de la Disp. DNPDP 10/2008
 - Acceso cruzado entre médicos solo vía `ClinicalAccessGrant` (solicitud → aprobación con consentimiento → vigencia acotada → revocable); copia de HC para el paciente vía `HcCopyRequest` (48 hs, PDF con hashes del ledger, audit `EXPORT_HC`)

@@ -29,6 +29,7 @@ import {
   ArrowRight,
   ChevronDown,
   Globe,
+  Lock,
 } from "lucide-react";
 import { DAY_NAMES } from "@/types";
 import type { UserPreference } from "@/types";
@@ -74,6 +75,8 @@ interface ConfigState {
   minAdvanceMinutes: number;
   /** Aparece en la reserva online del sitio (lib/openapi/paths/online-booking.ts). */
   acceptsOnlineBooking: boolean;
+  /** «Solo yo modifico mi agenda»: recepción no puede editar horarios ni días bloqueados. */
+  agendaLocked: boolean;
 }
 
 function diffMinutes(from: string, to: string): number {
@@ -170,6 +173,7 @@ export function WorkHoursTab() {
     bufferMinutes: 0,
     minAdvanceMinutes: 60,
     acceptsOnlineBooking: true,
+    agendaLocked: false,
   });
   const [configDirty, setConfigDirty] = useState(false);
 
@@ -206,6 +210,7 @@ export function WorkHoursTab() {
             minAdvanceMinutes: data.minAdvanceMinutes ?? 60,
             acceptsOnlineBooking:
               typeof data.acceptsOnlineBooking === "boolean" ? data.acceptsOnlineBooking : true,
+            agendaLocked: data.agendaLocked === true,
           });
         }
       })
@@ -487,6 +492,29 @@ export function WorkHoursTab() {
               checked={config.acceptsOnlineBooking}
               onCheckedChange={(v) => {
                 setConfig({ ...config, acceptsOnlineBooking: v });
+                setConfigDirty(true);
+              }}
+            />
+          </label>
+          <label
+            htmlFor="wh-agenda-locked"
+            className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3"
+          >
+            <span>
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <Lock className="h-4 w-4 text-primary" />
+                Solo yo modifico mi agenda
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Con esto activado, recepción no puede cambiar tus horarios de atención ni bloquear o
+                desbloquear días: solo vos y el administrador.
+              </span>
+            </span>
+            <Switch
+              id="wh-agenda-locked"
+              checked={config.agendaLocked}
+              onCheckedChange={(v) => {
+                setConfig({ ...config, agendaLocked: v });
                 setConfigDirty(true);
               }}
             />

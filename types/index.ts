@@ -345,6 +345,9 @@ export interface UserPreferencesConfig {
   slotDurationMinutes: number;
   bufferMinutes: number;
   minAdvanceMinutes: number;
+  acceptsOnlineBooking: boolean;
+  /** Solo el propio profesional (y el admin) modifican horarios y días bloqueados. */
+  agendaLocked: boolean;
   language: string;
   timezone: string;
   weekStart: number;

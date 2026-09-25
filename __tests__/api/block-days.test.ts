@@ -33,6 +33,12 @@ function validPutPayload(overrides: Record<string, unknown> = {}) {
 describe("PUT /api/preferences/block-days", () => {
   beforeEach(() => {
     resetAllMocks();
+    // La agenda es de un médico: la política (lib/agenda-access) verifica el objetivo.
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "medic-1",
+      agendaLocked: false,
+      roles: [{ role: { name: "medic" } }],
+    });
   });
 
   // 1. Happy path: no conflicting shifts ----------------------------------
@@ -191,6 +197,12 @@ describe("PUT /api/preferences/block-days", () => {
 describe("DELETE /api/preferences/block-days", () => {
   beforeEach(() => {
     resetAllMocks();
+    // La agenda es de un médico: la política (lib/agenda-access) verifica el objetivo.
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "medic-1",
+      agendaLocked: false,
+      roles: [{ role: { name: "medic" } }],
+    });
   });
 
   // 6. Happy path: delete existing block day ------------------------------

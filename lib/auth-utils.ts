@@ -1,6 +1,7 @@
 import { getSession } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { pickRole } from "@/lib/roles";
 
 /**
  * Get the current authenticated user from the session.
@@ -34,14 +35,16 @@ export async function getCurrentUserId(): Promise<string | null> {
 }
 
 /**
- * Get the role name for a user from the database.
+ * Rol efectivo del usuario. Si tuviera más de un rol (datos heredados), gana
+ * el más privilegiado según lib/roles.ts (determinista; antes dependía del
+ * orden en que la base devolviera las filas).
  */
 export async function getUserRole(userId: string): Promise<string | null> {
-  const userRole = await prisma.userRole.findFirst({
+  const rows = await prisma.userRole.findMany({
     where: { userId },
-    include: { role: true },
+    select: { role: { select: { name: true } } },
   });
-  return userRole?.role?.name ?? null;
+  return pickRole(rows.map((r) => r.role?.name));
 }
 
 /**

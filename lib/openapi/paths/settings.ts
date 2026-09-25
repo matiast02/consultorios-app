@@ -95,7 +95,7 @@ export const settingsRoutes = defineRoutes([
     path: "/api/user/preferences-config",
     summary: "Preferencias de agenda y regionales del usuario logueado",
     description:
-      "Duración por defecto del turno, buffer y anticipación mínima (estas dos solo rigen la reserva online), si aparece en la reserva web, idioma, zona horaria y primer día de la semana. Los horarios de atención por día van por `/api/preferences`.",
+      "Duración por defecto del turno, buffer y anticipación mínima (estas dos solo rigen la reserva online), si aparece en la reserva web, `agendaLocked` («Solo yo modifico mi agenda»: recepción no puede editar horarios ni días bloqueados; el admin sí), idioma, zona horaria y primer día de la semana. Los horarios de atención por día van por `/api/preferences`.",
     tags: [TAGS.settings],
     auth: { kind: "session" },
     mobile: true,
@@ -109,7 +109,7 @@ export const settingsRoutes = defineRoutes([
     path: "/api/user/preferences-config",
     summary: "Actualizar las preferencias de agenda y regionales",
     description:
-      "Actualización parcial a pesar del PUT: solo cambia lo enviado. `acceptsOnlineBooking: false` saca al profesional de la reserva web pública. Sin auditoría.",
+      "Actualización parcial a pesar del PUT: solo cambia lo enviado. `acceptsOnlineBooking: false` saca al profesional de la reserva web pública; `agendaLocked: true` impide que recepción edite la agenda del profesional. Sin auditoría.",
     tags: [TAGS.settings],
     auth: { kind: "session" },
     mobile: true,

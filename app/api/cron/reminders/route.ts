@@ -19,10 +19,9 @@ function secretMatches(provided: string, expected: string): boolean {
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
-    return NextResponse.json(
-      { success: false, error: "CRON_SECRET no configurado en el servidor" },
-      { status: 503 },
-    );
+    // El detalle va al log del servidor, no a un cliente sin autenticar.
+    console.error("[cron] POST /api/cron/reminders: CRON_SECRET no configurado");
+    return NextResponse.json({ success: false, error: "Servicio no disponible" }, { status: 503 });
   }
 
   const match = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");

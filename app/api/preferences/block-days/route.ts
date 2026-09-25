@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { addBlockDaysSchema, removeBlockDaySchema } from "@/lib/validations";
+import { canEditAgenda } from "@/lib/agenda-access";
 
 // POST /api/preferences/block-days — Add blocked days (alias)
 export async function POST(req: NextRequest) {
@@ -30,6 +31,12 @@ export async function PUT(req: NextRequest) {
     }
 
     const { userId, dates, category, note } = parsed.data;
+
+    // Solo el propio profesional, el admin o la secretaria (si no hay candado).
+    const access = await canEditAgenda(session.user.id, userId);
+    if (!access.ok) {
+      return NextResponse.json({ success: false, error: access.error }, { status: access.status });
+    }
 
     // Find active shifts on the dates being blocked
     const dateRanges = dates.map((dateStr) => {
@@ -246,6 +253,12 @@ export async function DELETE(req: NextRequest) {
         { success: false, error: "Día bloqueado no encontrado" },
         { status: 404 }
       );
+    }
+
+    // Misma regla que para bloquear: dueño, admin o secretaria sin candado.
+    const access = await canEditAgenda(session.user.id, existing.userId);
+    if (!access.ok) {
+      return NextResponse.json({ success: false, error: access.error }, { status: access.status });
     }
 
     await prisma.blockDay.delete({ where: { id } });

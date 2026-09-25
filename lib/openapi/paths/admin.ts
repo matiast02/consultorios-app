@@ -41,7 +41,7 @@ export const adminRoutes = defineRoutes([
     path: "/api/admin/clinic-hours",
     summary: "Reemplazar los horarios de la semana",
     description:
-      "Body: array de exactamente 7 días. Por cada día se hace upsert por `dayOfWeek`; con `closed: true` los cuatro horarios quedan en null; un horario vacío también se guarda como null. Sin auditoría.",
+      "Body: array de exactamente 7 días. Por cada día se hace upsert por `dayOfWeek`; con `closed: true` los cuatro horarios quedan en null; un horario vacío también se guarda como null. Audita `UPDATE` sobre `clinic_hours`.",
     tags: [TAGS.admin],
     auth: { kind: "session", roles: ["admin"] },
     request: { body: clinicHoursWeekSchema },
@@ -73,7 +73,7 @@ export const adminRoutes = defineRoutes([
       "Todos los campos son opcionales y se guardan por grupos, para que cada formulario pueda grabar sin pisar a los otros:",
       "los campos del **sitio público** (nombre, contacto, dirección, mapa, flags `show*`, cifras) se reemplazan **todos juntos** si viene al menos uno (los ausentes quedan en null / default `true`);",
       "los de **recordatorios** y **reservas online** se actualizan solo si están presentes en el body.",
-      "Strings vacíos se guardan como null; los WhatsApp se normalizan a solo dígitos. 400 si `reminderSecondHoursBefore` no es menor que `reminderHoursBefore` (efectivo). Sin auditoría.",
+      "Strings vacíos se guardan como null; los WhatsApp se normalizan a solo dígitos. 400 si `reminderSecondHoursBefore` no es menor que `reminderHoursBefore` (efectivo). Audita `UPDATE` sobre `clinic_settings` con los campos tocados.",
     ].join(" "),
     tags: [TAGS.admin],
     auth: { kind: "session", roles: ["admin"] },
@@ -115,7 +115,7 @@ export const adminRoutes = defineRoutes([
     path: "/api/admin/contact-requests/{id}",
     summary: "Cambiar estado o marcar WhatsApp abierto",
     description:
-      "Actualiza `status` y/o `whatsappOpened` (al menos uno). Al pasar a `read` se setea `readAt`. Si el id no existe la ruta responde 500 (no hay 404 dedicado). Sin auditoría.",
+      "Actualiza `status` y/o `whatsappOpened` (al menos uno). Al pasar a `read` se setea `readAt`. Audita `UPDATE` sobre `contact_request`.",
     tags: [TAGS.admin],
     auth: { kind: "session", roles: ["admin", "secretary"] },
     request: {
@@ -127,14 +127,14 @@ export const adminRoutes = defineRoutes([
     },
     responses: {
       200: { description: "Solicitud actualizada.", schema: ok(ContactRequestSchema) },
-      ...errors(400, 401, 403, { 500: "Error inesperado; también cuando el id no existe." }),
+      ...errors(400, 401, 403, 404),
     },
   },
   {
     method: "delete",
     path: "/api/admin/contact-requests/{id}",
     summary: "Eliminar una solicitud de contacto",
-    description: "Borrado físico (no son datos clínicos ni de pacientes registrados). Sin auditoría.",
+    description: "Borrado físico (no son datos clínicos ni de pacientes registrados). Audita `DELETE` sobre `contact_request`.",
     tags: [TAGS.admin],
     auth: { kind: "session", roles: ["admin", "secretary"] },
     request: { params: IdParam },
@@ -199,7 +199,7 @@ export const adminRoutes = defineRoutes([
     path: "/api/modules",
     summary: "Habilitar o deshabilitar un módulo",
     description:
-      "Upsert por `module`: si la clave no existía se crea con `name` igual a la clave. Validación manual (sin Zod): 400 si faltan `module` (string) o `enabled` (boolean). Sin auditoría.",
+      "Solo módulos existentes (los crea el seed): clave desconocida → 404, ya no se crean filas nuevas. Validación manual (sin Zod): 400 si faltan `module` (string) o `enabled` (boolean). Audita `UPDATE` sobre `module`.",
     tags: [TAGS.admin],
     auth: { kind: "session", roles: ["admin"] },
     request: {
@@ -210,7 +210,7 @@ export const adminRoutes = defineRoutes([
     },
     responses: {
       200: { description: "Módulo resultante.", schema: ok(ModuleConfigSchema) },
-      ...errors({ 400: "Faltan `module` (string) o `enabled` (boolean)." }, 401, 403),
+      ...errors({ 400: "Faltan `module` (string) o `enabled` (boolean)." }, 401, 403, { 404: "Módulo desconocido." }),
     },
   },
   {
@@ -231,7 +231,7 @@ export const adminRoutes = defineRoutes([
     path: "/api/modules/{module}/users",
     summary: "Dar o quitar acceso de un usuario a un módulo",
     description:
-      "Upsert por (`userId`, `module`). Validación manual: 400 si faltan `userId` (string) o `enabled` (boolean). Un `userId` inexistente rompe la FK y responde 500. Sin auditoría.",
+      "Upsert por (`userId`, `module`). Validación manual: 400 si faltan `userId` (string) o `enabled` (boolean). `userId` inexistente o dado de baja → 404. Audita `UPDATE` sobre `module_access`.",
     tags: [TAGS.admin],
     auth: { kind: "session", roles: ["admin"] },
     request: {
@@ -243,7 +243,7 @@ export const adminRoutes = defineRoutes([
     },
     responses: {
       200: { description: "Acceso resultante.", schema: ok(UserModuleAccessSchema) },
-      ...errors({ 400: "Faltan `userId` (string) o `enabled` (boolean)." }, 401, 403, { 500: "Error inesperado; también si `userId` no existe." }),
+      ...errors({ 400: "Faltan `userId` (string) o `enabled` (boolean)." }, 401, 403, { 404: "`userId` inexistente o dado de baja." }),
     },
   },
 ]);

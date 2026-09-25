@@ -75,14 +75,14 @@ export const notificationsRoutes = defineRoutes([
     path: "/api/notifications/{id}/read",
     summary: "Marcar una notificación como leída",
     description:
-      "Cualquier rol. Con un id `generated-…` no persiste nada (responde 200 con `{ id, read: true }`: la calculada va a reaparecer mientras la condición siga). Con una persistida, la marca leída y deja de aparecer en el listado; solo la puede marcar su destinatario. Sin body.",
+      "Cualquier rol. Con un id `generated-…` no persiste nada (responde 200 con `{ id, read: true }`: la calculada va a reaparecer mientras la condición siga). Con una persistida, la marca leída y deja de aparecer en el listado; una ajena responde 404, igual que una inexistente. Sin body.",
     tags: [TAGS.notifications],
     auth: { kind: "session" },
     mobile: true,
     request: { params: IdParam },
     responses: {
       200: { description: "Marcada como leída.", schema: ok(NotificationReadResultSchema) },
-      ...errors(401, { 403: "La notificación es de otro usuario." }, 404),
+      ...errors(401, { 404: "Inexistente o de otro usuario (misma respuesta)." }),
     },
   },
 ]);

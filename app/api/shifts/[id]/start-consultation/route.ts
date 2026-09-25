@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/audit";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -28,6 +29,14 @@ export async function POST(
         arrivedAt: shift.arrivedAt ?? new Date(),
       },
       select: { id: true, consultationStartedAt: true, arrivedAt: true },
+    });
+    logAudit({
+      userId: session.user.id,
+      action: "UPDATE",
+      resource: "shift",
+      resourceId: id,
+      details: { consultationStarted: true },
+      req,
     });
     return NextResponse.json({ success: true, data: updated });
   } catch (e) {

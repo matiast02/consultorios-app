@@ -36,11 +36,11 @@ export async function PUT(
       );
     }
 
-    // Ensure the notification belongs to the current user
+    // Ajena = inexistente (404 uniforme: no se revela que existe).
     if (notification.userId !== session.user.id) {
       return NextResponse.json(
-        { success: false, error: "No autorizado" },
-        { status: 403 }
+        { success: false, error: "Notificacion no encontrada" },
+        { status: 404 }
       );
     }
 
