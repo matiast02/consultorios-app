@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { ensureTicketForWalkIn, waitingRoomEnabled } from "@/lib/waiting-room/tickets";
+
+// Llegada sin turno (walk-in). Con el módulo `waiting_room` activo emite el
+// número de sala del día y lo devuelve en `ticket`.
 
 export async function POST(req: Request) {
   try {
@@ -42,18 +46,23 @@ export async function POST(req: Request) {
       );
     }
 
-    const walkIn = await prisma.walkInArrival.create({
-      data: {
-        patientId,
-        firstName,
-        lastName,
-        telephone,
-        note: body.note ?? null,
-        arrivedAt: new Date(),
-      },
+    const issueTicket = await waitingRoomEnabled();
+    const result = await prisma.$transaction(async (tx) => {
+      const walkIn = await tx.walkInArrival.create({
+        data: {
+          patientId,
+          firstName,
+          lastName,
+          telephone,
+          note: body.note ?? null,
+          arrivedAt: new Date(),
+        },
+      });
+      const ticket = issueTicket ? await ensureTicketForWalkIn(tx, { walkInId: walkIn.id }) : null;
+      return { ...walkIn, ticket };
     });
 
-    return NextResponse.json({ success: true, data: walkIn });
+    return NextResponse.json({ success: true, data: result });
   } catch (e) {
     console.error("POST /api/walk-ins error", e);
     return NextResponse.json({ success: false, error: "Error" }, { status: 500 });

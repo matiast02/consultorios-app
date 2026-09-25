@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSecretaryOrAdmin } from "@/lib/auth-utils";
+import { isModuleEnabled } from "@/lib/modules";
+import { WAITING_ROOM_MODULE, openTicketsByTarget } from "@/lib/waiting-room/tickets";
 import { staffSummary } from "@/lib/online-booking";
 import {
   REMINDER_ITEM_INCLUDE,
@@ -181,6 +183,12 @@ export async function GET() {
       }),
     ]);
 
+    // ─── Números de sala (módulo waiting_room) ──────────────────────────────
+    const waitingRoomEnabled = await isModuleEnabled(WAITING_ROOM_MODULE);
+    const tickets = waitingRoomEnabled
+      ? await openTicketsByTarget()
+      : { byShift: new Map<string, number>(), byWalkIn: new Map<string, number>() };
+
     // ─── Active professionals for today ────────────────────────────────────
     const todayActive = activeMedics.filter(
       (m) => m.shifts.length > 0 || m.preferences.length > 0,
@@ -213,6 +221,7 @@ export async function GET() {
           arrivedAt: new Date(s.arrivedAt).toISOString(),
           minutesWaiting: min,
           isNext: false,
+          ticketNumber: tickets.byShift.get(s.id) ?? null,
           note: s.observations ?? null,
           patient: {
             id: s.patient?.id ?? null,
@@ -248,6 +257,7 @@ export async function GET() {
         arrivedAt: new Date(w.arrivedAt).toISOString(),
         minutesWaiting: min,
         isNext: false,
+        ticketNumber: tickets.byWalkIn.get(w.id) ?? null,
         note: w.note ?? null,
         patient: {
           id: w.patientId,
@@ -291,6 +301,7 @@ export async function GET() {
         room: sourceShift.user.defaultRoom ?? null,
         shiftStart: new Date(sourceShift.start).toISOString(),
         minutesWaiting: nextToCallShift.minutesWaiting,
+        ticketNumber: tickets.byShift.get(nextToCallShift.id) ?? null,
       };
     }
 
@@ -467,6 +478,7 @@ export async function GET() {
       recordatorios,
       huecosHoy,
       agenda,
+      waitingRoom: { enabled: waitingRoomEnabled },
       ...(reservasOnline ? { reservasOnline } : {}),
     };
 

@@ -13,6 +13,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { WaitingRoomItem } from "@/types";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
 
 interface WaitingRoomCardProps {
   items: WaitingRoomItem[];
@@ -117,6 +118,14 @@ export function WaitingRoomCard({
                   <div className="min-w-0 flex-1">
                     {/* Header row */}
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      {it.ticketNumber != null && (
+                        <span
+                          title="Número de sala"
+                          className="rounded-md bg-[#0d4f4d]/10 px-1.5 py-0.5 font-mono text-[11.5px] font-bold tabular-nums text-[#0d4f4d]"
+                        >
+                          N.º {formatTicketNumber(it.ticketNumber)}
+                        </span>
+                      )}
                       <span className="font-semibold text-foreground">
                         {it.patient.lastName}
                         <span className="text-muted-foreground">, {it.patient.firstName}</span>

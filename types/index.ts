@@ -613,6 +613,8 @@ export interface WaitingRoomItem {
   arrivedAt: string;
   minutesWaiting: number;
   isNext: boolean;
+  /** Número de sala del día (módulo waiting_room); null con el módulo apagado. */
+  ticketNumber?: number | null;
   note?: string | null;
   patient: WaitingRoomItemPatient;
   shift?: WaitingRoomItemShift | null;
@@ -627,6 +629,8 @@ export interface NextToCallData {
   room?: string | null;
   shiftStart?: string | null;
   minutesWaiting: number;
+  /** Número de sala del día (módulo waiting_room); null con el módulo apagado. */
+  ticketNumber?: number | null;
 }
 
 export type ReminderChannel = "EMAIL" | "WHATSAPP" | "SMS";
@@ -871,6 +875,11 @@ export interface SecretaryOnlineBookingsData {
   items: OnlineBookingStaffItem[]; // las más antiguas primero, máx. 5
 }
 
+export interface SecretaryWaitingRoomInfo {
+  /** Módulo «Sala de espera y llamado» (waiting_room) activo: hay números de sala. */
+  enabled: boolean;
+}
+
 export interface SecretaryDashboardData {
   header: SecretaryHeaderData;
   stats: SecretaryStatsData;
@@ -879,7 +888,16 @@ export interface SecretaryDashboardData {
   recordatorios: SecretaryRemindersData;
   huecosHoy: MedicSlotsGroup[];
   agenda: SecretaryAgendaData;
+  waitingRoom: SecretaryWaitingRoomInfo;
   reservasOnline?: SecretaryOnlineBookingsData;
+}
+
+/** Número de sala (módulo waiting_room). Ver docs/SALA-DE-ESPERA.md. */
+export interface WaitingTicketSummary {
+  id: string;
+  number: number;
+  /** YYYY-MM-DD en el día del consultorio. */
+  date: string;
 }
 
 export interface WalkInArrival {

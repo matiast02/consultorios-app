@@ -30,6 +30,8 @@ interface ModuleUserConfig {
 
 const MODULE_DESCRIPTIONS: Record<string, string> = {
   prescriptions: "Permite crear, ver e imprimir recetas medicas para los pacientes.",
+  waiting_room:
+    "Número de sala al registrar la llegada, llamado a consultorio desde recepción y desde el médico, y pantalla pública para la sala de espera. Un profesional deshabilitado acá no aparece en la pantalla (llama a viva voz).",
 };
 
 // ─── Main Page ──────────────────────────────────────────────────────────────

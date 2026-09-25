@@ -5,6 +5,13 @@
 import { z } from "zod";
 import { defineRoutes, errors, IdParam, IsoDateTime, ok, okEmpty, TAGS, type RouteAuth } from "../registry";
 import { WalkInArrivalSchema } from "../schemas/users";
+import { WaitingTicketField } from "../schemas/waiting-room";
+
+// Respuesta del alta: el walk-in más su número de sala (módulo waiting_room).
+// Se arma con el objeto de campos (sin `.extend()`), como el resto de los DTO.
+const WalkInArrivalCreatedSchema = z
+  .object({ ...WalkInArrivalSchema.shape, ticket: WaitingTicketField })
+  .openapi({ ref: "WalkInArrivalCreated" });
 
 const createWalkInSchema = z.object({
   patientId: z.string().nullable().optional().describe("Ficha existente. Si viene y faltan nombre/apellido, se toman de la ficha."),
@@ -29,13 +36,13 @@ export const receptionRoutes = defineRoutes([
     path: "/api/walk-ins",
     summary: "Registrar una llegada sin turno",
     description:
-      "Crea el registro con `arrivedAt` = ahora. Con `patientId` y sin nombre/apellido, los completa desde la ficha. Responde **200** (no 201). No audita.",
+      "Crea el registro con `arrivedAt` = ahora. Con `patientId` y sin nombre/apellido, los completa desde la ficha. Con el módulo `waiting_room` activo emite el número de sala del día y lo devuelve en `ticket`. Responde **200** (no 201). No audita.",
     tags: [TAGS.shifts],
     auth: RECEPTION_ROLES,
     mobile: true,
     request: { body: createWalkInSchema },
     responses: {
-      200: { description: "Llegada registrada.", schema: ok(WalkInArrivalSchema) },
+      200: { description: "Llegada registrada.", schema: ok(WalkInArrivalCreatedSchema) },
       ...errors({ 400: "Faltan nombre y apellido." }, 401, 403),
     },
   },
@@ -44,28 +51,28 @@ export const receptionRoutes = defineRoutes([
     path: "/api/walk-ins/{id}",
     summary: "Actualizar una llegada (retiró, turno asignado, nota)",
     description:
-      "Actualización parcial: solo los campos presentes. Con id inexistente responde 500 (no 404): comportamiento actual.",
+      "Actualización parcial: solo los campos presentes. Módulo `waiting_room`: `markLeftNow`/`leftAt` cierran el número de sala (`LEFT`); `assignedShiftId` lo traslada al turno con el mismo número (si el turno ya tenía número, el del walk-in se anula).",
     tags: [TAGS.shifts],
     auth: RECEPTION_ROLES,
     mobile: true,
     request: { params: IdParam, body: updateWalkInSchema },
     responses: {
       200: { description: "Llegada actualizada.", schema: ok(WalkInArrivalSchema) },
-      ...errors(401, 403, { 500: "Id inexistente o error inesperado." }),
+      ...errors(401, 403, 404),
     },
   },
   {
     method: "delete",
     path: "/api/walk-ins/{id}",
     summary: "Eliminar una llegada",
-    description: "Borrado físico (es un registro operativo de recepción, no clínico). Con id inexistente responde 500.",
+    description: "Borrado físico (es un registro operativo de recepción, no clínico). Anula el número de sala si había.",
     tags: [TAGS.shifts],
     auth: RECEPTION_ROLES,
     mobile: true,
     request: { params: IdParam },
     responses: {
       200: { description: "Eliminada.", schema: okEmpty },
-      ...errors(401, 403, { 500: "Id inexistente o error inesperado." }),
+      ...errors(401, 403, 404),
     },
   },
 ]);

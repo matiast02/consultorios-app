@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Phone, Search, UserPlus, UserSquare2 } from "lucide-react";
+import { Loader2, Phone, Search, Ticket, UserPlus, UserSquare2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -11,7 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Patient } from "@/types";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
+import type { Patient, WaitingTicketSummary } from "@/types";
 
 interface RegisterArrivalDialogProps {
   open: boolean;
@@ -32,6 +33,12 @@ interface RegisterArrivalDialogProps {
 
 type Mode = "scheduled" | "walkin";
 
+/** Número de sala recién emitido (módulo waiting_room): se muestra en grande antes de cerrar. */
+interface IssuedTicket {
+  number: number;
+  who: string;
+}
+
 export function RegisterArrivalDialog({
   open,
   onOpenChange,
@@ -41,6 +48,7 @@ export function RegisterArrivalDialog({
   const [mode, setMode] = useState<Mode>("scheduled");
   const [search, setSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [issued, setIssued] = useState<IssuedTicket | null>(null);
 
   // Walk-in form state
   const [walkInPatients, setWalkInPatients] = useState<Patient[]>([]);
@@ -52,18 +60,23 @@ export function RegisterArrivalDialog({
   const [telephone, setTelephone] = useState("");
   const [note, setNote] = useState("");
 
+  function resetForm() {
+    setMode("scheduled");
+    setSearch("");
+    setSelectedPatientId(null);
+    setFirstName("");
+    setLastName("");
+    setTelephone("");
+    setNote("");
+    setWalkInSearch("");
+    setWalkInPatients([]);
+  }
+
   // Reset when closed
   useEffect(() => {
     if (!open) {
-      setMode("scheduled");
-      setSearch("");
-      setSelectedPatientId(null);
-      setFirstName("");
-      setLastName("");
-      setTelephone("");
-      setNote("");
-      setWalkInSearch("");
-      setWalkInPatients([]);
+      resetForm();
+      setIssued(null);
     }
   }, [open]);
 
@@ -103,14 +116,27 @@ export function RegisterArrivalDialog({
     });
   }, [todayShifts, search]);
 
-  async function markScheduledArrived(shiftId: string) {
+  /** Con número de sala (módulo activo) el diálogo queda abierto mostrándolo; sin número, se cierra. */
+  function finish(ticket: WaitingTicketSummary | null | undefined, who: string) {
+    onArrived();
+    if (ticket) {
+      setIssued({ number: ticket.number, who });
+    } else {
+      onOpenChange(false);
+    }
+  }
+
+  async function markScheduledArrived(shift: (typeof todayShifts)[number]) {
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/shifts/${shiftId}/arrival`, { method: "POST" });
+      const res = await fetch(`/api/shifts/${shift.id}/arrival`, { method: "POST" });
       if (!res.ok) throw new Error();
+      const json = await res.json().catch(() => null);
       toast.success("Paciente registrado en sala");
-      onArrived();
-      onOpenChange(false);
+      finish(
+        json?.data?.ticket ?? null,
+        shift.patient ? `${shift.patient.lastName}, ${shift.patient.firstName}` : "Paciente",
+      );
     } catch {
       toast.error("No se pudo registrar la llegada");
     } finally {
@@ -137,9 +163,9 @@ export function RegisterArrivalDialog({
         }),
       });
       if (!res.ok) throw new Error();
+      const json = await res.json().catch(() => null);
       toast.success("Walk-in registrado");
-      onArrived();
-      onOpenChange(false);
+      finish(json?.data?.ticket ?? null, `${lastName.trim()}, ${firstName.trim()}`);
     } catch {
       toast.error("No se pudo registrar el walk-in");
     } finally {
@@ -162,185 +188,228 @@ export function RegisterArrivalDialog({
         <DialogHeader>
           <DialogTitle>Registrar llegada</DialogTitle>
           <DialogDescription>
-            Marcá un paciente con turno como llegado, o registralo como walk-in.
+            {issued
+              ? "Llegada registrada. Decile el número al paciente: con él lo van a llamar a consultorio."
+              : "Marcá un paciente con turno como llegado, o registralo como walk-in."}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Mode tabs */}
-        <div className="inline-flex w-full items-center gap-0.5 rounded-lg border bg-muted/50 p-0.5 text-sm font-medium">
-          <button
-            type="button"
-            onClick={() => setMode("scheduled")}
-            className={
-              mode === "scheduled"
-                ? "flex-1 rounded-md bg-card px-3 py-1.5 text-foreground shadow-sm"
-                : "flex-1 rounded-md px-3 py-1.5 text-muted-foreground transition hover:text-foreground"
-            }
+        {issued ? (
+          <div
+            className="flex flex-col items-center py-4 text-center"
+            role="status"
+            aria-live="polite"
+            data-testid="issued-ticket"
           >
-            <span className="inline-flex items-center gap-2">
-              <UserSquare2 className="h-3.5 w-3.5" />
-              Con turno
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("walkin")}
-            className={
-              mode === "walkin"
-                ? "flex-1 rounded-md bg-card px-3 py-1.5 text-foreground shadow-sm"
-                : "flex-1 rounded-md px-3 py-1.5 text-muted-foreground transition hover:text-foreground"
-            }
-          >
-            <span className="inline-flex items-center gap-2">
-              <UserPlus className="h-3.5 w-3.5" />
-              Walk-in
-            </span>
-          </button>
-        </div>
-
-        {mode === "scheduled" ? (
-          <div className="space-y-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar paciente o médico…"
-                className="w-full rounded-lg border bg-card pl-8 pr-3 py-1.5 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-[#0d4f4d]/30"
-              />
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <Ticket className="h-3.5 w-3.5" />
+              Número de sala
             </div>
-
-            <div className="max-h-[340px] overflow-y-auto rounded-lg border">
-              {filteredScheduled.length === 0 ? (
-                <div className="py-6 text-center text-sm text-muted-foreground">
-                  No quedan turnos por marcar como llegados.
-                </div>
-              ) : (
-                <ul className="divide-y">
-                  {filteredScheduled.map((s) => (
-                    <li
-                      key={s.id}
-                      className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30"
-                    >
-                      <div className="w-12 shrink-0 text-sm font-semibold tabular-nums text-foreground">
-                        {formatHHmm(s.start)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-foreground">
-                          {s.patient
-                            ? `${s.patient.lastName}, ${s.patient.firstName}`
-                            : "Paciente"}
-                        </div>
-                        <div className="truncate text-[11.5px] text-muted-foreground">
-                          {s.medicShortName}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={() => markScheduledArrived(s.id)}
-                        className="rounded-md bg-[#0d4f4d] px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0a3f3d] disabled:opacity-50"
-                      >
-                        Registrar
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+            <div className="mt-2 font-mono text-[84px] font-black leading-none tabular-nums text-[#0d4f4d]">
+              {formatTicketNumber(issued.number)}
+            </div>
+            <p className="mt-4 text-sm font-medium text-foreground">{issued.who}</p>
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setIssued(null);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border bg-card px-3.5 py-2 text-sm font-medium text-foreground/80 transition hover:bg-muted"
+              >
+                <UserPlus className="h-4 w-4" />
+                Registrar otra llegada
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => onOpenChange(false)}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#0d4f4d] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0a3f3d]"
+              >
+                Listo
+              </button>
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {/* Patient picker */}
-            <div>
-              <label className="text-[11.5px] font-medium text-muted-foreground">
-                Buscar paciente existente (opcional)
-              </label>
-              <div className="relative mt-1">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={walkInSearch}
-                  onChange={(e) => setWalkInSearch(e.target.value)}
-                  placeholder="Apellido, DNI…"
-                  className="w-full rounded-lg border bg-card pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0d4f4d]/30"
-                />
-                {walkInLoading && (
-                  <Loader2 className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
-                )}
-              </div>
-              {walkInPatients.length > 0 && (
-                <ul className="mt-1 max-h-40 overflow-y-auto rounded-md border bg-card text-sm shadow-sm">
-                  {walkInPatients.map((p) => (
-                    <li key={p.id}>
-                      <button
-                        type="button"
-                        onClick={() => pickExisting(p)}
-                        className="w-full px-3 py-1.5 text-left hover:bg-muted/40"
-                      >
-                        <span className="font-medium">{p.lastName}, {p.firstName}</span>
-                        {p.dni && <span className="ml-2 text-xs text-muted-foreground">DNI {p.dni}</span>}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+          <>
+            {/* Mode tabs */}
+            <div className="inline-flex w-full items-center gap-0.5 rounded-lg border bg-muted/50 p-0.5 text-sm font-medium">
+              <button
+                type="button"
+                onClick={() => setMode("scheduled")}
+                className={
+                  mode === "scheduled"
+                    ? "flex-1 rounded-md bg-card px-3 py-1.5 text-foreground shadow-sm"
+                    : "flex-1 rounded-md px-3 py-1.5 text-muted-foreground transition hover:text-foreground"
+                }
+              >
+                <span className="inline-flex items-center gap-2">
+                  <UserSquare2 className="h-3.5 w-3.5" />
+                  Con turno
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("walkin")}
+                className={
+                  mode === "walkin"
+                    ? "flex-1 rounded-md bg-card px-3 py-1.5 text-foreground shadow-sm"
+                    : "flex-1 rounded-md px-3 py-1.5 text-muted-foreground transition hover:text-foreground"
+                }
+              >
+                <span className="inline-flex items-center gap-2">
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Walk-in
+                </span>
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11.5px] font-medium text-muted-foreground">Nombre *</label>
-                <input
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border bg-card px-3 py-1.5 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-[11.5px] font-medium text-muted-foreground">Apellido *</label>
-                <input
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border bg-card px-3 py-1.5 text-sm"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-[11.5px] font-medium text-muted-foreground">Teléfono</label>
-              <div className="relative mt-1">
-                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={telephone}
-                  onChange={(e) => setTelephone(e.target.value)}
-                  placeholder="+54 11 …"
-                  className="w-full rounded-lg border bg-card pl-8 pr-3 py-1.5 text-sm"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-[11.5px] font-medium text-muted-foreground">Motivo / nota</label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                placeholder="Ej: Pide renovación de receta crónica…"
-                className="mt-1 w-full resize-none rounded-lg border bg-card px-3 py-1.5 text-sm"
-              />
-            </div>
+            {mode === "scheduled" ? (
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Buscar paciente o médico…"
+                    className="w-full rounded-lg border bg-card pl-8 pr-3 py-1.5 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-[#0d4f4d]/30"
+                  />
+                </div>
 
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={submitWalkIn}
-              className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#0d4f4d] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0a3f3d] disabled:opacity-50"
-            >
-              {submitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <UserPlus className="h-4 w-4" />
-              )}
-              Registrar walk-in
-            </button>
-          </div>
+                <div className="max-h-[340px] overflow-y-auto rounded-lg border">
+                  {filteredScheduled.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-muted-foreground">
+                      No quedan turnos por marcar como llegados.
+                    </div>
+                  ) : (
+                    <ul className="divide-y">
+                      {filteredScheduled.map((s) => (
+                        <li
+                          key={s.id}
+                          className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30"
+                        >
+                          <div className="w-12 shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                            {formatHHmm(s.start)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-foreground">
+                              {s.patient
+                                ? `${s.patient.lastName}, ${s.patient.firstName}`
+                                : "Paciente"}
+                            </div>
+                            <div className="truncate text-[11.5px] text-muted-foreground">
+                              {s.medicShortName}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={() => markScheduledArrived(s)}
+                            className="rounded-md bg-[#0d4f4d] px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0a3f3d] disabled:opacity-50"
+                          >
+                            Registrar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Patient picker */}
+                <div>
+                  <label className="text-[11.5px] font-medium text-muted-foreground">
+                    Buscar paciente existente (opcional)
+                  </label>
+                  <div className="relative mt-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={walkInSearch}
+                      onChange={(e) => setWalkInSearch(e.target.value)}
+                      placeholder="Apellido, DNI…"
+                      className="w-full rounded-lg border bg-card pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0d4f4d]/30"
+                    />
+                    {walkInLoading && (
+                      <Loader2 className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  {walkInPatients.length > 0 && (
+                    <ul className="mt-1 max-h-40 overflow-y-auto rounded-md border bg-card text-sm shadow-sm">
+                      {walkInPatients.map((p) => (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            onClick={() => pickExisting(p)}
+                            className="w-full px-3 py-1.5 text-left hover:bg-muted/40"
+                          >
+                            <span className="font-medium">{p.lastName}, {p.firstName}</span>
+                            {p.dni && <span className="ml-2 text-xs text-muted-foreground">DNI {p.dni}</span>}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11.5px] font-medium text-muted-foreground">Nombre *</label>
+                    <input
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      className="mt-1 w-full rounded-lg border bg-card px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11.5px] font-medium text-muted-foreground">Apellido *</label>
+                    <input
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      className="mt-1 w-full rounded-lg border bg-card px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11.5px] font-medium text-muted-foreground">Teléfono</label>
+                  <div className="relative mt-1">
+                    <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={telephone}
+                      onChange={(e) => setTelephone(e.target.value)}
+                      placeholder="+54 11 …"
+                      className="w-full rounded-lg border bg-card pl-8 pr-3 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11.5px] font-medium text-muted-foreground">Motivo / nota</label>
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={2}
+                    placeholder="Ej: Pide renovación de receta crónica…"
+                    className="mt-1 w-full resize-none rounded-lg border bg-card px-3 py-1.5 text-sm"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={submitWalkIn}
+                  className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#0d4f4d] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0a3f3d] disabled:opacity-50"
+                >
+                  {submitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <UserPlus className="h-4 w-4" />
+                  )}
+                  Registrar walk-in
+                </button>
+              </div>
+            )}
+          </>
         )}
       </DialogContent>
     </Dialog>

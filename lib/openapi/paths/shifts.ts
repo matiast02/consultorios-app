@@ -158,14 +158,15 @@ export const shiftsRoutes = defineRoutes([
     method: "post",
     path: "/api/shifts/{id}/arrival",
     summary: "Marcar la llegada del paciente (sala de espera)",
-    description: "Recepción (secretaria o admin). Setea `arrivedAt` = ahora sin cambiar `status`. Repetirlo actualiza la hora. Audita `UPDATE` sobre `shift` (`arrival: true`). Sin body.",
+    description:
+      "Recepción (secretaria o admin). Setea `arrivedAt` = ahora sin cambiar `status`. Repetirlo actualiza la hora. Con el módulo `waiting_room` activo emite el número de sala del día (o reabre el de este turno: repetir la llegada conserva el número) y lo devuelve en `ticket`. Audita `UPDATE` sobre `shift` (`arrival: true`, `ticket`). Sin body.",
     tags: [TAGS.shifts],
     auth: { kind: "session", roles: ["secretary", "admin"] },
     mobile: true,
     request: { params: IdParam },
     responses: {
       200: { description: "Llegada registrada.", schema: ok(ShiftArrivalSchema) },
-      ...errors(401, 403, 404),
+      ...errors(401, 403, 404, { 409: "El turno está cancelado: no entra en la sala de espera." }),
     },
   },
   {
@@ -173,7 +174,7 @@ export const shiftsRoutes = defineRoutes([
     path: "/api/shifts/{id}/arrival",
     summary: "Deshacer la llegada",
     description:
-      "Recepción (secretaria o admin). Vuelve `arrivedAt` a null; no toca `consultationStartedAt`. Audita `UPDATE` (`arrival: false`).",
+      "Recepción (secretaria o admin). Vuelve `arrivedAt` a null; no toca `consultationStartedAt`. Anula el número de sala si había (`closedReason: VOID`; el número no se reutiliza, volver a registrar la llegada lo reabre). Audita `UPDATE` (`arrival: false`).",
     tags: [TAGS.shifts],
     auth: { kind: "session", roles: ["secretary", "admin"] },
     mobile: true,

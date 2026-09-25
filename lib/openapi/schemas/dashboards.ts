@@ -174,6 +174,11 @@ export const WaitingRoomItemSchema = z
     arrivedAt: IsoDateTime,
     minutesWaiting: z.number().int(),
     isNext: z.boolean().describe("Es el próximo a llamar (turno con llegada registrada de hora más temprana)."),
+    ticketNumber: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Número de sala del día (módulo `waiting_room`); null con el módulo apagado."),
     note: z.string().nullable().describe("Observación administrativa del turno o nota de la llegada espontánea."),
     patient: WaitingRoomItemPatientSchema,
     shift: WaitingRoomItemShiftSchema.nullable().describe("null en espontáneos."),
@@ -190,8 +195,23 @@ export const NextToCallSchema = z
     room: z.string().nullable().describe("Consultorio por defecto del profesional."),
     shiftStart: IsoDateTime.nullable(),
     minutesWaiting: z.number().int(),
+    ticketNumber: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Número de sala del día (módulo `waiting_room`); null con el módulo apagado."),
   })
   .openapi({ ref: "NextToCall" });
+
+export const SecretaryWaitingRoomSchema = z
+  .object({
+    enabled: z
+      .boolean()
+      .describe(
+        "Módulo «Sala de espera y llamado» (`waiting_room`) activo: las llegadas emiten número de sala y los ítems traen `ticketNumber`.",
+      ),
+  })
+  .openapi({ ref: "SecretaryWaitingRoom" });
 
 export const SecretaryRemindersSchema = z
   .object({
@@ -268,6 +288,7 @@ export const SecretaryDashboardSchema = z
     recordatorios: SecretaryRemindersSchema,
     huecosHoy: z.array(MedicSlotsGroupSchema).describe("Solo médicos con al menos un hueco; ordenados por su primer hueco. Excluye médicos con día bloqueado."),
     agenda: SecretaryAgendaSchema,
+    waitingRoom: SecretaryWaitingRoomSchema,
     reservasOnline: SecretaryOnlineBookingsSchema.optional().describe("Ausente si el resumen de reservas online falló (el resto del dashboard se sirve igual)."),
   })
   .openapi({ ref: "SecretaryDashboard" });

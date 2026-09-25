@@ -256,10 +256,12 @@ export function SecretaryDashboard({ userName }: SecretaryDashboardProps) {
 
   // We use salaDeEspera + a synthetic list: shifts that have NOT arrived yet — derived from agenda.
   // Simpler approach: send the salaDeEspera as "already arrived", so the dialog excludes them.
+  // Cancelados, finalizados y ausentes no entran en la sala (la API rechaza la
+  // llegada de un cancelado y el listado de sala ignora los otros dos).
   const arrivedIds = new Set(data.salaDeEspera.map((s) => s.id));
   const dialogShifts = data.agenda.profesionales.flatMap((p) =>
     p.shifts
-      .filter((s) => !arrivedIds.has(s.id))
+      .filter((s) => !arrivedIds.has(s.id) && !["CANCELLED", "FINISHED", "ABSENT"].includes(s.status))
       .map((s) => {
         const split = s.patientShortName.split(",");
         const lastName = (split[0] ?? "").trim();
