@@ -54,7 +54,7 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho · ✎ no es código (gesti�
 | D1 | Turnos online para pacientes | ☑ | v1 sin OTP: el turno entra PENDING `source: ONLINE` y recepción confirma; sin texto libre (minimización); anti-abuso; link de gestión. Pendiente menor: `POST /api/shifts` (recepción) no toma el mismo bloqueo por médico que la reserva online, queda una carrera mínima. |
 | D2 | Adjuntos en la historia clínica (PDF, imágenes) | ☑ | Cifrados en reposo por archivo (clave envuelta con `HC_ENC_KEY`), acceso por `lib/clinical-access.ts`, descarga auditada, límite de tamaño y tipo, hash en el ledger y en la copia de HC. Miniaturas cifradas para imágenes (sep 2026). |
 | D3 | Cobros y liquidación por obra social | ☐ | No hay modelo de pagos (copagos, caja diaria, liquidación). |
-| D4 | Pantalla de llamado para la sala de espera | ☐ | Cierra el circuito con el dashboard de recepción. |
+| D4 | Sala de espera y llamado (módulo `waiting_room`) | ☐ | Diseño aprobado el 24-sep-2026 en [`SALA-DE-ESPERA.md`](SALA-DE-ESPERA.md): número de sala diario al registrar la llegada (`WaitingTicket`), llamado desde recepción y desde el médico, pantalla pública `/sala` con clave de dispositivo (solo números y consultorios, nunca nombres). Apagado por defecto. Tres fases; requiere integrar `feature/seguridad-b11-b13`. |
 | D5 | App móvil Flutter | ☐ | Instancia por consultorio, bearer firmado (ya configurado), documentación OpenAPI con `x-mobile` + cliente Dart generable (`docs/API-MOBILE.md`, sep 2026). Pendiente: resolución del consultorio por código, endpoint público de versión, FCM. |
 | D6 | Impresión de recetas con formato legal | ☐ | Depende de C5. |
 
