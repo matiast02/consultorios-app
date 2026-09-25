@@ -3,6 +3,8 @@ import { getSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMedic } from "@/lib/auth-utils";
 import { treatedPatientWhere } from "@/lib/clinical-access";
+import { isModuleEnabled } from "@/lib/modules";
+import { WAITING_ROOM_MODULE, emptyOpenTickets, openTicketsByTarget } from "@/lib/waiting-room/tickets";
 
 const DAY_LABELS = ["LU", "MA", "MI", "JU", "VI", "SÁ", "DO"] as const;
 const RENEWAL_WINDOW_DAYS = 14;
@@ -182,6 +184,13 @@ export async function GET() {
     }
 
     // ─── Next shift today ────────────────────────────────────────────────────
+    // ─── Sala de espera (módulo waiting_room) ────────────────────────────────
+    const waitingRoomEnabled = await isModuleEnabled(WAITING_ROOM_MODULE);
+    const [tickets, medicUser] = await Promise.all([
+      waitingRoomEnabled ? openTicketsByTarget() : Promise.resolve(emptyOpenTickets()),
+      prisma.user.findUnique({ where: { id: userId }, select: { defaultRoom: true } }),
+    ]);
+
     const nextShift = todayShifts.find(
       (s) => (s.status === "PENDING" || s.status === "CONFIRMED") && new Date(s.start) > now,
     ) ?? null;
@@ -208,6 +217,13 @@ export async function GET() {
             }
           : null,
         consultationType: s.consultationType,
+        arrivedAt: s.arrivedAt ? new Date(s.arrivedAt).toISOString() : null,
+        consultationStartedAt: s.consultationStartedAt ? new Date(s.consultationStartedAt).toISOString() : null,
+        minutesWaiting:
+          s.arrivedAt && !s.consultationStartedAt
+            ? Math.max(0, Math.round((now.getTime() - new Date(s.arrivedAt).getTime()) / 60000))
+            : null,
+        ticketNumber: tickets.byShift.get(s.id)?.number ?? null,
       };
     };
 
@@ -323,6 +339,7 @@ export async function GET() {
             pendientes,
           },
         },
+        waitingRoom: { enabled: waitingRoomEnabled, room: medicUser?.defaultRoom ?? null },
         week: {
           totalShifts: totalWeekShifts,
           weekStart: weekStart.toISOString(),

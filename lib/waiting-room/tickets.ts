@@ -195,19 +195,80 @@ export async function moveTicketToShift(
   });
 }
 
-/** Números abiertos de hoy, indexados por turno y por walk-in (para el dashboard de recepción). */
-export async function openTicketsByTarget(
-  date: string = clinicToday(),
-): Promise<{ byShift: Map<string, number>; byWalkIn: Map<string, number> }> {
+/** Cierre del número cuando el turno cambia de estado (PUT /api/shifts/{id}). */
+export const TICKET_CLOSE_BY_STATUS: Partial<Record<string, TicketCloseReason>> = {
+  FINISHED: "ATTENDED",
+  ABSENT: "ABSENT",
+  CANCELLED: "VOID",
+};
+
+// ─── Llamado ─────────────────────────────────────────────────────────────────
+
+export type CalledTicket = TicketSummary & {
+  room: string | null;
+  calledAt: Date;
+  lastCalledAt: Date;
+  callCount: number;
+};
+
+const CALLED = { id: true, number: true, date: true, room: true, calledAt: true, lastCalledAt: true, callCount: true } as const;
+
+/**
+ * Llamado a consultorio (primer llamado o «volver a llamar»): sella el ticket
+ * abierto del turno. `room` undefined conserva el consultorio anterior.
+ * Devuelve null si el turno no tiene número (módulo apagado o llegada sin
+ * número): en ese caso no hay nada que mostrar en la pantalla.
+ */
+export async function callTicketForShift(
+  db: Db,
+  args: { shiftId: string; room?: string | null },
+): Promise<CalledTicket | null> {
+  const ticket = await db.waitingTicket.findUnique({
+    where: { shiftId: args.shiftId },
+    select: { id: true, closedAt: true, calledAt: true, callCount: true },
+  });
+  if (!ticket || ticket.closedAt) return null;
+  const now = new Date();
+  const row = await db.waitingTicket.update({
+    where: { id: ticket.id },
+    data: {
+      calledAt: ticket.calledAt ?? now,
+      lastCalledAt: now,
+      callCount: ticket.callCount + 1,
+      ...(args.room !== undefined ? { room: args.room } : {}),
+    },
+    select: CALLED,
+  });
+  return { ...row, calledAt: row.calledAt ?? now, lastCalledAt: row.lastCalledAt ?? now };
+}
+
+// ─── Lectura para los dashboards ─────────────────────────────────────────────
+
+export type OpenTicket = {
+  number: number;
+  room: string | null;
+  calledAt: Date | null;
+  lastCalledAt: Date | null;
+  callCount: number;
+};
+
+export type OpenTickets = { byShift: Map<string, OpenTicket>; byWalkIn: Map<string, OpenTicket> };
+
+export function emptyOpenTickets(): OpenTickets {
+  return { byShift: new Map(), byWalkIn: new Map() };
+}
+
+/** Tickets abiertos de hoy, indexados por turno y por walk-in (dashboards de recepción y médico). */
+export async function openTicketsByTarget(date: string = clinicToday()): Promise<OpenTickets> {
   const rows = await prisma.waitingTicket.findMany({
     where: { date, closedAt: null },
-    select: { number: true, shiftId: true, walkInId: true },
+    select: { number: true, shiftId: true, walkInId: true, room: true, calledAt: true, lastCalledAt: true, callCount: true },
   });
-  const byShift = new Map<string, number>();
-  const byWalkIn = new Map<string, number>();
+  const out = emptyOpenTickets();
   for (const r of rows) {
-    if (r.shiftId) byShift.set(r.shiftId, r.number);
-    if (r.walkInId) byWalkIn.set(r.walkInId, r.number);
+    const t: OpenTicket = { number: r.number, room: r.room, calledAt: r.calledAt, lastCalledAt: r.lastCalledAt, callCount: r.callCount };
+    if (r.shiftId) out.byShift.set(r.shiftId, t);
+    if (r.walkInId) out.byWalkIn.set(r.walkInId, t);
   }
-  return { byShift, byWalkIn };
+  return out;
 }

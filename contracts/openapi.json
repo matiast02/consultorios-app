@@ -2829,8 +2829,8 @@
     "/api/shifts/{id}/start-consultation": {
       "post": {
         "operationId": "postShiftsByIdStartConsultation",
-        "summary": "Pasar el paciente a consulta",
-        "description": "Recepción (secretaria o admin; el médico no puede llamarla). Setea `consultationStartedAt` = ahora y, si no había llegada registrada, también `arrivedAt`. No cambia `status`. Audita `UPDATE` (`consultationStarted: true`). Sin body.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
+        "summary": "Pasar el paciente a consulta / llamarlo a consultorio",
+        "description": "Recepción para cualquier turno; el médico solo para los propios (ajeno → 404). Setea `consultationStartedAt` = ahora y, si no había llegada registrada, también `arrivedAt`. No cambia `status`.\nMódulo `waiting_room`: si el paciente tiene número de sala, sella el ticket (`calledAt`, `lastCalledAt`, `callCount`, `room`) y la pantalla lo muestra; `room` ausente usa el `defaultRoom` del profesional, vacío o null deja sin consultorio. Sin número, `ticket` es null y no se muestra nada.\nAudita `UPDATE` (`consultationStarted: true`, más `ticket` y `room` si hubo llamado). Body opcional.\n\n**Acceso:** sesión (medic, secretary, admin).\n\n**App móvil:** sí.",
         "tags": [
           "Turnos"
         ],
@@ -2844,6 +2844,7 @@
         ],
         "x-mobile": true,
         "x-roles": [
+          "medic",
           "secretary",
           "admin"
         ],
@@ -2860,6 +2861,26 @@
             "required": true
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "room": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 40,
+                    "description": "Consultorio al que se llama. Ausente: el habitual del profesional; vacío o null: sin consultorio."
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Consulta iniciada.",
@@ -2880,6 +2901,16 @@
                     "success",
                     "data"
                   ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos (ver `details`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -2906,6 +2937,148 @@
           },
           "404": {
             "description": "No existe o no es visible para el actor (respuesta idéntica en ambos casos).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El turno está cancelado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shifts/{id}/recall": {
+      "post": {
+        "operationId": "postShiftsByIdRecall",
+        "summary": "Volver a llamar al paciente",
+        "description": "Módulo `waiting_room` (apagado → 404). Repite el aviso en la pantalla sin cambiar el estado del turno: `lastCalledAt` = ahora y `callCount` + 1; `room` opcional (ausente conserva el anterior). Misma política que el pase a consulta (médico solo turnos propios). Audita `UPDATE` (`recall: true`).\n\n**Acceso:** sesión (medic, secretary, admin).\n\n**App móvil:** sí.",
+        "tags": [
+          "Turnos"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mobile": true,
+        "x-roles": [
+          "medic",
+          "secretary",
+          "admin"
+        ],
+        "x-auth": "session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "ID (cuid)",
+            "schema": {
+              "type": "string",
+              "description": "ID (cuid)"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "room": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 40,
+                    "description": "Consultorio al que se llama. Ausente: el habitual del profesional; vacío o null: sin consultorio."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Llamado repetido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ShiftRecalled"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos (ver `details`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión o sesión vencida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene permiso para esta operación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Turno inexistente o ajeno, o módulo apagado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El paciente no está en consulta (no fue llamado, o el turno ya terminó) o no tiene número de sala.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9800,7 +9973,7 @@
       "get": {
         "operationId": "getDashboardMedic",
         "summary": "Dashboard del médico",
-        "description": "Solo médicos (secretaria y admin reciben 403). Todo es del médico logueado:\n- `today`: sus turnos de hoy con paciente, obra social y tipo de consulta, el próximo a atender y contadores.\n- `week`: turnos por día de la semana actual (lunes a domingo).\n- `pendientes`: evoluciones sin cerrar (7 días), recetas para renovar, órdenes de estudio pendientes y solicitudes de acceso a la HC que puede decidir.\n- `recentPatients`: últimos 5 pacientes atendidos.\nSin contenido clínico (los `summary` solo llevan nombres, fechas y conteos).\n\n**Acceso:** sesión (medic).\n\n**App móvil:** sí.",
+        "description": "Solo médicos (secretaria y admin reciben 403). Todo es del médico logueado:\n- `today`: sus turnos de hoy con paciente, obra social y tipo de consulta, el próximo a atender y contadores.\n- `week`: turnos por día de la semana actual (lunes a domingo).\n- `pendientes`: evoluciones sin cerrar (7 días), recetas para renovar, órdenes de estudio pendientes y solicitudes de acceso a la HC que puede decidir.\n- `recentPatients`: últimos 5 pacientes atendidos.\n- `waitingRoom`: si el módulo de sala de espera está activo y el consultorio habitual del médico; cada turno de hoy trae `arrivedAt`, `consultationStartedAt`, `minutesWaiting` y `ticketNumber`.\nSin contenido clínico (los `summary` solo llevan nombres, fechas y conteos).\n\n**Acceso:** sesión (medic).\n\n**App móvil:** sí.",
         "tags": [
           "Dashboards"
         ],
@@ -9868,7 +10041,7 @@
       "get": {
         "operationId": "getDashboardSecretary",
         "summary": "Dashboard de recepción",
-        "description": "Recepción (secretaria) o admin; los médicos reciben 403. Vista de todo el consultorio para hoy:\n- `salaDeEspera` y `proximoALlamar`: pacientes con llegada registrada y espontáneos, con minutos de espera.\n- `recordatorios`: los recordatorios de los turnos de **mañana** (con `waLink` para los WhatsApp manuales).\n- `huecosHoy`: huecos libres restantes por médico según su horario de atención.\n- `agenda`: turnos de hoy por profesional activo y un `autoMode` de layout sugerido.\n- `reservasOnline`: reservas web pendientes de confirmar (las 5 más antiguas); puede faltar si ese bloque falló.\nPensado para polling: cada respuesta trae `header.now`. Sin contenido clínico.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
+        "description": "Recepción (secretaria) o admin; los médicos reciben 403. Vista de todo el consultorio para hoy:\n- `salaDeEspera` y `proximoALlamar`: pacientes con llegada registrada y espontáneos, con minutos de espera y, con el módulo `waiting_room`, su número de sala.\n- `llamados`: pacientes en consulta (ya llamados) con consultorio, último llamado y cantidad de llamados; `waitingRoom.enabled` dice si el módulo está activo.\n- `recordatorios`: los recordatorios de los turnos de **mañana** (con `waLink` para los WhatsApp manuales).\n- `huecosHoy`: huecos libres restantes por médico según su horario de atención.\n- `agenda`: turnos de hoy por profesional activo y un `autoMode` de layout sugerido.\n- `reservasOnline`: reservas web pendientes de confirmar (las 5 más antiguas); puede faltar si ese bloque falló.\nPensado para polling: cada respuesta trae `header.now`. Sin contenido clínico.\n\n**Acceso:** sesión (secretary, admin).\n\n**App móvil:** sí.",
         "tags": [
           "Dashboards"
         ],
@@ -18194,12 +18367,86 @@
             "format": "date-time",
             "example": "2026-09-24T14:30:00.000Z",
             "description": "Si no había llegada registrada, se setea ahora."
+          },
+          "ticket": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WaitingTicketCalled"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ticket llamado (módulo `waiting_room` activo y paciente con número de sala); null si no hay número: nada se muestra en la pantalla."
           }
         },
         "required": [
           "id",
           "consultationStartedAt",
-          "arrivedAt"
+          "arrivedAt",
+          "ticket"
+        ]
+      },
+      "WaitingTicketCalled": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "date": {
+            "type": "string"
+          },
+          "room": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Consultorio al que se lo llamó (cuerpo del pedido o `defaultRoom` del profesional)."
+          },
+          "calledAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Primer llamado."
+          },
+          "lastCalledAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Último llamado (cambia con «volver a llamar»)."
+          },
+          "callCount": {
+            "type": "integer",
+            "description": "Cantidad de llamados."
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "date",
+          "room",
+          "calledAt",
+          "lastCalledAt",
+          "callCount"
+        ]
+      },
+      "ShiftRecalled": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/WaitingTicketCalled",
+            "description": "`callCount` incrementado y `lastCalledAt` = ahora; `room` conservado si no se mandó."
+          }
+        },
+        "required": [
+          "id",
+          "ticket"
         ]
       },
       "RecurringShiftsResult": {
@@ -20685,13 +20932,17 @@
             },
             "maxItems": 5,
             "description": "Últimos 5 pacientes atendidos (turnos FINISHED pasados), sin repetir."
+          },
+          "waitingRoom": {
+            "$ref": "#/components/schemas/MedicWaitingRoom"
           }
         },
         "required": [
           "today",
           "week",
           "pendientes",
-          "recentPatients"
+          "recentPatients",
+          "waitingRoom"
         ]
       },
       "DashboardToday": {
@@ -20799,6 +21050,38 @@
               "name",
               "color"
             ]
+          },
+          "arrivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Llegada registrada por recepción (sala de espera)."
+          },
+          "consultationStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Pase a consulta / llamado."
+          },
+          "minutesWaiting": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Minutos en sala (llegó y todavía no pasó a consulta); null en otro caso."
+          },
+          "ticketNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Número de sala del día (módulo `waiting_room`); null sin módulo o sin número."
           }
         },
         "required": [
@@ -20810,7 +21093,11 @@
           "isOverbook",
           "durationMinutes",
           "patient",
-          "consultationType"
+          "consultationType",
+          "arrivedAt",
+          "consultationStartedAt",
+          "minutesWaiting",
+          "ticketNumber"
         ]
       },
       "DashboardShiftPatient": {
@@ -21078,6 +21365,26 @@
           "lastShiftTime"
         ]
       },
+      "MedicWaitingRoom": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Módulo «Sala de espera y llamado» (`waiting_room`) activo: el médico puede llamar desde sus turnos de hoy."
+          },
+          "room": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Consultorio habitual del médico (`defaultRoom`), para prellenar el llamado."
+          }
+        },
+        "required": [
+          "enabled",
+          "room"
+        ]
+      },
       "SecretaryDashboard": {
         "type": "object",
         "properties": {
@@ -21117,6 +21424,13 @@
           "agenda": {
             "$ref": "#/components/schemas/SecretaryAgenda"
           },
+          "llamados": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalledItem"
+            },
+            "description": "Pacientes en consulta (ya llamados) hoy, el último llamado primero."
+          },
           "waitingRoom": {
             "$ref": "#/components/schemas/SecretaryWaitingRoom"
           },
@@ -21133,6 +21447,7 @@
           "recordatorios",
           "huecosHoy",
           "agenda",
+          "llamados",
           "waitingRoom"
         ]
       },
@@ -21328,6 +21643,13 @@
               "string",
               "null"
             ]
+          },
+          "room": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Consultorio habitual del profesional (prellena el llamado)."
           }
         },
         "required": [
@@ -21337,7 +21659,8 @@
           "medicId",
           "medicShortName",
           "medicColor",
-          "consultationTypeName"
+          "consultationTypeName",
+          "room"
         ]
       },
       "NextToCall": {
@@ -21650,6 +21973,87 @@
           "patientShortName",
           "consultationTypeName",
           "isWalkIn"
+        ]
+      },
+      "CalledItem": {
+        "type": "object",
+        "properties": {
+          "shiftId": {
+            "type": "string"
+          },
+          "patient": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "firstName": {
+                "type": "string"
+              },
+              "lastName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "firstName",
+              "lastName"
+            ]
+          },
+          "medicId": {
+            "type": "string"
+          },
+          "medicShortName": {
+            "type": "string"
+          },
+          "medicColor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Color de la especialidad; null si no tiene."
+          },
+          "room": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Consultorio del llamado (ticket) o el habitual del profesional."
+          },
+          "calledAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-24T14:30:00.000Z",
+            "description": "Último llamado (`lastCalledAt` del ticket, o `consultationStartedAt` sin número)."
+          },
+          "minutesSinceCall": {
+            "type": "integer"
+          },
+          "ticketNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "callCount": {
+            "type": "integer",
+            "description": "Cantidad de llamados; 0 si no tiene número."
+          }
+        },
+        "required": [
+          "shiftId",
+          "patient",
+          "medicId",
+          "medicShortName",
+          "medicColor",
+          "room",
+          "calledAt",
+          "minutesSinceCall",
+          "ticketNumber",
+          "callCount"
         ]
       },
       "SecretaryWaitingRoom": {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { prismaMock, resetAllMocks } from "./setup";
 import {
+  callTicketForShift,
   closeTicketForShift,
   ensureTicketForShift,
   ensureTicketForWalkIn,
@@ -229,18 +230,67 @@ describe("openTicketsByTarget", () => {
   beforeEach(() => resetAllMocks());
 
   it("indexa los abiertos de hoy por turno y por walk-in", async () => {
+    const base = { room: null, calledAt: null, lastCalledAt: null, callCount: 0 };
     prismaMock.waitingTicket.findMany.mockResolvedValue([
-      { number: 1, shiftId: "s1", walkInId: null },
-      { number: 2, shiftId: null, walkInId: "w1" },
-      { number: 3, shiftId: "s3", walkInId: "w3" }, // walk-in que ya tiene turno
+      { ...base, number: 1, shiftId: "s1", walkInId: null, room: "C1", callCount: 2 },
+      { ...base, number: 2, shiftId: null, walkInId: "w1" },
+      { ...base, number: 3, shiftId: "s3", walkInId: "w3" }, // walk-in que ya tiene turno
     ]);
     const { byShift, byWalkIn } = await openTicketsByTarget();
     expect(prismaMock.waitingTicket.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { date: clinicToday(), closedAt: null } }),
     );
-    expect(byShift.get("s1")).toBe(1);
-    expect(byShift.get("s3")).toBe(3);
-    expect(byWalkIn.get("w1")).toBe(2);
-    expect(byWalkIn.get("w3")).toBe(3);
+    expect(byShift.get("s1")).toEqual({ number: 1, room: "C1", calledAt: null, lastCalledAt: null, callCount: 2 });
+    expect(byShift.get("s3")?.number).toBe(3);
+    expect(byWalkIn.get("w1")?.number).toBe(2);
+    expect(byWalkIn.get("w3")?.number).toBe(3);
+  });
+});
+
+describe("callTicketForShift", () => {
+  beforeEach(() => resetAllMocks());
+
+  it("primer llamado: calledAt y lastCalledAt = ahora, callCount 1, consultorio del pedido", async () => {
+    prismaMock.waitingTicket.findUnique.mockResolvedValue({ id: "t1", closedAt: null, calledAt: null, callCount: 0 });
+    prismaMock.waitingTicket.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: "t1",
+      number: 4,
+      date: clinicToday(),
+      room: data.room ?? null,
+      calledAt: data.calledAt,
+      lastCalledAt: data.lastCalledAt,
+      callCount: data.callCount,
+    }));
+    const t = await callTicketForShift(db, { shiftId: "s1", room: "Consultorio 2" });
+    expect(t).toEqual(expect.objectContaining({ number: 4, room: "Consultorio 2", callCount: 1 }));
+    expect(t?.calledAt).toBeInstanceOf(Date);
+    expect(t?.lastCalledAt).toEqual(t?.calledAt);
+  });
+
+  it("volver a llamar conserva calledAt y el consultorio si no se manda", async () => {
+    const first = new Date("2026-09-25T12:00:00.000Z");
+    prismaMock.waitingTicket.findUnique.mockResolvedValue({ id: "t1", closedAt: null, calledAt: first, callCount: 1 });
+    prismaMock.waitingTicket.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: "t1",
+      number: 4,
+      date: clinicToday(),
+      room: "C1",
+      calledAt: data.calledAt,
+      lastCalledAt: data.lastCalledAt,
+      callCount: data.callCount,
+    }));
+    const t = await callTicketForShift(db, { shiftId: "s1" });
+    expect(t?.callCount).toBe(2);
+    expect(t?.calledAt).toEqual(first);
+    const { data } = prismaMock.waitingTicket.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data).not.toHaveProperty("room");
+  });
+
+  it("sin ticket abierto devuelve null y no escribe", async () => {
+    prismaMock.waitingTicket.findUnique.mockResolvedValue({ id: "t1", closedAt: new Date(), calledAt: null, callCount: 0 });
+    expect(await callTicketForShift(db, { shiftId: "s1", room: null })).toBeNull();
+    prismaMock.waitingTicket.findUnique.mockResolvedValue(null);
+    expect(await callTicketForShift(db, { shiftId: "s1", room: null })).toBeNull();
+    expect(prismaMock.waitingTicket.update).not.toHaveBeenCalled();
   });
 });

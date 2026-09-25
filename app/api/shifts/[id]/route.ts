@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateShiftSchema } from "@/lib/validations";
 import { logAudit } from "@/lib/audit";
 import { canAssignTo, canSeeShift, getShiftActor, SHIFT_FORBIDDEN, SHIFT_NOT_FOUND, SHIFT_OWN_ONLY } from "@/lib/shift-access";
+import { closeTicketForShift, TICKET_CLOSE_BY_STATUS } from "@/lib/waiting-room/tickets";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -238,6 +239,16 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         : undefined,
       req,
     });
+
+    // Sala de espera: finalizar, marcar ausente o cancelar cierra el número de sala (si había).
+    if (data.status && data.status !== existing.status) {
+      const reason = TICKET_CLOSE_BY_STATUS[data.status];
+      if (reason) {
+        await closeTicketForShift(prisma, id, reason).catch((e) =>
+          console.error("[waiting-room] no se pudo cerrar el número:", e),
+        );
+      }
+    }
 
     return NextResponse.json({ success: true, data: shift });
   } catch (error) {

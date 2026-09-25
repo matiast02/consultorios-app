@@ -507,6 +507,13 @@ export interface DashboardShift {
     os?: { id: string; name: string; code?: string | null } | null;
   } | null;
   consultationType?: { id: string; name: string; color?: string | null } | null;
+  /** Sala de espera: llegada registrada y pase a consulta (ISO). */
+  arrivedAt?: string | null;
+  consultationStartedAt?: string | null;
+  /** Minutos en sala (llegó y todavía no pasó a consulta); null en otro caso. */
+  minutesWaiting?: number | null;
+  /** Número de sala del día (módulo waiting_room); null sin módulo o sin número. */
+  ticketNumber?: number | null;
 }
 
 export interface DashboardTodayStats {
@@ -565,11 +572,19 @@ export interface DashboardRecentPatient {
   lastShiftTime: string;
 }
 
+export interface MedicWaitingRoomInfo {
+  /** Módulo «Sala de espera y llamado» activo: el médico puede llamar desde «Turnos de hoy». */
+  enabled: boolean;
+  /** Consultorio habitual del médico (prellena el llamado). */
+  room: string | null;
+}
+
 export interface MedicDashboardData {
   today: DashboardTodayData;
   week: DashboardWeekData;
   pendientes: DashboardPendientes;
   recentPatients: DashboardRecentPatient[];
+  waitingRoom: MedicWaitingRoomInfo;
 }
 
 // ─── Secretary Dashboard ────────────────────────────────────────────────────
@@ -605,6 +620,8 @@ export interface WaitingRoomItemShift {
   medicShortName: string;
   medicColor?: string | null;
   consultationTypeName?: string | null;
+  /** Consultorio habitual del profesional (prellena el llamado). */
+  room?: string | null;
 }
 
 export interface WaitingRoomItem {
@@ -875,6 +892,23 @@ export interface SecretaryOnlineBookingsData {
   items: OnlineBookingStaffItem[]; // las más antiguas primero, máx. 5
 }
 
+/** Paciente en consulta (ya llamado), para la pestaña «En consulta» de recepción. */
+export interface CalledItem {
+  shiftId: string;
+  patient: { id: string | null; firstName: string; lastName: string };
+  medicId: string;
+  medicShortName: string;
+  medicColor?: string | null;
+  /** Consultorio del llamado (ticket) o el habitual del profesional. */
+  room: string | null;
+  /** Último llamado (ISO). */
+  calledAt: string;
+  minutesSinceCall: number;
+  ticketNumber: number | null;
+  /** Cantidad de llamados; 0 si no tiene número. */
+  callCount: number;
+}
+
 export interface SecretaryWaitingRoomInfo {
   /** Módulo «Sala de espera y llamado» (waiting_room) activo: hay números de sala. */
   enabled: boolean;
@@ -888,6 +922,8 @@ export interface SecretaryDashboardData {
   recordatorios: SecretaryRemindersData;
   huecosHoy: MedicSlotsGroup[];
   agenda: SecretaryAgendaData;
+  /** Pacientes en consulta (llamados) hoy, el último llamado primero. */
+  llamados: CalledItem[];
   waitingRoom: SecretaryWaitingRoomInfo;
   reservasOnline?: SecretaryOnlineBookingsData;
 }

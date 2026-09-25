@@ -1,31 +1,44 @@
 "use client";
 
+import { useState } from "react";
 import {
   CalendarPlus,
   Check,
   LogOut,
+  Megaphone,
   Pencil,
   Phone,
+  Stethoscope,
   User as UserIcon,
   UserPlus,
-  UserRoundCheck,
   Users,
   XCircle,
 } from "lucide-react";
-import type { WaitingRoomItem } from "@/types";
+import type { CalledItem, WaitingRoomItem } from "@/types";
 import { formatTicketNumber } from "@/lib/waiting-room/format";
+import { CalledList } from "./called-list";
 
 interface WaitingRoomCardProps {
   items: WaitingRoomItem[];
-  onMarkSeen: (shiftId: string) => void;
+  /** Pacientes ya llamados a consulta (pestaña «En consulta»). */
+  called: CalledItem[];
+  /** Módulo waiting_room activo: números de sala, «Llamar a consultorio» y «Volver a llamar». */
+  waitingRoomEnabled: boolean;
+  /** Pase a consulta (con el módulo activo, el orquestador abre el diálogo de consultorio). */
+  onMarkSeen: (item: WaitingRoomItem) => void;
   onMarkAbsent: (shiftId: string) => void;
+  /** Llamado telefónico (`tel:`). */
   onCall: (item: WaitingRoomItem) => void;
   onEdit: (item: WaitingRoomItem) => void;
   onAssignShift: (walkInId: string) => void;
   onWalkInLeft: (walkInId: string) => void;
   onViewPatient: (patientId: string) => void;
   onRegisterArrival: () => void;
+  onRecall: (item: CalledItem) => void;
+  onCalledAbsent: (shiftId: string) => void;
 }
+
+type Tab = "sala" | "consulta";
 
 function initials(firstName: string, lastName: string): string {
   return `${(lastName[0] ?? "").toUpperCase()}${(firstName[0] ?? "").toUpperCase()}`;
@@ -55,8 +68,48 @@ function avatarColor(seed: string): string {
   return palette[h % palette.length];
 }
 
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={
+        active
+          ? "inline-flex items-center gap-1.5 rounded-md bg-card px-2.5 py-1 text-[12.5px] font-semibold text-foreground shadow-sm"
+          : "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px] font-medium text-muted-foreground transition hover:text-foreground"
+      }
+    >
+      {icon}
+      {label}
+      <span
+        className={`grid min-w-[20px] place-items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none tabular-nums ${
+          active ? "bg-[#0d4f4d] text-white" : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
 export function WaitingRoomCard({
   items,
+  called,
+  waitingRoomEnabled,
   onMarkSeen,
   onMarkAbsent,
   onCall,
@@ -65,16 +118,35 @@ export function WaitingRoomCard({
   onWalkInLeft,
   onViewPatient,
   onRegisterArrival,
+  onRecall,
+  onCalledAbsent,
 }: WaitingRoomCardProps) {
+  const [tab, setTab] = useState<Tab>("sala");
+
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3.5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          Sala de espera
-          <span className="grid min-w-[22px] place-items-center rounded-full bg-[#0d4f4d] px-1.5 py-0.5 text-[10.5px] font-bold leading-none tabular-nums text-white">
-            {items.length}
-          </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            Sala de espera
+          </div>
+          <div role="tablist" className="inline-flex items-center gap-0.5 rounded-lg border bg-muted/50 p-0.5">
+            <TabButton
+              active={tab === "sala"}
+              onClick={() => setTab("sala")}
+              icon={<Users className="h-3.5 w-3.5" />}
+              label="En sala"
+              count={items.length}
+            />
+            <TabButton
+              active={tab === "consulta"}
+              onClick={() => setTab("consulta")}
+              icon={<Stethoscope className="h-3.5 w-3.5" />}
+              label="En consulta"
+              count={called.length}
+            />
+          </div>
         </div>
         <button
           type="button"
@@ -86,7 +158,14 @@ export function WaitingRoomCard({
         </button>
       </div>
 
-      {items.length === 0 ? (
+      {tab === "consulta" ? (
+        <CalledList
+          items={called}
+          waitingRoomEnabled={waitingRoomEnabled}
+          onRecall={onRecall}
+          onMarkAbsent={onCalledAbsent}
+        />
+      ) : items.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
             <Users className="h-5 w-5 text-muted-foreground/60" />
@@ -195,11 +274,20 @@ export function WaitingRoomCard({
                         <>
                           <button
                             type="button"
-                            onClick={() => onMarkSeen(it.id)}
+                            onClick={() => onMarkSeen(it)}
                             className="inline-flex items-center gap-1.5 rounded-md bg-[#0d4f4d] px-2.5 py-1 text-[12px] font-semibold text-white transition hover:bg-[#0a3f3d]"
                           >
-                            <Check className="h-3 w-3" />
-                            Pasó a consulta
+                            {waitingRoomEnabled ? (
+                              <>
+                                <Megaphone className="h-3 w-3" />
+                                Llamar a consultorio
+                              </>
+                            ) : (
+                              <>
+                                <Check className="h-3 w-3" />
+                                Pasó a consulta
+                              </>
+                            )}
                           </button>
                           <button
                             type="button"
@@ -207,7 +295,7 @@ export function WaitingRoomCard({
                             className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1 text-[12px] font-medium text-foreground/80 transition hover:bg-muted"
                           >
                             <Phone className="h-3 w-3" />
-                            Llamar
+                            {waitingRoomEnabled ? "Teléfono" : "Llamar"}
                           </button>
                           <button
                             type="button"
@@ -290,6 +378,3 @@ function formatTime(iso: string): string {
   else if (h > 12) h -= 12;
   return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
 }
-
-// Avoid TS warning about unused icon if branch never used
-void UserRoundCheck;

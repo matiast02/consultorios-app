@@ -1,6 +1,7 @@
 # Módulo «Sala de espera y llamado» (`waiting_room`)
 
-Diseño para el ítem D4 del roadmap. Estado: propuesta aprobada, sin implementar (24-sep-2026).
+Diseño para el ítem D4 del roadmap. Estado: fases 1 y 2 implementadas (25-sep-2026); falta la
+fase 3 (pantalla). Lo implementado difiere del diseño en los detalles anotados con «Implementado:».
 
 Cierra el circuito de recepción: hoy «Registrar llegada» pone al paciente en sala y
 «Llamar a consultorio» lo pasa a consulta (`Shift.consultationStartedAt`), pero nada
@@ -103,6 +104,9 @@ Walk-in con turno asignado ──► el ticket pasa al turno (mismo número)
   `lastCalledAt`, `callCount = 1` y `room` (cuerpo, o `User.defaultRoom`). Se abre al
   **médico dueño del turno** (hoy solo secretaria/admin) usando `getShiftActor` de
   `lib/shift-access.ts`, que exige tener integrada la rama `feature/seguridad-b11-b13`.
+  Implementado: sin número de sala (llegada sin módulo, o pase a consulta sin llegada) el
+  pase se registra igual y `ticket` es null: no se emite número en el llamado porque el
+  paciente nunca lo recibió y la pantalla no tendría a quién avisar.
 - **Volver a llamar**: nuevo `POST /api/shifts/{id}/recall` → `lastCalledAt = now`,
   `callCount++`, sin tocar el estado del turno. Misma política de acceso.
 - **Cierre**: helper `closeTicketForShift(shiftId, reason)` invocado donde el turno
@@ -143,8 +147,11 @@ Walk-in con turno asignado ──► el ticket pasa al turno (mismo número)
 - `register-arrival-dialog.tsx`: al registrar con éxito y módulo activo, un paso final
   con el número en grande y «Listo», en lugar de cerrar de inmediato.
 - `waiting-room-card.tsx`: badge con el número en cada fila; pestañas «En sala» /
-  «Llamados». En «Llamados»: hora del llamado, consultorio, `callCount`, acciones
-  «Volver a llamar» y «Marcar ausente».
+  «En consulta» (así se llama en las estadísticas). En «En consulta»: hora del llamado,
+  consultorio, `callCount`, acciones «Volver a llamar» y «No se presentó». Con el módulo
+  activo el botón «Pasó a consulta» se convierte en «Llamar a consultorio» (diálogo con
+  consultorio, `components/waiting-room/call-to-room-dialog.tsx`) y el teléfono pasa a
+  llamarse «Teléfono».
 - `next-to-call-card.tsx`: número en el encabezado; el botón de teléfono, hoy sin
   handler, pasa a abrir `tel:` o se quita.
 - Recepción: selector de consultorio en el llamado (prellenado con `defaultRoom`).
@@ -174,7 +181,8 @@ recepción sigue funcionando como hoy (solo marca el pase a consulta).
 | `app/api/public/waiting-room/feed/route.ts` | Feed público con clave de dispositivo. |
 | `app/api/admin/waiting-room-display-key/route.ts` | `POST` genera/rota (admin, audit `UPDATE clinic_settings`), `DELETE` revoca. |
 | `app/sala/page.tsx` + `components/waiting-room/display.tsx` | Pantalla. |
-| `components/dashboard/secretary/called-list.tsx` | Pestaña «Llamados». |
+| `components/dashboard/secretary/called-list.tsx` | Pestaña «En consulta» (llamados). |
+| `components/waiting-room/call-to-room-dialog.tsx` | Diálogo de llamado (recepción y médico): número, paciente, consultorio. |
 | Registro OpenAPI | `lib/openapi/paths/reception.ts` (recall, feed, display key) y ajustes en `shifts.ts` (arrival, start-consultation) y `dashboards.ts`; `pnpm api:docs`. `mobile: true` en recall y start-consultation. |
 | Tests | Emisión con y sin módulo, correlativo por día del consultorio, reintento en `P2002`, walk-in → turno conserva el número, médico llama solo turnos propios, feed 404 sin clave/módulo y payload sin nombres, cierre por ausente/finalizado. |
 

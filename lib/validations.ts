@@ -833,3 +833,18 @@ export const annulAttachmentSchema = z.object({
 
 export type UploadAttachmentFields = z.infer<typeof uploadAttachmentFieldsSchema>;
 export type AttachmentsQuery = z.infer<typeof attachmentsQuerySchema>;
+
+// ─── Sala de espera (módulo waiting_room) ────────────────────────────────────
+
+/** Llamado a consultorio (pase a consulta y «volver a llamar»). */
+export const callToRoomSchema = z.object({
+  room: z
+    .string()
+    .trim()
+    .max(40, "El consultorio admite hasta 40 caracteres")
+    .nullable()
+    .optional()
+    .describe("Consultorio al que se llama. Ausente: el habitual del profesional; vacío o null: sin consultorio."),
+});
+
+export type CallToRoomInput = z.infer<typeof callToRoomSchema>;

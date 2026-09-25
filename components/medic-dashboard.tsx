@@ -12,6 +12,8 @@ import { CreateShiftDialog } from "@/components/shifts/create-shift-dialog";
 import { PatientFormDialog } from "@/components/patients/patient-form-dialog";
 import { RescheduledBanner } from "@/components/dashboard/rescheduled-banner";
 import { ShiftQuickDialogLoader } from "@/components/dashboard/secretary/shift-quick-dialog-loader";
+import { CallToRoomDialog, type CallToRoomTarget } from "@/components/waiting-room/call-to-room-dialog";
+import { formatTicketNumber } from "@/lib/waiting-room/format";
 
 import { DashboardHeader } from "@/components/dashboard/medic/dashboard-header";
 import { NextShiftCard } from "@/components/dashboard/medic/next-shift-card";
@@ -75,6 +77,8 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
   const [detailShiftId, setDetailShiftId] = useState<string | null>(null);
   const [createShiftOpen, setCreateShiftOpen] = useState(false);
   const [createPatientOpen, setCreatePatientOpen] = useState(false);
+  // Llamado a consultorio (módulo waiting_room)
+  const [callTarget, setCallTarget] = useState<CallToRoomTarget | null>(null);
 
   // Schedule check
   useEffect(() => {
@@ -159,6 +163,55 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
     router.push(`/dashboard/calendario?shift=${s.id}`);
   };
 
+  // ─── Sala de espera: llamar desde «Turnos de hoy» ───
+  const patientName = (s: DashboardShift) =>
+    s.patient ? `${s.patient.lastName}, ${s.patient.firstName}` : "Paciente";
+
+  const handleCall = (s: DashboardShift) => {
+    setCallTarget({
+      shiftId: s.id,
+      patientName: patientName(s),
+      ticketNumber: s.ticketNumber ?? null,
+      room: data?.waitingRoom.room ?? null,
+    });
+  };
+
+  const handleConfirmCall = async (target: CallToRoomTarget, room: string | null) => {
+    try {
+      const res = await fetch(`/api/shifts/${target.shiftId}/start-consultation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(
+        target.ticketNumber != null
+          ? `Llamado N.º ${formatTicketNumber(target.ticketNumber)}${room ? ` → ${room}` : ""}`
+          : "Paciente pasó a consulta",
+      );
+      fetchDashboard();
+    } catch {
+      toast.error("No se pudo registrar el llamado");
+      throw new Error("call failed");
+    }
+  };
+
+  /** Repite el aviso en la pantalla con el mismo consultorio. */
+  const handleRecall = async (s: DashboardShift) => {
+    try {
+      const res = await fetch(`/api/shifts/${s.id}/recall`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`Se volvió a llamar a ${patientName(s)}`);
+      fetchDashboard();
+    } catch {
+      toast.error("No se pudo volver a llamar");
+    }
+  };
+
   if (checkingSchedule || loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -229,6 +282,17 @@ export function MedicDashboard({ userName }: MedicDashboardProps) {
           onViewPatient={goToPatient}
           onEditObs={handleEditObs}
           onSelectShift={(s) => setDetailShiftId(s.id)}
+          waitingRoomEnabled={data.waitingRoom.enabled}
+          onCall={handleCall}
+          onRecall={handleRecall}
+        />
+
+        <CallToRoomDialog
+          target={callTarget}
+          onOpenChange={(open) => {
+            if (!open) setCallTarget(null);
+          }}
+          onConfirm={handleConfirmCall}
         />
 
         <div className="space-y-4">

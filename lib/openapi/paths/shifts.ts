@@ -8,7 +8,7 @@
 // recepción (secretaria/admin).
 
 import { z } from "zod";
-import { createRecurringShiftsSchema, createShiftSchema, shiftsQuerySchema, updateShiftSchema } from "@/lib/validations";
+import { callToRoomSchema, createRecurringShiftsSchema, createShiftSchema, shiftsQuerySchema, updateShiftSchema } from "@/lib/validations";
 import { defineRoutes, errors, IdParam, ok, TAGS } from "../registry";
 import {
   RecurringShiftsCancelledSchema,
@@ -20,6 +20,7 @@ import {
   ShiftContextSchema,
   ShiftDetailSchema,
   ShiftInsuranceWarningSchema,
+  ShiftRecalledSchema,
   ShiftSchema,
 } from "../schemas/shifts";
 
@@ -187,16 +188,36 @@ export const shiftsRoutes = defineRoutes([
   {
     method: "post",
     path: "/api/shifts/{id}/start-consultation",
-    summary: "Pasar el paciente a consulta",
-    description:
-      "Recepción (secretaria o admin; el médico no puede llamarla). Setea `consultationStartedAt` = ahora y, si no había llegada registrada, también `arrivedAt`. No cambia `status`. Audita `UPDATE` (`consultationStarted: true`). Sin body.",
+    summary: "Pasar el paciente a consulta / llamarlo a consultorio",
+    description: [
+      "Recepción para cualquier turno; el médico solo para los propios (ajeno → 404). Setea `consultationStartedAt` = ahora y, si no había llegada registrada, también `arrivedAt`. No cambia `status`.",
+      "Módulo `waiting_room`: si el paciente tiene número de sala, sella el ticket (`calledAt`, `lastCalledAt`, `callCount`, `room`) y la pantalla lo muestra; `room` ausente usa el `defaultRoom` del profesional, vacío o null deja sin consultorio. Sin número, `ticket` es null y no se muestra nada.",
+      "Audita `UPDATE` (`consultationStarted: true`, más `ticket` y `room` si hubo llamado). Body opcional.",
+    ].join("\n"),
     tags: [TAGS.shifts],
-    auth: { kind: "session", roles: ["secretary", "admin"] },
+    auth: { kind: "session", roles: ["medic", "secretary", "admin"] },
     mobile: true,
-    request: { params: IdParam },
+    request: { params: IdParam, body: callToRoomSchema },
     responses: {
       200: { description: "Consulta iniciada.", schema: ok(ShiftConsultationStartedSchema) },
-      ...errors(401, 403, 404),
+      ...errors(400, 401, 403, 404, { 409: "El turno está cancelado." }),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/shifts/{id}/recall",
+    summary: "Volver a llamar al paciente",
+    description:
+      "Módulo `waiting_room` (apagado → 404). Repite el aviso en la pantalla sin cambiar el estado del turno: `lastCalledAt` = ahora y `callCount` + 1; `room` opcional (ausente conserva el anterior). Misma política que el pase a consulta (médico solo turnos propios). Audita `UPDATE` (`recall: true`).",
+    tags: [TAGS.shifts],
+    auth: { kind: "session", roles: ["medic", "secretary", "admin"] },
+    mobile: true,
+    request: { params: IdParam, body: callToRoomSchema },
+    responses: {
+      200: { description: "Llamado repetido.", schema: ok(ShiftRecalledSchema) },
+      ...errors(400, 401, 403, { 404: "Turno inexistente o ajeno, o módulo apagado." }, {
+        409: "El paciente no está en consulta (no fue llamado, o el turno ya terminó) o no tiene número de sala.",
+      }),
     },
   },
 
