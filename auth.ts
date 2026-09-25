@@ -26,6 +26,7 @@ import {
 } from "@/lib/login-protection";
 import { logAudit } from "@/lib/audit";
 import { pickRole } from "@/lib/roles";
+import { PASSWORD_MIN_LENGTH } from "@/lib/password-policy";
 
 const SIGN_IN_PATH = "/sign-in/email";
 const DISABLED_MESSAGE = "Tu cuenta esta deshabilitada. Contacta al administrador.";
@@ -72,7 +73,7 @@ export const auth = betterAuth({
     enabled: true,
     // El alta de usuarios la hace el admin desde /api/register, no el público.
     disableSignUp: true,
-    minPasswordLength: 8,
+    minPasswordLength: PASSWORD_MIN_LENGTH,
     password: {
       hash: hashPassword,
       verify: ({ password, hash }) => verifyPasswordHash(password, hash),

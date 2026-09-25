@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,7 +16,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Eye, EyeOff, Check, X } from "lucide-react";
+import { Loader2, Check, X } from "lucide-react";
+import { PasswordInput, PasswordStrength } from "@/components/admin/password-input";
+import { passwordConfirmError } from "@/lib/password-policy";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -39,70 +41,6 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
-
-// ─── Password Requirements ──────────────────────────────────────────────────
-
-function PasswordRequirements({ password }: { password: string }) {
-  const requirements = [
-    { label: "Minimo 8 caracteres", met: password.length >= 8 },
-    { label: "Al menos una mayuscula", met: /[A-Z]/.test(password) },
-    { label: "Al menos un numero", met: /[0-9]/.test(password) },
-  ];
-
-  return (
-    <div className="space-y-1 mt-1.5">
-      {requirements.map((req) => (
-        <div key={req.label} className="flex items-center gap-1.5 text-xs">
-          {req.met ? (
-            <Check className="h-3 w-3 text-green-500" />
-          ) : (
-            <X className="h-3 w-3 text-muted-foreground" />
-          )}
-          <span className={req.met ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
-            {req.label}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Password Input ─────────────────────────────────────────────────────────
-
-function PasswordInput({
-  id,
-  value,
-  onChange,
-  placeholder,
-}: {
-  id: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  placeholder?: string;
-}) {
-  const [show, setShow] = useState(false);
-
-  return (
-    <div className="relative">
-      <Input
-        id={id}
-        type={show ? "text" : "password"}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className="pr-10"
-      />
-      <button
-        type="button"
-        tabIndex={-1}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-        onClick={() => setShow(!show)}
-      >
-        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
-    </div>
-  );
-}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -190,20 +128,9 @@ export function SecretaryFormDialog({
           toast.error("El email es obligatorio");
           return;
         }
-        if (!data.password || data.password.length < 8) {
-          toast.error("La contrasena debe tener al menos 8 caracteres");
-          return;
-        }
-        if (!/[A-Z]/.test(data.password)) {
-          toast.error("La contrasena debe contener al menos una mayuscula");
-          return;
-        }
-        if (!/[0-9]/.test(data.password)) {
-          toast.error("La contrasena debe contener al menos un numero");
-          return;
-        }
-        if (data.password !== data.confirmPassword) {
-          toast.error("Las contrasenas no coinciden");
+        const pwError = passwordConfirmError(data.password ?? "", data.confirmPassword ?? "");
+        if (pwError) {
+          toast.error(pwError);
           return;
         }
 
@@ -306,7 +233,7 @@ export function SecretaryFormDialog({
                   value={password}
                   onChange={(e) => setValue("password", e.target.value)}
                 />
-                <PasswordRequirements password={password} />
+                <PasswordStrength password={password} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="sec-confirmPassword">Confirmar contrasena *</Label>

@@ -15,6 +15,8 @@ import {
   UserModuleAccessSchema,
 } from "../schemas/admin";
 import { WaitingRoomDisplayKeyCreatedSchema, WaitingRoomDisplayKeyStatusSchema } from "../schemas/waiting-room";
+import { passwordSchema } from "@/lib/validations";
+import { PASSWORD_POLICY_DESCRIPTION } from "@/lib/password-policy";
 
 const ModuleParam = z.object({ module: z.string().describe('Clave del módulo (p. ej. "prescriptions").') });
 
@@ -153,7 +155,7 @@ export const adminRoutes = defineRoutes([
     summary: "Crear un usuario (médico, secretaría o admin)",
     description: [
       "Solo el admin. Crea `User` + credencial (hash bcrypt en `Account`, providerId `credential`) + rol en una transacción; si `role` no viene, el usuario queda sin rol.",
-      "Rate limit 5 por minuto por IP (429). Audita `CREATE user` con nombre, email y rol.",
+      "Rate limit 5 por minuto por IP (429). Audita `CREATE user` con nombre, email y rol. Con `sendInvite` envía la invitación por email; si el envío falla el usuario igual queda creado e `invite.sent` es false.",
       "**Formato propio:** el 201 no lleva `success`, y 400/409/500 responden `{ error }` sin `success: false` (401/403/429 sí usan el error estándar).",
     ].join(" "),
     tags: [TAGS.admin],
@@ -162,13 +164,12 @@ export const adminRoutes = defineRoutes([
       body: z.object({
         name: z.string().min(2),
         email: z.string().email(),
-        password: z
-          .string()
-          .min(8)
-          .regex(/[A-Z]/)
-          .regex(/[0-9]/)
-          .describe("Mínimo 8 caracteres, al menos una mayúscula y un número."),
+        password: passwordSchema.describe(PASSWORD_POLICY_DESCRIPTION),
         role: z.enum(["medic", "secretary", "admin"]).optional().describe("Si viene, el usuario se crea ya con su rol."),
+        sendInvite: z
+          .boolean()
+          .optional()
+          .describe("Manda al email un link de un solo uso para definir la contraseña (vence en 72 h) con el proveedor de email configurado. La respuesta informa en `invite` si salió."),
       }),
     },
     responses: {

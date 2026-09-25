@@ -134,10 +134,19 @@ export const CreatedUserSchema = z
   .openapi({ ref: "CreatedUser" });
 
 /** Respuesta de POST /api/register (formato propio, sin envoltorio `success`). */
+export const RegisterInviteSchema = z
+  .object({
+    sent: z.boolean(),
+    provider: z.string().describe("`resend`, `smtp` o `console` (desarrollo)."),
+    error: z.string().optional().describe("Motivo si no se pudo enviar."),
+  })
+  .openapi({ ref: "RegisterInvite" });
+
 export const RegisterResponseSchema = z
   .object({
     message: z.string().openapi({ example: "Account created successfully" }),
     user: CreatedUserSchema,
+    invite: RegisterInviteSchema.nullable().describe("Solo con `sendInvite: true`; null si no se pidió."),
   })
   .openapi({ ref: "RegisterResponse" });
 

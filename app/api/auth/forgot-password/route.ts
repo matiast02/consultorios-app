@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateResetToken } from "@/lib/reset-token";
+import { sendPasswordResetEmail } from "@/lib/password-setup-email";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 import { forgotPasswordSchema } from "@/lib/validations";
@@ -47,27 +47,11 @@ export async function POST(req: NextRequest) {
       return successResponse;
     }
 
-    // Mark any previous unused tokens for this email as used
-    await prisma.resetToken.updateMany({
-      where: { email, used: false },
-      data: { used: true },
-    });
-
-    // Token aleatorio; en DB se guarda solo el hash.
-    const { token, hash } = generateResetToken();
-    await prisma.resetToken.create({
-      data: {
-        email,
-        token: hash,
-        expires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
-      },
-    });
-
-    // TODO: envío por email (aún no hay proveedor). Mientras tanto, la URL solo
-    // se muestra en desarrollo: en producción nunca va a los logs.
-    if (process.env.NODE_ENV !== "production") {
-      const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-      console.log(`[RESET PASSWORD] (solo dev) ${base}/reset-password?token=${token}`);
+    // Link de un solo uso (solo el hash en DB) por el proveedor de email
+    // configurado (Resend/SMTP; en desarrollo, la consola).
+    const sent = await sendPasswordResetEmail({ email: user.email, name: user.name });
+    if (!sent.ok) {
+      console.warn(`[forgot-password] email a ${email} no enviado (${sent.provider}): ${sent.error ?? "?"}`);
     }
 
     logAudit({

@@ -431,17 +431,7 @@
                     "minLength": 1
                   },
                   "newPassword": {
-                    "allOf": [
-                      {
-                        "type": "string",
-                        "pattern": "[A-Z]",
-                        "minLength": 8
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "[0-9]"
-                      }
-                    ]
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -617,17 +607,7 @@
                     "minLength": 1
                   },
                   "password": {
-                    "allOf": [
-                      {
-                        "type": "string",
-                        "pattern": "[A-Z]",
-                        "minLength": 8
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "[0-9]"
-                      }
-                    ]
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -14752,7 +14732,7 @@
       "post": {
         "operationId": "registerUser",
         "summary": "Crear un usuario (médico, secretaría o admin)",
-        "description": "Solo el admin. Crea `User` + credencial (hash bcrypt en `Account`, providerId `credential`) + rol en una transacción; si `role` no viene, el usuario queda sin rol. Rate limit 5 por minuto por IP (429). Audita `CREATE user` con nombre, email y rol. **Formato propio:** el 201 no lleva `success`, y 400/409/500 responden `{ error }` sin `success: false` (401/403/429 sí usan el error estándar).\n\n**Acceso:** sesión (admin).",
+        "description": "Solo el admin. Crea `User` + credencial (hash bcrypt en `Account`, providerId `credential`) + rol en una transacción; si `role` no viene, el usuario queda sin rol. Rate limit 5 por minuto por IP (429). Audita `CREATE user` con nombre, email y rol. Con `sendInvite` envía la invitación por email; si el envío falla el usuario igual queda creado e `invite.sent` es false. **Formato propio:** el 201 no lleva `success`, y 400/409/500 responden `{ error }` sin `success: false` (401/403/429 sí usan el error estándar).\n\n**Acceso:** sesión (admin).",
         "tags": [
           "Administración"
         ],
@@ -14785,17 +14765,7 @@
                     "format": "email"
                   },
                   "password": {
-                    "allOf": [
-                      {
-                        "type": "string",
-                        "pattern": "[A-Z]",
-                        "minLength": 8
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "[0-9]"
-                      }
-                    ],
+                    "type": "string",
                     "description": "Mínimo 8 caracteres, al menos una mayúscula y un número."
                   },
                   "role": {
@@ -14806,6 +14776,10 @@
                       "admin"
                     ],
                     "description": "Si viene, el usuario se crea ya con su rol."
+                  },
+                  "sendInvite": {
+                    "type": "boolean",
+                    "description": "Manda al email un link de un solo uso para definir la contraseña (vence en 72 h) con el proveedor de email configurado. La respuesta informa en `invite` si salió."
                   }
                 },
                 "required": [
@@ -25875,11 +25849,23 @@
           },
           "user": {
             "$ref": "#/components/schemas/CreatedUser"
+          },
+          "invite": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RegisterInvite"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Solo con `sendInvite: true`; null si no se pidió."
           }
         },
         "required": [
           "message",
-          "user"
+          "user",
+          "invite"
         ]
       },
       "CreatedUser": {
@@ -25906,6 +25892,26 @@
           "name",
           "email",
           "createdAt"
+        ]
+      },
+      "RegisterInvite": {
+        "type": "object",
+        "properties": {
+          "sent": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string",
+            "description": "`resend`, `smtp` o `console` (desarrollo)."
+          },
+          "error": {
+            "type": "string",
+            "description": "Motivo si no se pudo enviar."
+          }
+        },
+        "required": [
+          "sent",
+          "provider"
         ]
       },
       "RegisterError": {

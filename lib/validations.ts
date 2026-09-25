@@ -6,6 +6,15 @@ import {
   GRANT_SECTIONS,
   GRANT_STATUSES,
 } from "@/lib/clinical-grants-shared";
+import { PASSWORD_MISMATCH, passwordError } from "@/lib/password-policy";
+
+// ─── Contraseña ──────────────────────────────────────────────────────────────
+
+/** Regla única (lib/password-policy.ts): alta, reset por link, cambio y reset por admin. */
+export const passwordSchema = z.string().superRefine((pw, ctx) => {
+  const err = passwordError(pw);
+  if (err) ctx.addIssue({ code: z.ZodIssueCode.custom, message: err });
+});
 
 // ─── Patients ─────────────────────────────────────────────────────────────────
 
@@ -208,11 +217,7 @@ export const updateHealthInsuranceSchema = z.object({
 export const createUserSchema = z.object({
   name: z.string().min(2, "El nombre es obligatorio").max(100),
   email: z.string().email("Email inválido"),
-  password: z
-    .string()
-    .min(8, "La contraseña debe tener al menos 8 caracteres")
-    .regex(/[A-Z]/, "Debe contener al menos una mayúscula")
-    .regex(/[0-9]/, "Debe contener al menos un número"),
+  password: passwordSchema,
   firstName: z.string().max(100).nullable().optional(),
   lastName: z.string().max(100).nullable().optional(),
   specializationId: z.string().nullable().optional(),
@@ -296,19 +301,27 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, "Token requerido"),
-  password: z.string()
-    .min(8, "Minimo 8 caracteres")
-    .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
-    .regex(/[0-9]/, "Debe contener al menos un numero"),
+  password: passwordSchema,
 });
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Contrasena actual requerida"),
-  newPassword: z.string()
-    .min(8, "Minimo 8 caracteres")
-    .regex(/[A-Z]/, "Debe contener al menos una mayuscula")
-    .regex(/[0-9]/, "Debe contener al menos un numero"),
+  newPassword: passwordSchema,
 });
+
+/** Formulario de /reset-password (contraseña + confirmación). */
+export const resetPasswordFormSchema = z
+  .object({ password: passwordSchema, confirmPassword: z.string() })
+  .refine((d) => d.password === d.confirmPassword, { message: PASSWORD_MISMATCH, path: ["confirmPassword"] });
+
+/** Formulario de cambio de contraseña del perfil. */
+export const changePasswordFormSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Contraseña actual requerida"),
+    newPassword: passwordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, { message: PASSWORD_MISMATCH, path: ["confirmPassword"] });
 
 // ─── Prescriptions ───────────────────────────────────────────────────────────
 
